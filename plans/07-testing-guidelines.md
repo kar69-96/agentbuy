@@ -10,6 +10,27 @@
 
 ---
 
+## Test Directory Structure
+
+Tests live in a `tests/` folder within each package, **not** in `src/`. End-to-end tests live at the repo root.
+
+```
+packages/core/tests/        ← Phase 1 (fees, store) + Phase 5 (buy, confirm, router)
+packages/wallet/tests/      ← Phase 2 (create, balance, qr, transfer)
+packages/x402/tests/        ← Phase 3 (detect, pay)
+packages/checkout/tests/    ← Phase 4 (session, placeholders, discover, checkout, cache)
+packages/api/tests/         ← Phase 6 (routes, server, funding)
+tests/e2e/                  ← Phase 7 (full flow scenarios A–E)
+```
+
+Vitest discovers all tests via:
+- `packages/*/tests/**/*.test.ts`
+- `tests/**/*.test.ts`
+
+Test files import source via `../src/` relative paths (e.g., `import { calculateFee } from "../src/fees.js"`).
+
+---
+
 ## Test Websites (Browser Checkout)
 
 | Priority | Site | Why |
@@ -133,14 +154,14 @@ After every browser checkout test, verify:
 
 ## Phase Test Gate Summary
 
-| Phase | Package | Key Tests |
-|-------|---------|-----------|
-| 1 | core | Types compile, store CRUD, fee math |
-| 2 | wallet | Create, balance, QR, transfer |
-| 3 | x402 | Detect route, pay endpoint |
-| 4 | checkout | Session, placeholders, discovery, full checkout |
-| 5 | core | Buy + confirm orchestration, both routes |
-| 6 | api | Server starts, all curl endpoints work, funding page |
-| 7 | all | End-to-end scenarios A through E |
+| Phase | Test Directory | Test Files | Key Tests |
+|-------|---------------|------------|-----------|
+| 1 | `packages/core/tests/` | `fees.test.ts`, `store.test.ts` | Types compile, store CRUD, fee math |
+| 2 | `packages/wallet/tests/` | `create.test.ts`, `balance.test.ts`, `qr.test.ts`, `transfer.test.ts` | Create, balance, QR, transfer |
+| 3 | `packages/x402/tests/` | `detect.test.ts`, `pay.test.ts` | Detect route, pay endpoint |
+| 4 | `packages/checkout/tests/` | `session.test.ts`, `placeholders.test.ts`, `discover.test.ts`, `checkout.test.ts`, `cache.test.ts` | Session, placeholders, discovery, full checkout |
+| 5 | `packages/core/tests/` | `buy.test.ts`, `confirm.test.ts`, `router.test.ts` | Buy + confirm orchestration, both routes |
+| 6 | `packages/api/tests/` | `routes.test.ts`, `server.test.ts`, `funding.test.ts` | Server starts, all endpoints work, funding page |
+| 7 | `tests/e2e/` | `x402.test.ts`, `browser.test.ts`, `errors.test.ts` | End-to-end scenarios A through E |
 
 See `14-phased-build-plan.md` for detailed test gates per phase.
