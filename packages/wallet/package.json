@@ -8,6 +8,14 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@proxo/core": "workspace:*"
+    "@proxo/core": "workspace:*",
+    "qrcode": "^1.5.0",
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@types/pngjs": "^6.0.0",
+    "@types/qrcode": "^1.5.0",
+    "jsqr": "^1.4.0",
+    "pngjs": "^7.0.0"
   }
 }

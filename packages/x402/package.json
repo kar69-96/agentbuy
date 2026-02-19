@@ -8,6 +8,9 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@proxo/core": "workspace:*"
+    "@proxo/core": "workspace:*",
+    "@x402/fetch": "^2.3.0",
+    "@x402/evm": "^2.3.0",
+    "viem": "^2.0.0"
   }
 }
