@@ -14,14 +14,10 @@ REST API on localhost. Any URL → USDC purchase → receipt.
 - JSON file storage (~/.proxo/)
 - $25 per-transaction cap
 - Closed source
-
-**Ship when:** curl can complete an end-to-end purchase on both routes.
-
 ---
 
 ## v1.5 — Intelligence & Security
 
-- **Exa.ai product search** — agents can search by description, not just URL
 - **API key auth** — optional Bearer token for wallets (backwards-compatible)
 - **Wallet key encryption** — encrypt private keys at rest in ~/.proxo/
 - **Rate limiting** — per wallet_id, configurable
@@ -34,6 +30,7 @@ REST API on localhost. Any URL → USDC purchase → receipt.
 
 ## v2.0 — Platform
 
+- **Exa.ai product search** — agents can search by description, not just URL
 - **MCP wrapper** — expose the REST API as an MCP server so agents in Claude Desktop / Cursor can use Proxo natively
 - **Multi-network** — support Ethereum mainnet, Arbitrum, Optimism, Polygon
 - **Multi-currency** — accept ETH, DAI, USDT in addition to USDC

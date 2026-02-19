@@ -129,22 +129,55 @@ curl -X POST http://localhost:3000/api/buy \
 | `wallet_id` | string | yes | Wallet to charge |
 | `shipping` | object | no | Shipping address. Falls back to .env defaults. Returns SHIPPING_REQUIRED if needed and missing. |
 
-**200 OK (browser route):**
+**200 OK (browser route — scrape discovery):**
 ```json
 {
   "order_id": "proxo_ord_9x2k4m",
   "product": {
     "name": "Anker 5-in-1 USB-C Hub",
     "url": "https://amazon.com/dp/B08EXAMPLE",
-    "price": "17.99",
     "source": "amazon.com"
   },
   "payment": {
-    "amount_usdc": "18.89",
-    "price": "17.99",
-    "fee": "0.90",
+    "item_price": "17.99",
+    "tax": "1.49",
+    "shipping_cost": "0.00",
+    "subtotal": "19.48",
+    "fee": "0.97",
     "fee_rate": "5%",
+    "total": "20.45",
     "route": "browserbase",
+    "discovery_method": "scrape",
+    "wallet_id": "proxo_w_7k2m9x",
+    "wallet_balance": "41.11"
+  },
+  "status": "awaiting_confirmation",
+  "expires_in": 300
+}
+```
+
+**200 OK (browser route — full cart discovery):**
+
+Returned when scrape can't determine shipping cost. Browserbase session adds item to cart, fills shipping info, and extracts the full breakdown from the order review page.
+
+```json
+{
+  "order_id": "proxo_ord_8k4n2p",
+  "product": {
+    "name": "Sony WH-1000XM5 Headphones",
+    "url": "https://target.com/p/sony-headphones/...",
+    "source": "target.com"
+  },
+  "payment": {
+    "item_price": "22.99",
+    "tax": "1.90",
+    "shipping_cost": "0.00",
+    "subtotal": "24.89",
+    "fee": "1.24",
+    "fee_rate": "5%",
+    "total": "26.13",
+    "route": "browserbase",
+    "discovery_method": "browserbase_cart",
     "wallet_id": "proxo_w_7k2m9x",
     "wallet_balance": "41.11"
   },
@@ -160,15 +193,18 @@ curl -X POST http://localhost:3000/api/buy \
   "product": {
     "name": "Weather Forecast API",
     "url": "https://api.weather402.com/forecast",
-    "price": "0.10",
     "source": "api.weather402.com"
   },
   "payment": {
-    "amount_usdc": "0.1005",
-    "price": "0.10",
+    "item_price": "0.10",
+    "tax": "0.00",
+    "shipping_cost": "0.00",
+    "subtotal": "0.10",
     "fee": "0.0005",
     "fee_rate": "0.5%",
-    "route": "x402"
+    "total": "0.1005",
+    "route": "x402",
+    "discovery_method": "x402"
   },
   "status": "awaiting_confirmation",
   "expires_in": 300
@@ -177,6 +213,17 @@ curl -X POST http://localhost:3000/api/buy \
 
 **400:** `SHIPPING_REQUIRED`, `INSUFFICIENT_BALANCE`, `PRICE_EXCEEDS_LIMIT`, `URL_UNREACHABLE`
 **404:** `WALLET_NOT_FOUND`
+**502:** `PRICE_EXTRACTION_FAILED`
+
+### Price Discovery Flow
+
+The quote always returns the **full price** the agent will pay (item + tax + shipping + fee):
+
+1. **x402 route** — Price resolved from the 402 response body. No tax or shipping.
+2. **Browser route, Tier 1 (scrape)** — HTTP fetch + structured data parsing. Fast (~1-2s). If shipping cost can't be determined, falls through to Tier 2.
+3. **Browser route, Tier 2 (full cart)** — Browserbase session adds to cart, fills shipping, extracts exact total from order review page. Slow (~15-30s) but accurate.
+
+The `discovery_method` field indicates which tier was used: `"purl"`, `"scrape"`, or `"browserbase_cart"`.
 
 ---
 
@@ -276,3 +323,4 @@ All errors:
 | `TRANSFER_FAILED` | 500 | USDC transfer failed (retry safe) |
 | `X402_PAYMENT_FAILED` | 502 | x402 service rejected |
 | `CHECKOUT_FAILED` | 502 | Browser checkout failed |
+| `PRICE_MISMATCH` | 409 | Cart total at checkout differs from quote |

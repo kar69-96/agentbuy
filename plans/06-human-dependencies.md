@@ -10,7 +10,7 @@ Things the human operator needs to set up or provide before/during the build.
 |-----------|--------|-------|
 | Node.js 20+ | Required | Runtime |
 | pnpm 9+ | Required | `npm install -g pnpm` |
-| Anthropic API key | Required | For Claude Sonnet 4 (browser-use LLM) |
+| Anthropic API key | Required | For Claude Sonnet 4 (Stagehand LLM) |
 | Browserbase account | Required | API key + project ID for cloud browser sessions |
 | Base Sepolia RPC URL | Required | Alchemy or Infura. Free tier works. |
 | Credit card for testing | Required | Real or test card info in .env |

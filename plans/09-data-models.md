@@ -124,7 +124,7 @@ interface BillingInfo {
 }
 ```
 
-## Credentials Map (for browser-use)
+## Credentials Map (for Stagehand variables + CDP fills)
 
 ```typescript
 interface CredentialsMap {

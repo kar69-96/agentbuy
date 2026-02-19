@@ -39,7 +39,7 @@ MCP wrapper planned for v2 — thin layer that calls the REST API.
 ┌────▼───┐   ┌─────▼────┐   ┌────▼────────────────┐
 │ wallet │   │   x402   │   │    checkout          │
 │        │   │          │   │                      │
-│ viem   │   │ @x402/   │   │ browser-use (Son 4)  │
+│ viem   │   │ @x402/   │   │ Stagehand (Son 4)    │
 │ QR     │   │ fetch    │   │ Browserbase          │
 │ balance│   │          │   │ Placeholders + Cache │
 └────────┘   └──────────┘   └──────────────────────┘
@@ -75,7 +75,7 @@ proxo/
 │   │
 │   ├── checkout/src/
 │   │   ├── session.ts      # Browserbase session + domain cache inject
-│   │   ├── executor.ts     # browser-use agent (Claude Sonnet 4)
+│   │   ├── stagehand.ts     # Stagehand init + act/observe/extract
 │   │   ├── placeholders.ts # Credential mapping (.env → x_* keys)
 │   │   ├── discover.ts     # Navigate URL, extract product + price
 │   │   ├── complete.ts     # Fill forms, submit, extract confirmation
@@ -107,10 +107,10 @@ proxo/
 | HTTP Server | hono 4.x | REST API |
 | Blockchain | viem 2.x | Wallets, USDC transfers, balances |
 | x402 | @x402/fetch | Pay x402 services |
-| Browser Automation | browser-use | LLM-powered checkout (Sonnet 4) |
-| Cloud Browser | Browserbase SDK | Remote sessions |
+| Browser Automation | @browserbasehq/stagehand | LLM-powered checkout (Sonnet 4) |
+| Cloud Browser | Browserbase | Remote sessions |
 | QR Code | qrcode | PNG generation |
-| LLM | @anthropic-ai/sdk | Sonnet 4 for browser-use |
+| LLM | @anthropic-ai/sdk | Sonnet 4 for Stagehand |
 
 ## Key Design Decisions
 
@@ -143,9 +143,9 @@ Each wallet gets a unique funding URL:
 - Omitted, no defaults, browser route → return `SHIPPING_REQUIRED`
 - x402 route → shipping never required
 
-### 5. browser-use with Claude Sonnet 4
+### 5. Stagehand with Claude Sonnet 4
 
-From AgentPay. LLM-powered Playwright automation. Credential placeholder system — LLM never sees real card numbers. Handles arbitrary websites.
+From AgentPay. Browserbase's AI browser automation SDK — provides `act()`, `observe()`, `extract()` primitives. Card fields filled via separate Playwright CDP connection (never through Stagehand's LLM). Handles arbitrary websites.
 
 ### 6. Fresh Browserbase Sessions + Domain Caching
 
@@ -162,6 +162,40 @@ Lightweight (14KB), TypeScript-native, runs on Node/Cloudflare/Vercel/Deno. Easy
 
 Not open source. Deployed and operated by you.
 
+### 9. Price Discovery — Tiered Approach
+
+`POST /api/buy` must return the **full price** the agent will pay (item + tax + shipping + Proxo fee). How that price is discovered depends on the route:
+
+**x402 route:**
+- Fetch the URL → receive 402 response → parse the JSON body for payment requirements
+- The 402 body contains `accepts[]` with `maxAmountRequired` (price in token base units), `payTo`, `asset`, `network`, `scheme`
+- USDC has 6 decimals, so `10000` = $0.01
+- No tax, no shipping — digital services only
+- Add 0.5% Proxo fee → return quote
+- Reference: this is the same flow that purl (purl.dev) and `@x402/fetch` use under the hood
+
+**Browser route — Tier 1: HTML Scrape (fast, free)**
+- Server-side HTTP fetch of the product URL
+- Parse structured data: JSON-LD (`@type: Product`), Open Graph meta tags, `<meta property="product:price:amount">`
+- Extract item price + product name
+- Estimate tax from shipping address zip code
+- If shipping cost **can** be determined (e.g., "free shipping" in page data) → calculate subtotal + fee → return quote
+- If shipping cost **cannot** be determined → fall through to Tier 2
+
+**Browser route — Tier 2: Browserbase Full Cart (slow, accurate)**
+- Launch a Browserbase session
+- Navigate to product URL → add to cart → proceed to checkout
+- Fill shipping address (from request or .env defaults)
+- Reach the order review / payment page — extract the full breakdown: item price, tax, shipping cost, order total
+- Do NOT submit the order. Close session.
+- Add 5% Proxo fee to the extracted total → return quote
+
+The `discovery_method` field in the response tells the agent (and us) which tier was used: `"x402"`, `"scrape"`, or `"browserbase_cart"`.
+
+At confirm time, the browser route runs a **fresh** Browserbase session to do the actual checkout. If the final cart total at checkout time differs from the quoted total by more than $1 or 5% (whichever is smaller), the checkout aborts with `PRICE_MISMATCH` before payment — no funds at risk.
+
+**Gas costs:** ETH gas for on-chain USDC transfers is covered by Proxo's fee margin. The agent only needs USDC in their wallet, not ETH. Proxo's master wallet holds ETH for gas and uses the fee revenue to replenish it.
+
 ## Payment Flow
 
 ```
@@ -177,7 +211,7 @@ POST /api/confirm { order_id }
   │
   ├─ IF browserbase:
   │   ├─ Fresh Browserbase session (inject domain cache)
-  │   ├─ browser-use: navigate → cart → checkout → fill → submit
+  │   ├─ Stagehand: act(navigate) → act(add to cart) → act(fill) → CDP fill cards → act(submit)
   │   ├─ Extract confirmation number
   │   ├─ Update domain cache
   │   └─ Return receipt with order number
@@ -197,12 +231,14 @@ POST /api/confirm { order_id }
 LLM never sees real card data:
 
 ```
-LLM sees:               browser-use injects into DOM:
-x_card_number      →    4111111111111111
-x_card_expiry      →    12/25
-x_card_cvv         →    123
-x_cardholder_name  →    John Doe
-x_shipping_street  →    123 Main St
+Card fields (Playwright CDP fill — bypasses LLM entirely):
+  card_number      →    page.fill(selector, "4111111111111111")
+  card_expiry      →    page.fill(selector, "12/25")
+  card_cvv         →    page.fill(selector, "123")
+
+Non-card fields (Stagehand variables — %var% not shared with LLM):
+  stagehand.act("fill name with %name%", { variables: { name: "John Doe" } })
+  stagehand.act("fill address with %street%", { variables: { street: "123 Main St" } })
 ```
 
 ## Test Websites

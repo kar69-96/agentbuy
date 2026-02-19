@@ -33,6 +33,11 @@ Features explicitly deferred from v1 to keep scope tight.
 - Configurable in `~/.proxo/config.json`
 - Prevents runaway spending even if wallet_id leaks
 
+### Confirm Idempotency
+- `POST /api/confirm` should be idempotent — calling it twice with the same `order_id` returns the existing receipt instead of double-executing
+- Prevents race conditions where two confirm calls hit the server simultaneously
+- v1 has no guard beyond order status check; v1.5 adds proper idempotency keys or mutex
+
 ### Webhook Notifications
 - `POST /api/wallets` accepts optional `webhook_url`
 - Proxo POSTs to the URL on: order confirmed, order completed, order failed

@@ -25,7 +25,7 @@ REST API that lets AI agents purchase anything on the internet using USDC on Bas
 ### Payment Routes
 
 - **x402 route** — Auto-detect via HEAD request. If 402 → pay with `@x402/fetch` from Proxo's master wallet. **0.5% fee.**
-- **Browser route** — Everything else. Checkout via `browser-use` + Browserbase with credential placeholders. **5% fee.**
+- **Browser route** — Everything else. Checkout via Stagehand + Browserbase with Playwright CDP credential fills. **5% fee.**
 
 ### Wallet Management
 
@@ -52,7 +52,7 @@ REST API that lets AI agents purchase anything on the internet using USDC on Bas
 ### Browser Checkout
 
 - Browserbase cloud sessions (fresh per checkout)
-- `browser-use` with Claude Sonnet 4 for LLM-powered navigation
+- Stagehand (by Browserbase) with Claude Sonnet 4 for LLM-powered navigation
 - Credential placeholder system — agent/LLM never sees real card numbers
 - Domain-level page caching for repeat purchases (cookies, localStorage)
 - Supports arbitrary websites

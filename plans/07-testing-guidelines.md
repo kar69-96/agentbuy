@@ -143,4 +143,4 @@ After every browser checkout test, verify:
 | 6 | api | Server starts, all curl endpoints work, funding page |
 | 7 | all | End-to-end scenarios A through E |
 
-See `13-phased-build-plan.md` for detailed test gates per phase.
+See `14-phased-build-plan.md` for detailed test gates per phase.

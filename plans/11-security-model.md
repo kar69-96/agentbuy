@@ -16,11 +16,11 @@ No API keys. No registration. No auth headers.
 
 | Threat | Risk | Mitigation |
 |--------|------|-----------|
-| LLM sees card numbers | HIGH | Placeholder system — LLM sees `x_card_number`, browser-use injects real value into DOM |
+| LLM sees card numbers | HIGH | Card fields filled via Playwright CDP (bypasses LLM entirely). Non-card fields use Stagehand `%var%` variables (not shared with LLM). |
 | wallet_id leaked | MEDIUM | IDs are cryptographically random. $25 cap. Testnet. v2 adds API key auth. |
 | funding_url leaked | LOW | Only lets someone send you money. Cannot spend. |
 | Wallet private key leak | MEDIUM | Keys in `~/.proxo/` with 600 permissions. Single-user, local only. v1.5 adds encryption. |
-| Prompt injection | MEDIUM | Agents call structured REST endpoints. browser-use gets deterministic task templates. Shipping info sanitized. |
+| Prompt injection | MEDIUM | Agents call structured REST endpoints. Stagehand receives step-by-step act() calls, not raw agent input. Shipping info sanitized. |
 | Double-spend / replay | LOW | Unique order IDs. On-chain verification. Order marked completed after fulfillment. |
 | Failed purchase, funds lost | MEDIUM | tx_hash preserved on failure. Manual refund for v1. |
 | Runaway spending | LOW | $25 cap. Two-phase (buy then confirm). |
@@ -38,7 +38,8 @@ No API keys. No registration. No auth headers.
   │     ▼
   │   checkout/placeholders.ts → { x_card_number: "4111...", ... }
   │     │
-  │     ▼  browser-use sensitive_data (injected into DOM, never in LLM context)
+  │     ▼  Card fields: Playwright CDP fill (bypasses LLM)
+  │     ▼  Non-card fields: Stagehand variables (not shared with LLM)
   │
   ├─ PROXO_MASTER_PRIVATE_KEY → signs x402 payments, server-side only
   │

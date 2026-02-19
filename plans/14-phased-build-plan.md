@@ -74,7 +74,7 @@ x402/detect.ts, x402/pay.ts
 
 ## Phase 4: Browser Checkout (1.5 hrs)
 
-Browserbase + browser-use + placeholders + domain cache. Largest phase.
+Browserbase + Stagehand + Playwright CDP credential fills + domain cache. Largest phase.
 
 ### Deliverables
 
@@ -233,7 +233,7 @@ Full flows. Both routes. Real websites. Testnet USDC.
 | 1 | Foundation (types, store, fees) | 30 min | 0:30 |
 | 2 | Wallets (generate, balance, QR, transfer) | 30 min | 1:00 |
 | 3 | x402 (detect, pay) | 45 min | 1:45 |
-| 4 | Browser Checkout (browserbase, browser-use) | 1.5 hrs | 3:15 |
+| 4 | Browser Checkout (Browserbase, Stagehand) | 1.5 hrs | 3:15 |
 | 5 | Buy & Confirm (orchestration, routing) | 1 hr | 4:15 |
 | 6 | API Server + Funding Page (Hono, HTML) | 45 min | 5:00 |
 | 7 | E2E Testing | 1 hr | 6:00 |
