@@ -42,7 +42,7 @@
 
 | File | Purpose |
 |------|---------|
-| `vitest.config.ts` | Test discovery via `packages/*/tests/**/*.test.ts` |
+| `vitest.config.ts` | Test discovery via `packages/*/tests/**/*.test.ts` + `tests/**/*.test.ts` |
 | `packages/core/tests/fees.test.ts` | 10 tests — fee calculation, rounding, limits |
 | `packages/core/tests/store.test.ts` | 12 tests — wallet CRUD, order CRUD, disk persistence |
 
@@ -106,6 +106,21 @@
 3. **Test isolation** — `PROXO_DATA_DIR` env var overrides the default `~/.proxo/` directory. Tests use `os.tmpdir()` temp directories, cleaned up after each test.
 
 4. **ESM throughout** — All packages use `"type": "module"`, imports use `.js` extensions.
+
+5. **Test directory convention** — Tests live in `packages/*/tests/`, not in `src/`. E2E tests live in `tests/e2e/` at the repo root. See `07-testing-guidelines.md` for the full mapping.
+
+---
+
+## Test Directory Map (all phases)
+
+```
+packages/core/tests/        ← Phase 1 (fees, store) + Phase 5 (buy, confirm, router)
+packages/wallet/tests/      ← Phase 2 (create, balance, qr, transfer)
+packages/x402/tests/        ← Phase 3 (detect, pay)
+packages/checkout/tests/    ← Phase 4 (session, placeholders, discover, checkout, cache)
+packages/api/tests/         ← Phase 6 (routes, server, funding)
+tests/e2e/                  ← Phase 7 (full flow scenarios A–E)
+```
 
 ---
 
