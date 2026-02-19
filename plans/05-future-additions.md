@@ -53,10 +53,17 @@ Features explicitly deferred from v1 to keep scope tight.
 - Same 4 operations: create_wallet, check_balance, buy, confirm
 - REST API remains the source of truth
 
-### Dashboard UI
-- Web interface for wallet management, order history, spending analytics
-- React frontend served from the same Hono server
-- Read-only for v2, write operations in v2.5
+### Spending Dashboard & Frontend
+- Full React (or Next.js) frontend for operators and agents
+- **Wallet overview** — balances, funding status, active sessions at a glance
+- **Transaction history** — filterable/sortable table of all purchases with receipt details
+- **Spending analytics** — charts for spend over time, spend by merchant/domain, fee breakdown (x402 vs browser), category tags
+- **Budget controls** — set daily/weekly/monthly spend limits per wallet, alerts when thresholds are hit
+- **Live activity feed** — real-time status of in-progress checkouts (quote → confirm → receipt)
+- **Receipt viewer** — detailed receipt view with line items, screenshots from Browserbase sessions
+- Served from the same Hono server (static build) or deployed separately
+- Read-only for v2, write operations (create wallets, set limits, trigger refunds) in v2.5
+- Auth via operator API key (reuses v1.5 auth system)
 
 ### Multi-Network Support
 - Support Ethereum mainnet, Arbitrum, Optimism, Polygon
