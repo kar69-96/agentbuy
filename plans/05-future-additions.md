@@ -1,0 +1,103 @@
+# Future Additions — Proxo
+
+Features explicitly deferred from v1 to keep scope tight.
+
+---
+
+## v1.5 Candidates
+
+### Exa.ai Product Search
+- Agents describe what they want ("wireless mouse under $20") instead of providing a URL
+- Exa.ai returns product URLs → Proxo handles the purchase
+- New endpoint: `POST /api/search` with `query` and `wallet_id`
+- Requires `EXA_API_KEY` in .env
+
+### API Key Authentication
+- Optional `Authorization: Bearer <key>` header on all endpoints
+- Generated per wallet at creation time
+- Backwards-compatible — wallet_id-only access still works unless operator enables key requirement
+- Needed before any public deployment
+
+### Wallet Key Encryption
+- Encrypt private keys in `~/.proxo/wallets.json` at rest
+- Decrypt on demand using a master passphrase or env var
+- Currently keys are plaintext with filesystem permissions only
+
+### Human-in-the-Loop Approval
+- Optional flag on wallet creation: `require_approval: true`
+- When enabled, `POST /api/buy` returns a quote and holds until the human approves via the funding page or a webhook callback
+- v1 is fully autonomous — the agent decides whether to confirm, no human approval step
+
+### Rate Limiting
+- Per wallet_id rate limits on buy/confirm
+- Configurable in `~/.proxo/config.json`
+- Prevents runaway spending even if wallet_id leaks
+
+### Webhook Notifications
+- `POST /api/wallets` accepts optional `webhook_url`
+- Proxo POSTs to the URL on: order confirmed, order completed, order failed
+- Enables async workflows — agent doesn't need to poll
+
+---
+
+## v2.0 Candidates
+
+### MCP Wrapper
+- Thin MCP server that calls the REST API internally
+- Exposes Proxo tools natively in Claude Desktop, Cursor, etc.
+- Same 4 operations: create_wallet, check_balance, buy, confirm
+- REST API remains the source of truth
+
+### Dashboard UI
+- Web interface for wallet management, order history, spending analytics
+- React frontend served from the same Hono server
+- Read-only for v2, write operations in v2.5
+
+### Multi-Network Support
+- Support Ethereum mainnet, Arbitrum, Optimism, Polygon
+- Network selection per wallet or per transaction
+- Automatic bridge detection for cross-chain transfers
+
+### Multi-Currency
+- Accept ETH, DAI, USDT alongside USDC
+- Automatic conversion to USDC for payment (via DEX)
+- Price quotes in multiple currencies
+
+### PostgreSQL Storage
+- Replace JSON files with PostgreSQL
+- Enables multi-tenant, concurrent access, proper indexing
+- Migration script from JSON → Postgres
+
+### Cloud Deployment
+- Hosted version with HTTPS and custom domains
+- Docker container + docker-compose
+- Environment-based config (no .env file in production)
+
+---
+
+## v3.0 Candidates
+
+### Multi-Tenant
+- Multiple operators, each with isolated wallets and billing
+- Operator-level API keys and permissions
+- Usage-based billing for the platform itself
+
+### Agent SDKs
+- TypeScript and Python SDKs wrapping the REST API
+- Type-safe, with built-in retry logic and error handling
+- Published to npm and PyPI
+
+### Subscription Purchases
+- Recurring payment schedules
+- Auto-renewal with balance checks
+- Cancellation and refund flows
+
+### Price Comparison
+- Query multiple merchants for the same product
+- Return ranked results by price, shipping time, availability
+- Requires Exa.ai or similar product search
+
+### Bulk Purchasing
+- Batch multiple orders in a single API call
+- Optimized Browserbase session reuse
+- Volume-based fee discounts
