@@ -42,6 +42,21 @@ importers:
         specifier: ^16.4.0
         version: 16.6.1
 
+  packages/orchestrator:
+    dependencies:
+      '@proxo/checkout':
+        specifier: workspace:*
+        version: link:../checkout
+      '@proxo/core':
+        specifier: workspace:*
+        version: link:../core
+      '@proxo/wallet':
+        specifier: workspace:*
+        version: link:../wallet
+      '@proxo/x402':
+        specifier: workspace:*
+        version: link:../x402
+
   packages/wallet:
     dependencies:
       '@proxo/core':
