@@ -7,6 +7,7 @@ import type { Order } from "@proxo/core";
 // ---- Mock external packages ----
 
 vi.mock("@proxo/wallet", () => ({
+  getBalance: vi.fn(),
   transferUSDC: vi.fn(),
 }));
 
@@ -18,11 +19,12 @@ vi.mock("@proxo/checkout", () => ({
   runCheckout: vi.fn(),
 }));
 
-import { transferUSDC } from "@proxo/wallet";
+import { getBalance, transferUSDC } from "@proxo/wallet";
 import { payX402 } from "@proxo/x402";
 import { runCheckout } from "@proxo/checkout";
 import { confirm } from "../src/confirm.js";
 
+const mockedGetBalance = vi.mocked(getBalance);
 const mockedTransferUSDC = vi.mocked(transferUSDC);
 const mockedPayX402 = vi.mocked(payX402);
 const mockedRunCheckout = vi.mocked(runCheckout);
@@ -114,6 +116,8 @@ beforeEach(() => {
   setupWallet();
   setupConfig();
   vi.clearAllMocks();
+  // Default: wallet has enough balance
+  mockedGetBalance.mockResolvedValue("50.00");
 });
 
 afterEach(() => {
@@ -281,5 +285,82 @@ describe("confirm", () => {
     expect(failedOrder.error.tx_hash).toBe("0xsent_but_failed");
     expect(failedOrder.error.refund_status).toBe("pending_manual");
     expect(failedOrder.error.code).toBe("CHECKOUT_FAILED");
+  });
+
+  it("confirm where transferUSDC fails does not set tx_hash or refund_status", async () => {
+    const order = makeOrder();
+    seedOrder(order);
+
+    mockedTransferUSDC.mockRejectedValue(new Error("Nonce too low"));
+
+    await expect(
+      confirm({ order_id: "proxo_ord_test01" }),
+    ).rejects.toThrow(expect.objectContaining({ code: "CHECKOUT_FAILED" }));
+
+    // Verify order failed but no tx_hash (no USDC was sent)
+    const stored = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "orders.json"), "utf-8"),
+    );
+    const failedOrder = stored.orders[0];
+    expect(failedOrder.status).toBe("failed");
+    expect(failedOrder.error.tx_hash).toBeUndefined();
+    expect(failedOrder.error.refund_status).toBeUndefined();
+  });
+
+  it("confirm x402 where payX402 fails after fee transfer preserves tx_hash", async () => {
+    const order = makeOrder({
+      payment: {
+        amount_usdc: "1.005",
+        price: "1.00",
+        fee: "0.005",
+        fee_rate: "0.5%",
+        route: "x402",
+      },
+      product: {
+        name: "Failing Service",
+        url: "https://x402.example.com/fail",
+        price: "1.00",
+        source: "x402",
+      },
+      shipping: undefined,
+    });
+    seedOrder(order);
+
+    mockedTransferUSDC.mockResolvedValue({
+      tx_hash: "0xfee_sent_ok",
+      from: WALLET_ADDRESS,
+      to: MASTER_ADDRESS,
+      amount: "0.005",
+    });
+
+    mockedPayX402.mockRejectedValue(new Error("x402 service unavailable"));
+
+    await expect(
+      confirm({ order_id: "proxo_ord_test01" }),
+    ).rejects.toThrow(expect.objectContaining({ code: "X402_PAYMENT_FAILED" }));
+
+    const stored = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "orders.json"), "utf-8"),
+    );
+    const failedOrder = stored.orders[0];
+    expect(failedOrder.status).toBe("failed");
+    expect(failedOrder.error.tx_hash).toBe("0xfee_sent_ok");
+    expect(failedOrder.error.refund_status).toBe("pending_manual");
+  });
+
+  it("confirm with insufficient balance at confirm time throws INSUFFICIENT_BALANCE", async () => {
+    const order = makeOrder();
+    seedOrder(order);
+
+    mockedGetBalance.mockResolvedValue("0.50"); // less than 10.50 needed
+
+    await expect(
+      confirm({ order_id: "proxo_ord_test01" }),
+    ).rejects.toThrow(
+      expect.objectContaining({ code: "INSUFFICIENT_BALANCE" }),
+    );
+
+    // No transfer should have been attempted
+    expect(mockedTransferUSDC).not.toHaveBeenCalled();
   });
 });
