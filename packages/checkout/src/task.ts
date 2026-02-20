@@ -13,7 +13,7 @@ import {
   extractDomainCache,
   injectDomainCache,
 } from "./cache.js";
-import { createSession, destroySession } from "./session.js";
+import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
 import { fillAllCardFields } from "./fill.js";
 import type { ObservedField } from "./fill.js";
 
@@ -60,19 +60,23 @@ export async function runCheckout(
   const stagehandVars = getStagehandVariables(creds);
   const cdpCreds = getCdpCredentials(creds);
 
-  // 2. Create Browserbase session
+  // 2. Validate keys early (fail fast with clear error)
+  const anthropicApiKey = getAnthropicApiKey();
+
+  // 3. Create Browserbase session
   const session = await createSession();
   let stagehand: InstanceType<typeof Stagehand> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
-    // 3. Init Stagehand (Claude Sonnet 4) on session
+    // 4. Init Stagehand (Claude Sonnet 4) on session
     stagehand = new Stagehand({
       env: "BROWSERBASE",
       apiKey: process.env.BROWSERBASE_API_KEY!,
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
         modelName: "anthropic/claude-sonnet-4-20250514",
-        apiKey: process.env.ANTHROPIC_API_KEY!,
+        apiKey: anthropicApiKey,
       },
       browserbaseSessionID: session.id,
     });
@@ -86,9 +90,9 @@ export async function runCheckout(
       await injectDomainCache(page, existingCache);
     }
 
-    // 5. Set hard timeout
+    // 5. Set hard timeout (timer cleared in finally to prevent unhandled rejection)
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(
+      timer = setTimeout(
         () => reject(new Error("Checkout timeout: 5 minutes exceeded")),
         CHECKOUT_TIMEOUT_MS,
       );
@@ -242,7 +246,9 @@ export async function runCheckout(
     // Race checkout against timeout
     return await Promise.race([checkoutPromise, timeoutPromise]);
   } finally {
-    // 8. Destroy session in finally (belt-and-suspenders)
+    // 8. Clear timeout to prevent unhandled rejection after settlement
+    if (timer) clearTimeout(timer);
+    // 9. Destroy session in finally (belt-and-suspenders)
     if (stagehand) {
       try {
         await stagehand.close();

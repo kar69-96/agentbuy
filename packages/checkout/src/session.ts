@@ -28,6 +28,14 @@ export function getBrowserbaseConfig(): {
   return { apiKey, projectId };
 }
 
+export function getAnthropicApiKey(): string {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) {
+    throw new Error("ANTHROPIC_API_KEY is required");
+  }
+  return key;
+}
+
 export async function createSession(): Promise<BrowserbaseSession> {
   const { apiKey, projectId } = getBrowserbaseConfig();
 
@@ -42,6 +50,7 @@ export async function createSession(): Promise<BrowserbaseSession> {
         projectId,
         browserSettings: {
           recordSession: true,
+          solveCaptchas: true,
         },
         timeout: SESSION_TIMEOUT_MS / 1000,
       }),

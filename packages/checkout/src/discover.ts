@@ -1,7 +1,8 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import { z } from "zod";
 import type { ShippingInfo } from "@proxo/core";
-import { createSession, destroySession } from "./session.js";
+import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
+import { sanitizeShipping } from "./credentials.js";
 
 // ---- Discovery result ----
 
@@ -119,11 +120,6 @@ export async function scrapePrice(
         price = String(offersObj["lowPrice"]);
       }
 
-      // Normalize price: if it looks like cents (integer > 100 with no decimal),
-      // and priceCurrency is present, convert to dollars
-      if (price && !price.includes(".") && parseFloat(price) >= 100) {
-        price = (parseFloat(price) / 100).toFixed(2);
-      }
     }
 
     if (name && price) {
@@ -162,6 +158,7 @@ export async function discoverViaCart(
   url: string,
   shipping: ShippingInfo,
 ): Promise<DiscoveryResult> {
+  const anthropicApiKey = getAnthropicApiKey();
   const session = await createSession();
   let stagehand: InstanceType<typeof Stagehand> | undefined;
 
@@ -172,7 +169,7 @@ export async function discoverViaCart(
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
         modelName: "anthropic/claude-sonnet-4-20250514",
-        apiKey: process.env.ANTHROPIC_API_KEY!,
+        apiKey: anthropicApiKey,
       },
       browserbaseSessionID: session.id,
     });
@@ -188,20 +185,21 @@ export async function discoverViaCart(
     await stagehand.act("Go to cart or proceed to checkout");
     await page.waitForTimeout(2000);
 
-    // Fill shipping if applicable
+    // Fill shipping if applicable (sanitize to prevent prompt injection)
+    const safe = sanitizeShipping(shipping);
     try {
       await stagehand.act(
         "Fill shipping information: name=%x_shipping_name%, street=%x_shipping_street%, city=%x_shipping_city%, state=%x_shipping_state%, zip=%x_shipping_zip%, country=%x_shipping_country%, email=%x_shipping_email%, phone=%x_shipping_phone%",
         {
           variables: {
-            x_shipping_name: shipping.name,
-            x_shipping_street: shipping.street,
-            x_shipping_city: shipping.city,
-            x_shipping_state: shipping.state,
-            x_shipping_zip: shipping.zip,
-            x_shipping_country: shipping.country,
-            x_shipping_email: shipping.email,
-            x_shipping_phone: shipping.phone,
+            x_shipping_name: safe.name,
+            x_shipping_street: safe.street,
+            x_shipping_city: safe.city,
+            x_shipping_state: safe.state,
+            x_shipping_zip: safe.zip,
+            x_shipping_country: safe.country,
+            x_shipping_email: safe.email,
+            x_shipping_phone: safe.phone,
           },
         },
       );

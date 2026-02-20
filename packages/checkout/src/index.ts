@@ -30,6 +30,7 @@ export {
   createSession,
   destroySession,
   getBrowserbaseConfig,
+  getAnthropicApiKey,
 } from "./session.js";
 export type { BrowserbaseSession } from "./session.js";
 
