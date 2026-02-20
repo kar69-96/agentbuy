@@ -454,7 +454,96 @@ Note: Tier 2 tests require `BROWSERBASE_API_KEY` + `ANTHROPIC_API_KEY` and consu
 
 ---
 
-## Phase 5: Buy & Confirm Orchestration — NOT STARTED
+## Phase 5: Buy & Confirm Orchestration — COMPLETE
+
+**Status:** All deliverables complete, all 13 new tests passing (108 total, 113 with network tests).
+
+---
+
+### Architecture Decision: Orchestrator Package
+
+The spec called for `core/buy.ts`, `core/confirm.ts`, etc. However, `buy` and `confirm` need to import from `@proxo/wallet`, `@proxo/x402`, and `@proxo/checkout` — which already depend on `@proxo/core`. This creates a circular dependency that breaks pnpm's topological build order.
+
+**Solution:** New package `packages/orchestrator/` (`@proxo/orchestrator`) that sits on top of all other packages. Clean acyclic dependency graph: `core → wallet/x402/checkout → orchestrator`. The Phase 6 API package will import from `@proxo/orchestrator`.
+
+---
+
+### What Was Built
+
+#### @proxo/orchestrator Source Files (5 files)
+
+| File | Purpose |
+|------|---------|
+| `packages/orchestrator/src/router.ts` | `routeOrder(url)` — wraps x402 `detectRoute()`, returns `RouteDecision` with route + requirements |
+| `packages/orchestrator/src/buy.ts` | `buy(input)` — validate URL → look up wallet → route detection → price discovery → fee calculation → balance check → create order quote |
+| `packages/orchestrator/src/confirm.ts` | `confirm(input)` — expiry check → USDC transfer → execute route → build receipt → update order |
+| `packages/orchestrator/src/receipts.ts` | `buildReceipt(input)` — standardized receipt from either x402 or browserbase result |
+| `packages/orchestrator/src/index.ts` | Barrel re-exports (`routeOrder`, `buy`, `confirm`, `buildReceipt` + all types) |
+
+#### Tests (2 files)
+
+| File | Tests | All Offline |
+|------|-------|-------------|
+| `packages/orchestrator/tests/buy.test.ts` | 8 | Yes (mocked detectRoute, getBalance, discoverPrice) |
+| `packages/orchestrator/tests/confirm.test.ts` | 5 | Yes (mocked transferUSDC, payX402, runCheckout) |
+
+### Test Results
+
+```
+ ✓ packages/orchestrator/tests/buy.test.ts (8 tests)
+ ✓ packages/orchestrator/tests/confirm.test.ts (5 tests)
+ ✓ packages/core/tests/fees.test.ts (10 tests)
+ ✓ packages/core/tests/store.test.ts (12 tests)
+ ✓ packages/wallet/tests/create.test.ts (6 tests)
+ ✓ packages/wallet/tests/qr.test.ts (2 tests)
+ ✓ packages/wallet/tests/balance.test.ts (8 tests)
+ ✓ packages/wallet/tests/transfer.test.ts (1 test)
+ ✓ packages/x402/tests/detect.test.ts (3 tests)
+ ✓ packages/x402/tests/pay.test.ts (1 test)
+ ✓ packages/checkout/tests/credentials.test.ts (12 tests)
+ ✓ packages/checkout/tests/confirm.test.ts (7 tests)
+ ✓ packages/checkout/tests/cache.test.ts (10 tests)
+ ✓ packages/checkout/tests/session.test.ts (4 tests)
+ ✓ packages/checkout/tests/fill.test.ts (9 tests)
+ ✓ packages/checkout/tests/discover.test.ts (10 tests)
+
+ Test Files  16 passed (16)
+      Tests  108 passed (108)
+```
+
+Note: `e2e-discover.test.ts` Tier 2 test timed out (120s) against Browserbase — pre-existing, not related to Phase 5.
+
+#### Test Gate Checklist (from 14-phased-build-plan.md)
+
+- [x] `buy({ url: x402_endpoint })` → order with route "x402", correct 0.5% fee
+- [x] `buy({ url: amazon_product })` → order with route "browserbase", correct 5% fee
+- [x] `buy` without shipping + browser route + no defaults → `SHIPPING_REQUIRED`
+- [x] `buy` without shipping + browser route + .env defaults → uses defaults
+- [x] `buy` with shipping → uses provided shipping
+- [x] `buy` x402 → no shipping needed
+- [x] `buy` unfunded wallet → `INSUFFICIENT_BALANCE`
+- [x] `buy` price > $25 → `PRICE_EXCEEDS_LIMIT`
+- [x] `confirm` x402: transfers USDC fee + pays service → receipt with response
+- [x] `confirm` browser: transfers USDC full amount + checks out → receipt with order number
+- [x] `confirm` expired → `ORDER_EXPIRED`
+- [x] `confirm` already completed → returns existing receipt
+- [x] `confirm` USDC sent but purchase fails → status "failed", tx_hash preserved
+
+### Key Implementation Notes
+
+1. **Two USDC transfer strategies** — x402: transfer FEE only to master wallet, then `payX402()` pays the service directly from the agent wallet via EIP-3009 (gasless). Browserbase: transfer FULL amount (price + fee) to master wallet, since Proxo's own card handles the actual purchase.
+
+2. **Balance check at buy-time** — Fast-fail on insufficient funds when creating the quote (not just at confirm time). Prevents wasted price discovery and Browserbase sessions.
+
+3. **Idempotent confirm** — If order is already `"completed"`, returns the existing receipt without re-executing. Prevents double-charges.
+
+4. **tx_hash preservation on failure** — If USDC transfer succeeds but execution fails (browser crash, x402 error), the tx_hash is saved to the order immediately, and status set to `"failed"` with `refund_status: "pending_manual"`. No USDC is lost, just needs manual refund in v1.
+
+5. **Order expiry** — Orders expire after `default_order_expiry_seconds` (300s / 5 min). Confirm checks expiry before processing and updates status to `"expired"` if past deadline.
+
+6. **All tests fully offline** — External deps (wallet, x402, checkout) are mocked via `vi.mock()`. Tests use `PROXO_DATA_DIR` temp directories with real JSON store operations.
+
+---
 
 ## Phase 6: API Server + Funding Page — NOT STARTED
 
