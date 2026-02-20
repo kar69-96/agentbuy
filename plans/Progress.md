@@ -286,7 +286,173 @@ TEST_WALLET_PRIVATE_KEY=0x...
 ```
 The PayAI echo merchant auto-refunds on testnet, so no USDC is permanently spent.
 
-## Phase 4: Browser Checkout — NOT STARTED
+## Phase 4: Browser Checkout — COMPLETE
+
+**Status:** All deliverables complete, all 95 tests passing (52 new checkout tests + 43 existing).
+
+---
+
+### What Was Built
+
+#### @proxo/checkout Source Files (8 files)
+
+| File | Purpose |
+|------|---------|
+| `packages/checkout/src/credentials.ts` | Credential map builder, CDP/Stagehand field split, shipping sanitization |
+| `packages/checkout/src/confirm.ts` | Confirmation page detection via positive/negative text signal matching |
+| `packages/checkout/src/cache.ts` | Domain cookie/localStorage cache — load/save to disk, extract/inject via CDP |
+| `packages/checkout/src/session.ts` | Browserbase session lifecycle — create (with 429 retry), destroy, config validation |
+| `packages/checkout/src/fill.ts` | Card field fills via Stagehand Page locators, field description → credential key mapping |
+| `packages/checkout/src/discover.ts` | Price discovery — Tier 1 (JSON-LD + OG meta scrape) → Tier 2 (Browserbase cart via Stagehand) |
+| `packages/checkout/src/task.ts` | Full checkout orchestration — Stagehand AI actions + direct DOM card fills + domain cache |
+| `packages/checkout/src/index.ts` | Barrel re-exports (all public functions + types) |
+
+#### Tests (6 files)
+
+| File | Tests | Offline | Network |
+|------|-------|---------|---------|
+| `packages/checkout/tests/credentials.test.ts` | 12 | All offline | — |
+| `packages/checkout/tests/confirm.test.ts` | 7 | All offline | — |
+| `packages/checkout/tests/cache.test.ts` | 10 | All offline | — |
+| `packages/checkout/tests/session.test.ts` | 3 offline + 1 network | Config validation | Create + destroy session |
+| `packages/checkout/tests/fill.test.ts` | 9 | All offline | — |
+| `packages/checkout/tests/discover.test.ts` | 10 | All offline (JSON-LD, meta, scrape) | — |
+
+### Test Results
+
+```
+ ✓ packages/core/tests/fees.test.ts (10 tests)
+ ✓ packages/core/tests/store.test.ts (12 tests)
+ ✓ packages/wallet/tests/create.test.ts (6 tests)
+ ✓ packages/wallet/tests/qr.test.ts (2 tests)
+ ✓ packages/wallet/tests/balance.test.ts (8 tests)
+ ✓ packages/wallet/tests/transfer.test.ts (1 test)
+ ✓ packages/x402/tests/detect.test.ts (3 tests)
+ ✓ packages/x402/tests/pay.test.ts (1 test)
+ ✓ packages/checkout/tests/credentials.test.ts (12 tests)
+ ✓ packages/checkout/tests/confirm.test.ts (7 tests)
+ ✓ packages/checkout/tests/cache.test.ts (10 tests)
+ ✓ packages/checkout/tests/session.test.ts (4 tests)
+ ✓ packages/checkout/tests/fill.test.ts (9 tests)
+ ✓ packages/checkout/tests/discover.test.ts (10 tests)
+
+ Test Files  14 passed (14)
+      Tests  95 passed (95)
+```
+
+Network tests verified on Browserbase (session create/destroy).
+
+#### Test Gate Checklist
+
+**Baseline:**
+- [x] `createSession()` returns session with id + connectUrl + replayUrl (network)
+- [x] `destroySession(id)` succeeds without throwing (network)
+- [x] `buildCredentials()` has all 17 x_* keys, values match .env
+
+**Discovery:**
+- [x] `extractJsonLd` extracts Product from JSON-LD, @graph, returns null for missing/invalid
+- [x] `extractMetaTag` extracts OG/product meta tags, handles reversed attribute order
+- [x] `scrapePrice(bad_url)` returns null
+
+**Credential security:**
+- [x] `isCdpField("x_card_number")` → true (4 card fields)
+- [x] `isCdpField("x_shipping_name")` → false (non-card fields)
+- [x] `getStagehandVariables()` returns exactly 13 fields, excludes all card fields
+- [x] `getCdpCredentials()` returns exactly 4 card fields only
+
+**Confirmation detection:**
+- [x] Positive text → `isConfirmed: true`
+- [x] Negative text → `isConfirmed: false`
+- [x] Tied signals → negative wins (not confirmed)
+- [x] Empty text → not confirmed
+- [x] Case insensitive matching
+- [x] Many positive signals → confidence = 1
+
+**Domain cache:**
+- [x] `saveDomainCache` → `loadDomainCache` round-trip
+- [x] `isSafeCookie("session_id")` → false
+- [x] `isSafeCookie("consent_cookie")` → true
+- [x] Cache file has 0o600 permissions
+- [x] Returns null for missing cache
+
+**Card field mapping:**
+- [x] `mapFieldToCredential("Card number input")` → "x_card_number"
+- [x] `mapFieldToCredential("CVV")` → "x_card_cvv"
+- [x] `mapFieldToCredential("Expiration date")` → "x_card_expiry"
+- [x] `mapFieldToCredential("Email address")` → null
+
+**Sanitization:**
+- [x] `sanitizeShipping` strips `<>"'&;` characters
+- [x] `sanitizeShipping` truncates fields at 200 characters
+
+### Dependencies Added
+
+**@proxo/checkout dependencies:**
+- `@browserbasehq/stagehand` ^3.0.0 — AI browser automation (Stagehand v3)
+- `zod` ^3.22.0 — Schema validation for Stagehand extract()
+
+### Key Implementation Notes
+
+1. **Stagehand v3 API** — Uses the v3 API: `act(string, options?)`, `observe(string)`, `extract(string, schema)`. Page accessed via `stagehand.context.activePage()`. No `.page` property on Stagehand v3.
+
+2. **Dual-channel credential protection** — Card fields (x_card_number, x_card_expiry, x_card_cvv, x_cardholder_name) are filled via Stagehand's Page `locator().fill()` using selectors from `observe()`. Non-card fields use Stagehand's `%var%` variable substitution. The LLM never sees real card data.
+
+3. **Stagehand Page for all DOM operations** — Stagehand v3's `Page` class provides `goto()`, `locator().fill()`, `evaluate()`, `sendCDP()`, `waitForTimeout()`. No separate Playwright CDP connection needed. Cookies handled via `page.sendCDP("Network.getCookies")` and `page.sendCDP("Network.setCookie", ...)`.
+
+4. **Two-tier price discovery** — Tier 1 (server-side fetch + JSON-LD + OG meta tags) is fast and free. Tier 2 (Browserbase session + Stagehand cart flow) used as fallback when structured data isn't available.
+
+5. **Domain cache** — Cookies filtered via `isSafeCookie()` to exclude session/auth/csrf tokens. Cache stored in `~/.proxo/cache/{domain}.json` with atomic writes (tmp + rename) and 0o600 permissions.
+
+6. **Session lifecycle** — Browserbase REST API with exponential backoff on 429. `destroySession()` never throws (belt-and-suspenders cleanup in `finally` blocks). Timeout in seconds per API spec.
+
+7. **Shipping sanitization** — `sanitizeShipping()` strips `<>"'&;` and truncates at 200 chars to prevent prompt injection via Stagehand variables.
+
+8. **Test isolation** — Network tests use `describe.skipIf(!process.env.BROWSERBASE_API_KEY)`. Credential tests save/restore env vars. Cache tests use `PROXO_DATA_DIR` temp directories.
+
+### E2E Discovery Testing (Post-Implementation Iteration)
+
+After unit tests were green, real-site E2E testing was conducted using Browserbase + Anthropic API keys.
+
+#### Bugs Found & Fixed During E2E Testing
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| Stagehand model 404 errors | Model name format — Stagehand v3.0.8 requires `"anthropic/claude-sonnet-4-20250514"` with `{modelName, apiKey}` config | Updated all Stagehand constructors |
+| `scrapePrice` hangs on bot-blocked sites | No fetch timeout — Best Buy blocks forever | Added `AbortSignal.timeout(10000)` |
+| `destroySession` doesn't release sessions | Missing `projectId` in request body — Browserbase API requires it | Added `projectId` to destroy body |
+| JSON-LD price in cents (Hydrogen demo) | Price stored as integer cents (e.g., `63295`) with no decimal | Added cents normalization: integer ≥ 100 with no decimal → divide by 100 |
+| Tier 2 price has `$` prefix | Stagehand LLM includes currency symbol despite schema description | Added `stripCurrency()` post-processing |
+| Offers array not handled | Some stores use `"offers": [...]` instead of `"offers": {...}` | Added `Array.isArray` check, use first offer |
+
+#### E2E Test Results
+
+**Tier 1 — Server-side scrape:**
+| Site | Result | Price | Method |
+|------|--------|-------|--------|
+| Allbirds (Shopify) | Success | $100.00 | JSON-LD Product |
+| Hydrogen demo (Shopify) | Success | $650.95 | JSON-LD Product (cents normalized) |
+| Gymshark (Shopify) | null | — | Bot-blocked |
+| Best Buy | null (10s timeout) | — | Bot-blocked |
+
+**Tier 2 — Browserbase cart discovery:**
+| Site | Result | Price | Name |
+|------|--------|-------|------|
+| Hydrogen demo (Shopify) | Success | 749.95 | The Full Stack Snowboard |
+
+**`discoverPrice` fallback:**
+| Site | Tier Used | Result |
+|------|-----------|--------|
+| Allbirds | Tier 1 (fast) | $100.00 via JSON-LD |
+
+#### E2E Test File
+
+| File | Tests |
+|------|-------|
+| `packages/checkout/tests/e2e-discover.test.ts` | 4 Tier 1 + 1 Tier 2 + 1 fallback = 6 tests |
+
+Note: Tier 2 tests require `BROWSERBASE_API_KEY` + `ANTHROPIC_API_KEY` and consume Browserbase browser minutes.
+
+---
 
 ## Phase 5: Buy & Confirm Orchestration — NOT STARTED
 
