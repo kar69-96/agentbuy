@@ -8,7 +8,7 @@ import {
   updateOrder,
   loadOrCreateConfig,
 } from "@proxo/core";
-import { transferUSDC } from "@proxo/wallet";
+import { getBalance, transferUSDC } from "@proxo/wallet";
 import { payX402 } from "@proxo/x402";
 import { runCheckout } from "@proxo/checkout";
 import { buildReceipt } from "./receipts.js";
@@ -43,7 +43,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   if (order.status !== "awaiting_confirmation") {
     throw new ProxoError(
       ErrorCodes.ORDER_NOT_FOUND,
-      `Order ${order_id} is in status "${order.status}", expected "awaiting_confirmation"`,
+      `Order ${order_id} cannot be confirmed (status: "${order.status}")`,
     );
   }
 
@@ -57,7 +57,8 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   }
 
   // 5. Update to processing
-  await updateOrder(order_id, { status: "processing" });
+  const confirmedAt = new Date().toISOString();
+  await updateOrder(order_id, { status: "processing", confirmed_at: confirmedAt });
 
   // 6. Load wallet and config
   const wallet = getWallet(order.wallet_id);
@@ -71,7 +72,21 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   const config = loadOrCreateConfig();
   const masterAddress = config.master_wallet.address;
 
-  let txHash: string;
+  // 7. Re-check balance (may have changed since buy-time)
+  const transferAmount =
+    order.payment.route === "x402"
+      ? order.payment.fee
+      : order.payment.amount_usdc;
+  const balance = await getBalance(wallet.address);
+  if (parseFloat(balance) < parseFloat(transferAmount)) {
+    await updateOrder(order_id, { status: "failed" });
+    throw new ProxoError(
+      ErrorCodes.INSUFFICIENT_BALANCE,
+      `Insufficient balance at confirm time: have ${balance} USDC, need ${transferAmount} USDC`,
+    );
+  }
+
+  let txHash: string | undefined;
 
   try {
     if (order.payment.route === "x402") {
@@ -99,7 +114,6 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       await updateOrder(order_id, {
         status: "completed",
         receipt,
-        confirmed_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
       });
 
@@ -130,7 +144,9 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       });
 
       if (!checkoutResult.success) {
-        throw new Error("Checkout did not confirm");
+        throw new Error(
+          `Checkout did not confirm (session: ${checkoutResult.sessionId})`,
+        );
       }
 
       // Build receipt
@@ -143,14 +159,12 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       await updateOrder(order_id, {
         status: "completed",
         receipt,
-        confirmed_at: new Date().toISOString(),
         completed_at: new Date().toISOString(),
       });
 
       return { order: { ...order, status: "completed", receipt }, receipt };
     }
   } catch (error) {
-    // If USDC was already sent but execution failed
     const errorMessage =
       error instanceof Error ? error.message : "Execution failed";
     const errorCode =
@@ -158,13 +172,13 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
         ? ErrorCodes.X402_PAYMENT_FAILED
         : ErrorCodes.CHECKOUT_FAILED;
 
+    // Only set refund_status if USDC was actually sent
     await updateOrder(order_id, {
       status: "failed",
       error: {
         code: errorCode,
         message: errorMessage,
-        tx_hash: txHash!,
-        refund_status: "pending_manual",
+        ...(txHash ? { tx_hash: txHash, refund_status: "pending_manual" as const } : {}),
       },
     });
 
