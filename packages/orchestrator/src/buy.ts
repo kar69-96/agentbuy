@@ -71,7 +71,16 @@ export async function buy(input: BuyInput): Promise<Order> {
       );
     }
 
-    const discovery = await discoverPrice(url, resolvedShipping);
+    let discovery;
+    try {
+      discovery = await discoverPrice(url, resolvedShipping);
+    } catch (e) {
+      if (e instanceof ProxoError) throw e;
+      throw new ProxoError(
+        ErrorCodes.PRICE_EXTRACTION_FAILED,
+        `Price discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
+      );
+    }
     productName = discovery.name;
     price = discovery.price;
     priceSource = discovery.method;
