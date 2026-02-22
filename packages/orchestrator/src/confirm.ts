@@ -42,7 +42,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   // 3. Must be awaiting confirmation
   if (order.status !== "awaiting_confirmation") {
     throw new ProxoError(
-      ErrorCodes.ORDER_NOT_FOUND,
+      ErrorCodes.ORDER_INVALID_STATUS,
       `Order ${order_id} cannot be confirmed (status: "${order.status}")`,
     );
   }
