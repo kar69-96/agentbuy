@@ -201,6 +201,7 @@ export const ErrorCodes = {
   CHECKOUT_FAILED: "CHECKOUT_FAILED",
   MISSING_FIELD: "MISSING_FIELD",
   INVALID_URL: "INVALID_URL",
+  ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
