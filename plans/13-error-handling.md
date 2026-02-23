@@ -22,7 +22,7 @@ HTTP status codes follow REST conventions.
 | Code | HTTP | When | Agent Should |
 |------|------|------|-------------|
 | `INSUFFICIENT_BALANCE` | 400 | Wallet balance < total (price + fee) | Tell human to fund wallet |
-| `SHIPPING_REQUIRED` | 400 | Physical product, no shipping provided, no .env defaults | Ask human for address, retry buy |
+| `SHIPPING_REQUIRED` | 400 | Physical product, no shipping provided | Ask human for address, retry buy |
 | `PRICE_EXCEEDS_LIMIT` | 400 | Product price > $25 | Tell human, suggest cheaper alternative |
 | `WALLET_NOT_FOUND` | 404 | Invalid wallet_id | Check wallet_id, create new wallet |
 | `ORDER_NOT_FOUND` | 404 | Invalid order_id | Check order_id, call buy again |

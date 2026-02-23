@@ -115,7 +115,7 @@ curl -s -X POST http://localhost:3000/api/confirm \
 |------|----------|
 | Buy with unfunded wallet | `INSUFFICIENT_BALANCE` (400) |
 | Buy product > $25 | `PRICE_EXCEEDS_LIMIT` (400) |
-| Buy physical item, no shipping, no defaults | `SHIPPING_REQUIRED` (400) |
+| Buy physical item, no shipping | `SHIPPING_REQUIRED` (400) |
 | Confirm expired order | `ORDER_EXPIRED` (410) |
 | Confirm nonexistent order | `ORDER_NOT_FOUND` (404) |
 | Get nonexistent wallet | `WALLET_NOT_FOUND` (404) |

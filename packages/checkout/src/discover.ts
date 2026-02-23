@@ -69,7 +69,14 @@ export function extractMetaTag(
 }
 
 function extractPriceFromString(text: string): string | null {
-  const match = /[\d,]+\.?\d*/.exec(text.replace(/,/g, ""));
+  let cleaned = text.trim();
+  // European decimal format: "4,95" → "4.95" (comma + 1-2 digits at end, no other commas)
+  if (/^\d+,\d{1,2}$/.test(cleaned)) {
+    cleaned = cleaned.replace(",", ".");
+  } else {
+    cleaned = cleaned.replace(/,/g, "");
+  }
+  const match = /[\d]+\.?\d*/.exec(cleaned);
   return match ? match[0] : null;
 }
 

@@ -132,8 +132,7 @@ core/buy.ts, core/confirm.ts, core/router.ts (updated), core/receipts.ts
 ```
 [ ] buy({ url: x402_endpoint }) → order with route "x402", correct fee
 [ ] buy({ url: amazon_product }) → order with route "browserbase", correct fee
-[ ] buy without shipping + browser route + no defaults → SHIPPING_REQUIRED
-[ ] buy without shipping + browser route + .env defaults → uses defaults
+[ ] buy without shipping + browser route → SHIPPING_REQUIRED
 [ ] buy with shipping → uses provided shipping
 [ ] buy x402 → no shipping needed
 [ ] buy unfunded wallet → INSUFFICIENT_BALANCE
@@ -173,11 +172,61 @@ api/server.ts, api/routes/wallets.ts, api/routes/buy.ts, api/routes/confirm.ts, 
 
 ---
 
-## Phase 7: End-to-End (1 hr)
+## Phase 7: Coinbase Onramp + E2E on Mainnet (2 hrs)
 
-Full flows. Both routes. Real websites. Testnet USDC.
+Integrate Coinbase Onramp into the funding page. Run full E2E flows on **Base mainnet** with real USDC.
 
-### Scenario A: x402 Purchase
+### Prerequisites (Human)
+
+```
+[ ] CDP account created at portal.cdp.coinbase.com
+[ ] CDP API key pair generated and added to .env (CDP_API_KEY_NAME, CDP_API_KEY_SECRET)
+[ ] Applied for Onramp access (support.cdp.coinbase.com/onramp-onboarding)
+[ ] Applied for 0% USDC fees (coinbase.com/developer-platform/developer-interest)
+[ ] Domain registered on CDP Portal allow list (if using iframe)
+[ ] .env switched to mainnet: NETWORK=base, BASE_RPC_URL=<mainnet RPC>, real card in CARD_*
+[ ] Master wallet funded with real USDC + ETH for gas on Base mainnet
+```
+
+See `15-coinbase-onramp.md` for full Coinbase Onramp spec.
+
+### Part A: Coinbase Onramp Integration
+
+**Deliverables:**
+
+api/routes/fund.ts (updated), funding page HTML (updated), core/config.ts (updated)
+
+```
+[ ] GET /fund/:token/onramp-session → generates Coinbase session token, returns { onrampUrl }
+[ ] Session token contains correct wallet address + Base network + USDC asset
+[ ] CDP API keys never exposed to client (server-side only)
+[ ] Funding page embeds Onramp iframe/redirect alongside existing QR code
+[ ] Funding page shows two paths: "Buy with card" (Onramp) and "Send USDC directly" (QR)
+```
+
+**Sandbox testing (no real money):**
+```
+[ ] Onramp sandbox: partnerUserRef prefixed with "sandbox-" → mock purchase succeeds
+[ ] Apple Pay sandbox: useApplePaySandbox=true → fake Apple Pay popup works
+[ ] Widget sandbox: Debug Menu → "Enable Mocked Buy and Send" → mock flow completes
+[ ] Session token generation works with sandbox CDP credentials
+```
+
+### Part B: Mainnet Config Verification
+
+```
+[ ] NETWORK=base → viem uses Base mainnet chain
+[ ] USDC contract resolves to 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+[ ] x402 chain ID resolves to eip155:8453
+[ ] RPC URL connects to Base mainnet (block number > 0, correct chain ID)
+[ ] .env.example updated with CDP_API_KEY_NAME, CDP_API_KEY_SECRET
+```
+
+### Part C: E2E — Testnet Flows (Base Sepolia)
+
+Run existing scenarios on testnet first to confirm nothing broke.
+
+**Scenario A: x402 Purchase**
 ```
 [ ] POST /api/wallets → wallet created
 [ ] Human opens funding_url, sends test USDC
@@ -187,26 +236,26 @@ Full flows. Both routes. Real websites. Testnet USDC.
 [ ] GET /api/wallets/:id → deposit + purchase in history
 ```
 
-### Scenario B: Browser Purchase (Target)
+**Scenario B: Browser Purchase (Shopify)**
 ```
-[ ] POST /api/buy { target url, shipping } → quote with 5% fee
+[ ] POST /api/buy { shopify url, shipping } → quote with 5% fee
 [ ] POST /api/confirm → browser checkout, receipt with order number
 [ ] GET /api/wallets/:id → balance reduced
 ```
 
-### Scenario C: Shipping Prompt
+**Scenario C: Shipping Prompt**
 ```
-[ ] POST /api/buy { url, no shipping, no defaults } → SHIPPING_REQUIRED
+[ ] POST /api/buy { url, no shipping } → SHIPPING_REQUIRED
 [ ] Retry with shipping → quote returned
 ```
 
-### Scenario D: Repeat Domain
+**Scenario D: Repeat Domain**
 ```
-[ ] Buy from Target (first) → cache created
-[ ] Buy from Target (second) → cache injected, checkout completes
+[ ] Buy from same site (first) → cache created
+[ ] Buy from same site (second) → cache injected, checkout completes
 ```
 
-### Scenario E: Errors
+**Scenario E: Errors**
 ```
 [ ] Buy $30 product → PRICE_EXCEEDS_LIMIT
 [ ] Buy with $2 balance → INSUFFICIENT_BALANCE
@@ -214,14 +263,48 @@ Full flows. Both routes. Real websites. Testnet USDC.
 [ ] GET /api/wallets/bad_id → WALLET_NOT_FOUND
 ```
 
+### Part D: E2E — Mainnet Flows (Base)
+
+Switch to `NETWORK=base` and run with real USDC. Use small amounts ($5-10).
+
+**Scenario F: Coinbase Onramp Funding (mainnet)**
+```
+[ ] POST /api/wallets → wallet created on mainnet
+[ ] Open funding page → Coinbase Onramp widget loads
+[ ] Complete Guest Checkout with debit card or Apple Pay → USDC deposited
+[ ] GET /api/wallets/:id → balance reflects Onramp deposit
+[ ] Deposit detected via on-chain polling (no webhook needed for v1)
+```
+
+**Scenario G: x402 Purchase (mainnet)**
+```
+[ ] POST /api/buy { x402 url } → quote with 0.5% fee (mainnet pricing)
+[ ] POST /api/confirm → USDC transfer on Base mainnet → receipt
+[ ] Verify tx_hash on basescan.org
+```
+
+**Scenario H: Browser Purchase (mainnet, small item)**
+```
+[ ] POST /api/buy { shopify url, shipping } → quote with 5% fee
+[ ] POST /api/confirm → real browser checkout, real order placed
+[ ] Verify receipt has real order number
+[ ] Verify USDC balance decreased by correct amount on basescan.org
+```
+
 ### Final Checklist
 ```
-[ ] All phases pass
+[ ] All testnet scenarios (A-E) pass
+[ ] All mainnet scenarios (F-H) pass
+[ ] Coinbase Onramp sandbox tests pass
+[ ] Coinbase Onramp live flow completes (mainnet)
 [ ] NETWORK env var switches testnet/mainnet cleanly
 [ ] USDC contract selected by network
 [ ] ~/.proxo/ has 600 permissions
-[ ] .env.example is complete
+[ ] .env.example is complete (includes CDP keys)
 [ ] Funding page works in mobile browser
+[ ] Funding page shows both Onramp + QR code paths
+[ ] No CDP API keys leaked to client-side
+[ ] Coinbase ToS acknowledgment visible on funding page
 ```
 
 ---
@@ -236,6 +319,6 @@ Full flows. Both routes. Real websites. Testnet USDC.
 | 4 | Browser Checkout (Browserbase, Stagehand) | 1.5 hrs | 3:15 |
 | 5 | Buy & Confirm (orchestration, routing) | 1 hr | 4:15 |
 | 6 | API Server + Funding Page (Hono, HTML) | 45 min | 5:00 |
-| 7 | E2E Testing | 1 hr | 6:00 |
+| 7 | Coinbase Onramp + E2E on Mainnet | 2 hrs | 7:00 |
 
-**Total: ~6 hours.** Phase 4 is the wildcard.
+**Total: ~7 hours.** Phase 4 is the wildcard.

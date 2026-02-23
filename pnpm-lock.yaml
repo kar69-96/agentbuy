@@ -8,21 +8,51 @@ importers:
 
   .:
     devDependencies:
+      '@proxo/api':
+        specifier: workspace:*
+        version: link:packages/api
+      '@proxo/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@proxo/orchestrator':
+        specifier: workspace:*
+        version: link:packages/orchestrator
+      '@proxo/wallet':
+        specifier: workspace:*
+        version: link:packages/wallet
       '@types/node':
         specifier: ^25.3.0
         version: 25.3.0
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      viem:
+        specifier: ^2.46.2
+        version: 2.46.2(bufferutil@4.1.0)(typescript@5.9.3)(zod@3.25.76)
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@25.3.0)
 
   packages/api:
     dependencies:
+      '@hono/node-server':
+        specifier: ^1.8.0
+        version: 1.19.9(hono@4.12.0)
       '@proxo/core':
         specifier: workspace:*
         version: link:../core
+      '@proxo/orchestrator':
+        specifier: workspace:*
+        version: link:../orchestrator
+      '@proxo/wallet':
+        specifier: workspace:*
+        version: link:../wallet
+      hono:
+        specifier: ^4.0.0
+        version: 4.12.0
+      jose:
+        specifier: ^6.1.3
+        version: 6.1.3
 
   packages/checkout:
     dependencies:

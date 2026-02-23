@@ -1,0 +1,33 @@
+import { ProxoError } from "@proxo/core";
+import type { ErrorHandler } from "hono";
+
+const STATUS_MAP: Record<string, number> = {
+  INSUFFICIENT_BALANCE: 400,
+  SHIPPING_REQUIRED: 400,
+  PRICE_EXCEEDS_LIMIT: 400,
+  MISSING_FIELD: 400,
+  INVALID_URL: 400,
+  URL_UNREACHABLE: 400,
+  WALLET_NOT_FOUND: 404,
+  ORDER_NOT_FOUND: 404,
+  ORDER_INVALID_STATUS: 409,
+  ORDER_EXPIRED: 410,
+  TRANSFER_FAILED: 500,
+  X402_PAYMENT_FAILED: 502,
+  CHECKOUT_FAILED: 502,
+  PRICE_EXTRACTION_FAILED: 502,
+};
+
+export const errorHandler: ErrorHandler = (err, c) => {
+  if (err instanceof ProxoError) {
+    const status = STATUS_MAP[err.code] ?? 500;
+    return c.json({ error: { code: err.code, message: err.message } }, status as 400);
+  }
+
+  console.error("Unhandled error:", err);
+
+  return c.json(
+    { error: { code: "INTERNAL_ERROR", message: "Internal server error" } },
+    500,
+  );
+};

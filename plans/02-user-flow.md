@@ -59,9 +59,7 @@ Agent:
     "wallet_id": "proxo_w_7k2m9x"
   }
 
-IF .env has default shipping -> uses defaults, returns quote normally
-
-IF no defaults -> returns:
+Returns:
   { "error": { "code": "SHIPPING_REQUIRED", "message": "..." } }
 
 Agent asks human for address, then re-calls POST /api/buy with shipping included.

@@ -302,7 +302,7 @@ const CREDENTIAL_FIELDS: Record<string, () => string> = {
   billing_zip: () => process.env.BILLING_ZIP!,
   billing_country: () => process.env.BILLING_COUNTRY!,
 
-  // Shipping — from request body or .env defaults
+  // Shipping — from request body (required for physical products)
   // (resolved at checkout time, not here)
 };
 

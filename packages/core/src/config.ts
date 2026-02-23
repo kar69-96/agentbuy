@@ -70,6 +70,20 @@ export function getDefaultShipping(): ShippingInfo | undefined {
   };
 }
 
+// ---- CDP (Coinbase Onramp) accessors ----
+
+export function getCdpProjectId(): string {
+  return process.env.CDP_PROJECT_ID || "";
+}
+
+export function getCdpApiKeyId(): string {
+  return process.env.CDP_API_KEY_ID || "";
+}
+
+export function getCdpApiKeySecret(): string {
+  return process.env.CDP_API_KEY_SECRET || "";
+}
+
 // ---- Config management ----
 
 export function loadOrCreateConfig(): ProxoConfig {

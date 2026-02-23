@@ -11,6 +11,22 @@ const CHAIN_IDS: Record<string, string> = {
   base: "eip155:8453",
 };
 
+/** Convert raw token units to human-readable decimal (e.g., "10000" with 6 decimals → "0.01") */
+function rawToHuman(rawAmount: string, decimals: number): string {
+  const raw = BigInt(rawAmount);
+  const divisor = 10n ** BigInt(decimals);
+  const intPart = raw / divisor;
+  const fracPart = raw % divisor;
+  if (fracPart === 0n) return intPart.toString();
+  const fracStr = fracPart
+    .toString()
+    .padStart(decimals, "0")
+    .replace(/0+$/, "");
+  return `${intPart}.${fracStr}`;
+}
+
+const USDC_DECIMALS = 6;
+
 export async function detectRoute(url: string): Promise<DetectResult> {
   let response: Response;
   try {
@@ -33,10 +49,13 @@ export async function detectRoute(url: string): Promise<DetectResult> {
     for (const entry of accepts) {
       const e = entry as Record<string, unknown>;
       if (e.network === chainId) {
+        // x402 v2 uses `amount` (raw token units); older used `maxAmountRequired`
+        const rawAmount = String(e.amount ?? e.maxAmountRequired);
+        const humanAmount = rawToHuman(rawAmount, USDC_DECIMALS);
         const requirements: X402Requirements = {
           scheme: String(e.scheme ?? "exact"),
           network: String(e.network),
-          maxAmountRequired: String(e.maxAmountRequired),
+          maxAmountRequired: humanAmount,
           payTo: String(e.payTo),
           asset: String(e.asset ?? ""),
           resource: e.resource != null ? String(e.resource) : undefined,

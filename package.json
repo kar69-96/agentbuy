@@ -9,8 +9,13 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
+    "@proxo/api": "workspace:*",
+    "@proxo/core": "workspace:*",
+    "@proxo/orchestrator": "workspace:*",
+    "@proxo/wallet": "workspace:*",
     "@types/node": "^25.3.0",
     "typescript": "^5.7.0",
+    "viem": "^2.46.2",
     "vitest": "^3.0.0"
   }
 }

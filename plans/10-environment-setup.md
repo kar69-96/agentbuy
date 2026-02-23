@@ -22,15 +22,9 @@ BILLING_STATE=TX
 BILLING_ZIP=78701
 BILLING_COUNTRY=US
 
-# ---- Default Shipping (optional, can pass per-purchase) ----
-SHIPPING_NAME=John Doe
-SHIPPING_STREET=123 Main St
-SHIPPING_CITY=Austin
-SHIPPING_STATE=TX
-SHIPPING_ZIP=78701
-SHIPPING_COUNTRY=US
-SHIPPING_EMAIL=john@example.com
-SHIPPING_PHONE=512-555-0100
+# ---- Shipping ----
+# No default shipping. Shipping must be provided per-purchase in the buy request.
+# Browser route purchases for physical items will fail with SHIPPING_REQUIRED if omitted.
 
 # ---- API Keys ----
 ANTHROPIC_API_KEY=sk-ant-...

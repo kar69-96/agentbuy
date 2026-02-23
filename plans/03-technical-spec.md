@@ -136,11 +136,10 @@ Each wallet gets a unique funding URL:
 
 `POST /api/buy` returns a quote. `POST /api/confirm` executes. Agent can present the quote to the human before spending.
 
-### 4. Shipping: Custom Per-Purchase, Prompt if Missing
+### 4. Shipping: Required Per-Purchase, No Defaults
 
 - Provided in request → use it
-- Omitted but .env defaults exist → use defaults
-- Omitted, no defaults, browser route → return `SHIPPING_REQUIRED`
+- Omitted, browser route → return `SHIPPING_REQUIRED`
 - x402 route → shipping never required
 
 ### 5. Stagehand with Claude Sonnet 4
@@ -185,7 +184,7 @@ Not open source. Deployed and operated by you.
 **Browser route — Tier 2: Browserbase Full Cart (slow, accurate)**
 - Launch a Browserbase session
 - Navigate to product URL → add to cart → proceed to checkout
-- Fill shipping address (from request or .env defaults)
+- Fill shipping address (from request body — required)
 - Reach the order review / payment page — extract the full breakdown: item price, tax, shipping cost, order total
 - Do NOT submit the order. Close session.
 - Add 5% Proxo fee to the extracted total → return quote

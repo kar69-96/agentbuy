@@ -127,7 +127,7 @@ curl -X POST http://localhost:3000/api/buy \
 |-------|------|----------|-------------|
 | `url` | string | yes | Product URL or x402 endpoint |
 | `wallet_id` | string | yes | Wallet to charge |
-| `shipping` | object | no | Shipping address. Falls back to .env defaults. Returns SHIPPING_REQUIRED if needed and missing. |
+| `shipping` | object | no | Shipping address. Required for physical products (browser route). Returns `SHIPPING_REQUIRED` if needed and not provided. |
 
 **200 OK (browser route — scrape discovery):**
 ```json
