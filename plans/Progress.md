@@ -8,57 +8,60 @@
 
 ### Summary
 
-- **175 passing** / **3 failing** / **178 total**
-- **22 test files** passing, **2 test files** failing
+- **174 passing** / **4 failing** / **178 total**
+- **21 test files** passing, **3 test files** failing
 - All offline tests pass. Failures are in integration tests that require external services.
 
-### Failing Tests (3)
+### Failing Tests (4)
 
 | Test | File | Error | Root Cause |
 |------|------|-------|------------|
 | `POST /api/confirm → 200 with receipt` | `tests/e2e/x402-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
 | `full browser checkout → 200 receipt` | `tests/e2e/browser-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
-| `wallet balance reduced after browser checkout` | `tests/e2e/browser-flow.test.ts` | `20 is not less than 19.99` | Depends on checkout succeeding (same gas issue) |
+| `wallet balance reduced after browser checkout` | `tests/e2e/browser-flow.test.ts` | `20 is not less than 20` | Depends on checkout succeeding (same gas issue) |
+| `creates and destroys a session` | `packages/checkout/tests/session.test.ts` | Timeout (30s) | Browserbase session creation timed out (network) |
 
 **To unblock:** Fund test wallet `0xBA19f9bf143B351b2D27FcbC0e8435cc44b50374` with Base Sepolia ETH from a faucet (e.g., Alchemy Base Sepolia faucet).
 
-### Recent Fixes (this session)
+### Recent Changes (this session)
 
-| Fix | File | Issue |
-|-----|------|-------|
-| x402 v2 field name | `packages/x402/src/detect.ts` | PayAI v2 uses `amount` (raw USDC units), not `maxAmountRequired`. Added `rawToHuman()` conversion (6 decimals). |
-| European decimal format | `packages/checkout/src/discover.ts` | `extractPriceFromString("4,95")` was converting to `"495"` instead of `"4.95"`. Added comma-as-decimal detection. |
+| Change | File | Description |
+|--------|------|-------------|
+| Step tracking in checkout | `packages/checkout/src/task.ts` | Added `CHECKOUT_STEPS` const, `CheckoutStep` type, `failedStep`/`errorMessage`/`durationMs` to `CheckoutResult`. Inner IIFE wrapped in try-catch to return structured failures instead of throwing. Timeout handled as `failedStep: "timeout"`. |
+| New exports | `packages/checkout/src/index.ts` | Export `CHECKOUT_STEPS` and `CheckoutStep` type |
+| Multi-URL loop runner | `tests/browserbase-refinement/test-checkout-loop.ts` | New test harness: runs multiple URLs sequentially with `--tier` and `--url` flags, prints summary table, appends structured run log to `plans/testing/browserbase-refinement.md` |
+| Loop script | `package.json` | Added `test:checkout:loop` script |
 
 ### Full Test Output
 
 ```
  ✓ packages/wallet/tests/qr.test.ts (2 tests)
- ✓ packages/api/tests/api.test.ts (28 tests)
- ✓ packages/x402/tests/detect.test.ts (3 tests)
- ✓ packages/wallet/tests/create.test.ts (6 tests)
- ✓ packages/wallet/tests/balance.test.ts (8 tests)
- ✓ packages/checkout/tests/discover.test.ts (10 tests)
  ✓ tests/e2e/errors.test.ts (8 tests)
+ ✓ packages/x402/tests/detect.test.ts (3 tests)
+ ✓ packages/api/tests/api.test.ts (28 tests)
+ ✓ packages/wallet/tests/create.test.ts (6 tests)
  ✓ packages/orchestrator/tests/confirm.test.ts (8 tests)
- ✓ packages/wallet/tests/transfer.test.ts (1 test)
- ✓ packages/core/tests/store.test.ts (12 tests)
- ✓ packages/checkout/tests/session.test.ts (4 tests)
- ✓ packages/orchestrator/tests/receipts.test.ts (3 tests)
+ ✓ packages/wallet/tests/balance.test.ts (8 tests)
  ✓ packages/api/tests/onramp.test.ts (7 tests)
+ ✓ packages/wallet/tests/transfer.test.ts (1 test)
  ✓ packages/checkout/tests/cache.test.ts (10 tests)
  ✓ packages/orchestrator/tests/buy.test.ts (8 tests)
+ ✓ packages/core/tests/store.test.ts (12 tests)
+ ✓ packages/core/tests/fees.test.ts (10 tests)
+ ✓ packages/checkout/tests/discover.test.ts (10 tests)
  ✓ packages/checkout/tests/credentials.test.ts (12 tests)
  ✓ packages/checkout/tests/fill.test.ts (9 tests)
+ ✓ packages/orchestrator/tests/receipts.test.ts (3 tests)
  ✓ packages/checkout/tests/confirm.test.ts (7 tests)
- ✓ packages/core/tests/fees.test.ts (10 tests)
  ✓ tests/e2e/config.test.ts (5 tests)
  ✓ packages/x402/tests/pay.test.ts (1 test)
  ✓ packages/checkout/tests/e2e-discover.test.ts (6 tests)
- × tests/e2e/browser-flow.test.ts (5 tests | 2 failed)
  × tests/e2e/x402-flow.test.ts (5 tests | 1 failed)
+ × tests/e2e/browser-flow.test.ts (5 tests | 2 failed)
+ × packages/checkout/tests/session.test.ts (1 failed — timeout)
 
- Test Files  2 failed | 22 passed (24)
-      Tests  3 failed | 175 passed (178)
+ Test Files  3 failed | 21 passed (24)
+      Tests  4 failed | 174 passed (178)
 ```
 
 ---
