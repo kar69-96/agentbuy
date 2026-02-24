@@ -7,7 +7,8 @@
     "build": "pnpm -r build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:checkout": "tsx tests/browserbase-refinement/test-checkout.ts"
+    "test:checkout": "tsx tests/browserbase-refinement/test-checkout.ts",
+    "test:checkout:loop": "tsx tests/browserbase-refinement/test-checkout-loop.ts"
   },
   "devDependencies": {
     "@proxo/api": "workspace:*",

@@ -87,6 +87,12 @@ try {
   console.log(`Session:    ${result.sessionId}`);
   console.log(`Replay:     ${result.replayUrl}`);
   console.log(`Total:      ${result.finalTotal ?? "(not extracted)"}`);
+  if (result.failedStep) {
+    console.log(`Failed at:  ${result.failedStep}`);
+  }
+  if (result.errorMessage) {
+    console.log(`Error:      ${result.errorMessage}`);
+  }
   console.log(`Duration:   ${elapsed}s`);
 
   // ---- Append to run log ----
@@ -101,6 +107,8 @@ try {
     `**URL:** ${url}`,
     `**Session:** [${result.sessionId}](${result.replayUrl})`,
     `**Result:** ${result.success ? "SUCCESS (dry-run)" : "FAILURE"}`,
+    ...(result.failedStep ? [`**Failed step:** ${result.failedStep}`] : []),
+    ...(result.errorMessage ? [`**Error:** ${result.errorMessage.slice(0, 200)}`] : []),
     `**Extracted total:** ${result.finalTotal ?? "—"}`,
     `**Duration:** ${elapsed}s`,
     "",

@@ -34,7 +34,6 @@ export const CHECKOUT_STEPS = {
   VERIFY_PRICE: "verify-price",
   PLACE_ORDER: "place-order",
   VERIFY_CONFIRMATION: "verify-confirmation",
-  TIMEOUT: "timeout",
 } as const;
 
 export type CheckoutStep = (typeof CHECKOUT_STEPS)[keyof typeof CHECKOUT_STEPS];
@@ -59,18 +58,43 @@ export interface CheckoutInput {
   sessionOptions?: SessionOptions;
 }
 
-// ---- Hard timeout ----
-
-const CHECKOUT_TIMEOUT_MS = 5 * 60 * 1000;
-
 // ---- Price tolerance ----
 
 function isPriceAcceptable(expected: string, actual: string): boolean {
   const exp = parseFloat(expected);
   const act = parseFloat(actual);
   if (isNaN(exp) || isNaN(act)) return true; // can't verify, proceed
+  if (exp === 0) return true; // dry-run / no expected price
   const diff = Math.abs(act - exp);
   return diff <= 1 || diff / exp <= 0.05;
+}
+
+// ---- Retry wrapper for Stagehand schema bugs ----
+
+const MAX_ACT_RETRIES = 2;
+
+async function actWithRetry(
+  stagehand: InstanceType<typeof Stagehand>,
+  instruction: string,
+  options?: { variables?: Record<string, string> },
+): Promise<void> {
+  for (let attempt = 0; attempt <= MAX_ACT_RETRIES; attempt++) {
+    try {
+      await stagehand.act(instruction, options);
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const isSchemaError =
+        msg.includes("AI_NoObjectGeneratedError") ||
+        msg.includes("Invalid response schema") ||
+        msg.includes("did not match the expected schema");
+      if (isSchemaError && attempt < MAX_ACT_RETRIES) {
+        // Stagehand schema bug — retry
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 
 // ---- Full checkout orchestration ----
@@ -93,7 +117,6 @@ export async function runCheckout(
   // 3. Create Browserbase session
   const session = await createSession(input.sessionOptions);
   let stagehand: InstanceType<typeof Stagehand> | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   const startMs = Date.now();
 
   try {
@@ -118,15 +141,7 @@ export async function runCheckout(
       await injectDomainCache(page, existingCache);
     }
 
-    // 5. Set hard timeout (timer cleared in finally to prevent unhandled rejection)
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(
-        () => reject(new Error("Checkout timeout: 5 minutes exceeded")),
-        CHECKOUT_TIMEOUT_MS,
-      );
-    });
-
-    const checkoutPromise = (async (): Promise<CheckoutResult> => {
+    {
       let currentStep: CheckoutStep = CHECKOUT_STEPS.NAVIGATE;
 
       try {
@@ -138,38 +153,168 @@ export async function runCheckout(
         });
         await page.waitForTimeout(2000);
 
-        // 6b. Add to cart
-        currentStep = CHECKOUT_STEPS.ADD_TO_CART;
-        await stagehand.act("Add this product to cart");
-        await page.waitForTimeout(1000);
-
-        // 6c. Proceed to checkout
-        currentStep = CHECKOUT_STEPS.PROCEED_TO_CHECKOUT;
-        await stagehand.act("Go to checkout or proceed to checkout");
-        await page.waitForTimeout(2000);
-
-        // 6d. Dismiss popups, cookie banners, login walls
+        // 6b. Dismiss any initial overlays before interacting
         currentStep = CHECKOUT_STEPS.DISMISS_POPUPS;
         try {
-          await stagehand.act(
-            "Dismiss any popups, cookie banners, or login prompts. Click continue as guest if asked.",
+          await actWithRetry(
+            stagehand,
+            "Dismiss any popups, cookie banners, modals, newsletter signups, or overlays that are blocking the page",
           );
         } catch {
-          // No popups to dismiss
+          // Nothing to dismiss
         }
 
-        // 6e. Fill shipping via Stagehand variables
+        // 6c. Add to cart — two explicit steps to avoid Stagehand treating variant selection as add-to-cart
+        currentStep = CHECKOUT_STEPS.ADD_TO_CART;
+
+        // Step 1: Select variant/size if needed
+        try {
+          await actWithRetry(
+            stagehand,
+            "If this product requires selecting a size, color, variant, or quantity option before adding to cart, " +
+            "select the first available in-stock option now. " +
+            "If the current selection shows 'Sold Out' or 'Unavailable', choose a different option. " +
+            "If no selection is needed or options are already selected, do nothing.",
+          );
+          await page.waitForTimeout(1000);
+        } catch {
+          // No variant selection needed
+        }
+
+        // Step 2: Explicitly click the Add to Cart button
+        await actWithRetry(
+          stagehand,
+          "Click the 'Add to Cart', 'Add to Bag', or 'Add to Basket' button on this page. " +
+          "This is a button that adds the product to the shopping cart. " +
+          "Do NOT click variant/size selectors, quantity controls, or any other button. " +
+          "The button usually says exactly 'Add to Cart' or 'Add to Bag'.",
+        );
+        // Wait for cart state to persist (some sites need time to update cookies/state)
+        await page.waitForTimeout(3000);
+
+        // 6d. Proceed to checkout
+        currentStep = CHECKOUT_STEPS.PROCEED_TO_CHECKOUT;
+
+        // First try: look for a checkout/cart link in any popup, drawer, or notification
+        // that appeared after adding to cart (e.g., "View cart & check out", "Checkout")
+        try {
+          await actWithRetry(
+            stagehand,
+            "Look for a 'Checkout', 'View cart & check out', 'Proceed to Checkout', or 'Go to Cart' link " +
+            "in any popup, drawer, notification, or modal that appeared after adding the item. " +
+            "Click it to proceed toward checkout. " +
+            "Do NOT click 'Continue Shopping' or dismiss the notification.",
+          );
+        } catch {
+          // No popup/drawer — fall back to clicking the cart icon
+          await actWithRetry(
+            stagehand,
+            "Click the cart icon or 'Cart' link in the page header to go to the cart page.",
+          );
+        }
+        await page.waitForTimeout(3000);
+
+        // If we're on the cart page, click the checkout button
+        const currentUrl = page.url();
+        if (currentUrl.includes("/cart")) {
+          await actWithRetry(
+            stagehand,
+            "Find and click the main 'Check Out', 'Checkout', or 'Proceed to Checkout' button on this page. " +
+            "It is usually a large, prominent button (often red, green, or blue) near the order summary or cart total. " +
+            "Do NOT click invisible elements, hidden alerts, account buttons, or newsletter signups. " +
+            "Do NOT click 'Log In', 'Sign In', or 'Create Account'. " +
+            "If a guest checkout option appears, select it.",
+          );
+          await page.waitForTimeout(2000);
+        }
+
+        // 6e. Handle any remaining login walls or popups after navigation
+        try {
+          await actWithRetry(
+            stagehand,
+            "If there is a login wall, account creation prompt, or sign-in page, " +
+            "find and click any Guest Checkout, Continue as Guest, or Skip Login option. " +
+            "Also dismiss any new popups, modals, or overlays.",
+          );
+        } catch {
+          // Already past login / no popups
+        }
+
+        // 6f. Fill shipping via Stagehand variables (field-by-field to avoid schema issues)
         currentStep = CHECKOUT_STEPS.FILL_SHIPPING;
-        await stagehand.act(
-          "Fill the shipping/contact form: name=%x_shipping_name%, street address=%x_shipping_street%, city=%x_shipping_city%, state=%x_shipping_state%, zip=%x_shipping_zip%, country=%x_shipping_country%, email=%x_shipping_email%, phone=%x_shipping_phone%",
+
+        // Email / contact — must be the checkout/shipping form email, NOT newsletter
+        await actWithRetry(
+          stagehand,
+          "Fill the email or contact email field in the checkout or shipping form with %x_shipping_email%. " +
+          "Do NOT fill any newsletter signup, footer, or promotional email fields.",
           { variables: stagehandVars },
         );
+
+        // Name fields — some sites split first/last, some have a single field
+        await actWithRetry(
+          stagehand,
+          "Fill the name, first name, or full name field with %x_shipping_name%",
+          { variables: stagehandVars },
+        );
+
+        // Street address
+        await actWithRetry(
+          stagehand,
+          "Fill the street address or address line 1 field with %x_shipping_street%. If an address autocomplete dropdown appears, dismiss it or press Escape.",
+          { variables: stagehandVars },
+        );
+
+        // City
+        await actWithRetry(
+          stagehand,
+          "Fill the city field with %x_shipping_city%",
+          { variables: stagehandVars },
+        );
+
+        // State — may be dropdown or text input
+        await actWithRetry(
+          stagehand,
+          "Fill or select %x_shipping_state% in the state, province, or region field",
+          { variables: stagehandVars },
+        );
+
+        // ZIP / postal code
+        await actWithRetry(
+          stagehand,
+          "Fill the ZIP code or postal code field with %x_shipping_zip%",
+          { variables: stagehandVars },
+        );
+
+        // Country — often pre-filled, skip errors
+        try {
+          await actWithRetry(
+            stagehand,
+            "Select or fill %x_shipping_country% in the country field if it is not already set",
+            { variables: stagehandVars },
+          );
+        } catch {
+          // Country may be pre-selected
+        }
+
+        // Phone — optional on many sites
+        try {
+          await actWithRetry(
+            stagehand,
+            "Fill the phone number field with %x_shipping_phone%",
+            { variables: stagehandVars },
+          );
+        } catch {
+          // Phone may not be required
+        }
+
         await page.waitForTimeout(1000);
 
-        // 6f. Select cheapest shipping + continue
+        // 6g. Select cheapest shipping + continue
         currentStep = CHECKOUT_STEPS.SELECT_SHIPPING;
         try {
-          await stagehand.act(
+          await actWithRetry(
+            stagehand,
             "Select the cheapest shipping option if multiple are available, then continue to payment",
           );
           await page.waitForTimeout(1000);
@@ -177,17 +322,18 @@ export async function runCheckout(
           // Shipping selection may not be applicable
         }
 
-        // 6g. Avoid express pay
+        // 6h. Avoid express pay
         currentStep = CHECKOUT_STEPS.AVOID_EXPRESS_PAY;
         try {
-          await stagehand.act(
+          await actWithRetry(
+            stagehand,
             "If asked about express payment (Shop Pay, Google Pay, Apple Pay, PayPal), decline and use regular credit card payment instead",
           );
         } catch {
           // No express pay prompt
         }
 
-        // 6h. Observe card fields via Stagehand
+        // 6i. Observe card fields via Stagehand
         currentStep = CHECKOUT_STEPS.OBSERVE_CARD_FIELDS;
         const observeResult = await stagehand.observe(
           "Find all credit card input fields on this page: card number, expiration date, CVV/security code, and cardholder name.",
@@ -199,15 +345,16 @@ export async function runCheckout(
           description: obs.description,
         }));
 
-        // 6i. Fill card fields via direct DOM fill (NEVER through Stagehand LLM)
+        // 6j. Fill card fields via direct DOM fill (NEVER through Stagehand LLM)
         currentStep = CHECKOUT_STEPS.FILL_CARD;
         await fillAllCardFields(page, observedFields, cdpCreds);
         await page.waitForTimeout(500);
 
-        // 6j. Fill billing address if separate from shipping
+        // 6k. Fill billing address if separate from shipping
         currentStep = CHECKOUT_STEPS.FILL_BILLING;
         try {
-          await stagehand.act(
+          await actWithRetry(
+            stagehand,
             "If there is a separate billing address form, fill it: street=%x_billing_street%, city=%x_billing_city%, state=%x_billing_state%, zip=%x_billing_zip%, country=%x_billing_country%. If billing is same as shipping, check that box instead.",
             { variables: stagehandVars },
           );
@@ -215,7 +362,7 @@ export async function runCheckout(
           // No separate billing
         }
 
-        // 6k. Verify price before submitting
+        // 6l. Verify price before submitting
         currentStep = CHECKOUT_STEPS.VERIFY_PRICE;
         try {
           const bodyText = await page.evaluate(
@@ -242,7 +389,8 @@ export async function runCheckout(
         if (!input.dryRun) {
           // 6l. Click Place Order
           currentStep = CHECKOUT_STEPS.PLACE_ORDER;
-          await stagehand.act(
+          await actWithRetry(
+            stagehand,
             "Click the Place Order, Complete Purchase, or Submit Order button to finalize the purchase",
           );
           await page.waitForTimeout(5000);
@@ -309,26 +457,9 @@ export async function runCheckout(
           durationMs: Date.now() - startMs,
         };
       }
-    })();
-
-    // Race checkout against timeout
-    try {
-      return await Promise.race([checkoutPromise, timeoutPromise]);
-    } catch (err) {
-      // Timeout (or other unexpected) rejection — return structured failure
-      return {
-        success: false,
-        sessionId: session.id,
-        replayUrl: session.replayUrl,
-        failedStep: CHECKOUT_STEPS.TIMEOUT,
-        errorMessage: err instanceof Error ? err.message : String(err),
-        durationMs: Date.now() - startMs,
-      };
     }
   } finally {
-    // 8. Clear timeout to prevent unhandled rejection after settlement
-    if (timer) clearTimeout(timer);
-    // 9. Destroy session in finally (belt-and-suspenders)
+    // Destroy session
     if (stagehand) {
       try {
         await stagehand.close();
