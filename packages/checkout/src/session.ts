@@ -34,10 +34,10 @@ export function getBrowserbaseConfig(): {
   return { apiKey, projectId };
 }
 
-export function getAnthropicApiKey(): string {
-  const key = process.env.ANTHROPIC_API_KEY;
+export function getModelApiKey(): string {
+  const key = process.env.GOOGLE_API_KEY;
   if (!key) {
-    throw new Error("ANTHROPIC_API_KEY is required");
+    throw new Error("GOOGLE_API_KEY is required");
   }
   return key;
 }

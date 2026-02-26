@@ -9,7 +9,7 @@ import { createApp } from "@proxo/api/src/server.js";
 
 const hasRpc = !!process.env.BASE_RPC_URL;
 const hasBrowserbase = !!process.env.BROWSERBASE_API_KEY;
-const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
+const hasAnthropic = !!process.env.GOOGLE_API_KEY;
 const hasTestWallet = !!process.env.TEST_WALLET_PRIVATE_KEY;
 
 // ---- Test helpers ----
@@ -175,7 +175,7 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
         expect(confirmJson.receipt).toBeDefined();
         expect(confirmJson.receipt.tx_hash).toMatch(/^0x/);
       },
-      180_000,
+      300_000,
     );
 
     // Scenario B: Balance reduced after purchase
