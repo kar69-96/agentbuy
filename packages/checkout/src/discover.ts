@@ -1,3 +1,5 @@
+//Stagehand uses a 1288x711 viewport by default
+
 import { Stagehand } from "@browserbasehq/stagehand";
 import { z } from "zod";
 import type { ShippingInfo } from "@proxo/core";

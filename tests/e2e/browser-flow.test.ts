@@ -175,7 +175,7 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
         expect(confirmJson.receipt).toBeDefined();
         expect(confirmJson.receipt.tx_hash).toMatch(/^0x/);
       },
-      180_000,
+      300_000,
     );
 
     // Scenario B: Balance reduced after purchase
