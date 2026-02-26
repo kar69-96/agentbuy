@@ -139,7 +139,15 @@ export async function injectDomainCache(
     });
   }
 
-  // Set localStorage via evaluate
+  // Note: localStorage injection is deferred — it must happen AFTER
+  // navigating to the target domain (localStorage is domain-scoped).
+  // Call injectLocalStorage() after page.goto().
+}
+
+export async function injectLocalStorage(
+  page: Page,
+  cache: DomainCache,
+): Promise<void> {
   if (cache.localStorage && Object.keys(cache.localStorage).length > 0) {
     const items = cache.localStorage;
     await page.evaluate((ls: Record<string, string>) => {

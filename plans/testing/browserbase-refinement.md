@@ -533,6 +533,123 @@ SHIPPING_EMAIL=test@example.com
 
 ---
 
+## Progress
+
+### What Works
+
+| Capability | Status | Notes |
+|-----------|--------|-------|
+| **Browserbase session creation** | Working | Sessions create reliably with stealth, proxies, CAPTCHA solving, recording |
+| **Browserbase session replay** | Working | All sessions have valid replay URLs at `browserbase.com/sessions/{id}` |
+| **Session destroy / cleanup** | Working | `finally` block always cleans up, even on crash |
+| **Stagehand initialization** | Working | Claude Sonnet 4 via `anthropic/claude-sonnet-4-20250514` connects to Browserbase sessions |
+| **Navigation to product pages** | Working | `page.goto()` + `waitForTimeout` reliably loads product pages |
+| **Popup/overlay dismissal** | Working | `act("Dismiss any popups...")` handles cookie banners, modals, newsletter signups |
+| **Variant selection (simple)** | Partial | Works when there's a clear size/color picker; fails on complex configurators |
+| **Add to cart** | Partial | Works on standard "Add to Cart" buttons; struggles with non-standard UI (e.g., "Add to Bag" in drawers) |
+| **Cart navigation (popup/drawer)** | Partial | Post-add-to-cart popup detection works on some Shopify stores; falls back to cart icon click |
+| **Cart page → Checkout button** | Partial | Works when URL contains `/cart`; doesn't handle all checkout button patterns |
+| **Guest checkout selection** | Working | After prompt refinement, navigates past login walls on Shopify (guest checkout, continue as guest) |
+| **Email field fill** | Working | Field-by-field approach works; correctly targets checkout form email, not newsletter |
+| **Name field fill** | Working | Handles both split (first/last) and combined name fields |
+| **Shipping address fill** | Intermittent | Individual fields work but hit Stagehand schema bug intermittently (see Known Issues) |
+| **Step-level error tracking** | Working | `CheckoutResult` now includes `failedStep`, `errorMessage`, `durationMs` |
+| **Dry-run mode** | Working | `dryRun: true` stops before clicking Place Order, extracts diagnostics |
+| **Price verification** | Working | `isPriceAcceptable()` catches mismatches within 5% or $1 tolerance |
+| **Card field observation** | Untested | `stagehand.observe()` for card fields not yet reached in any successful run |
+| **Card CDP fill** | Untested | `fillAllCardFields()` via Playwright not yet reached |
+| **Domain cache (inject/extract)** | Untested | Cache loading/saving code exists but not yet exercised in successful runs |
+
+### What Doesn't Work
+
+| Issue | Severity | Affected Steps | Details |
+|-------|----------|---------------|---------|
+| **Stagehand `arguments` schema bug** | High | fill-shipping, fill-billing | LLM intermittently returns `"arguments": "%var%"` (string) instead of `"arguments": ["%var%"]` (array). Zod validation fails with `AI_NoObjectGeneratedError`. Documented in Stagehand Issues #676, #1204. Field-by-field `act()` calls reduce frequency but don't eliminate it. |
+| **Stagehand `elementId` format bug** | Medium | add-to-cart, proceed-to-checkout | LLM returns `"2686"` instead of `"2-686"` or `"<UNKNOWN>"`, failing Stagehand's internal regex validation. Causes retries via self-healing, sometimes recovers. |
+| **`no actionable element returned by LLM`** | Medium | various | Stagehand finds elements but can't resolve the xpath. Self-healing retry sometimes works, sometimes fails after max retries. |
+| **Target.com bot detection** | High | navigate / add-to-cart | Target's anti-bot system blocks or redirects even with stealth mode + residential proxies. Multiple runs (6+) all failed. May need Browserbase fingerprint config tuning. |
+| **Price regex too greedy** | Low | verify-price | `/$?([\d,]+\.?\d*)/` matches first number on page, not necessarily the order total. When `price: "0"` is used (test harness), any number triggers a mismatch. |
+| **Non-Shopify checkout flows** | Untested | all | Only Shopify stores have been tested end-to-end. Target, Best Buy, Walmart, Amazon flows are completely untested beyond navigation. |
+
+### Checkout Flow Analysis by Site Type
+
+#### Shopify Stores (Tier 1)
+
+**Furthest step reached:** `fill-shipping` → individual fields (email, name work; city intermittently fails due to schema bug)
+
+**Flow pattern:**
+1. Product page → dismiss popups → select variant → "Add to Cart" button
+2. Post-add popup/drawer appears → click "View cart & check out" or fall back to cart icon
+3. Cart page → "Check Out" button (often at `/cart`)
+4. Shopify checkout at `checkout.shopify.com` → email → shipping → payment
+5. Guest checkout available (no login required)
+
+**What works:** Steps 1-4 work reliably after prompt refinements. Guest checkout navigation succeeds. Email fill works.
+
+**What fails:** Shipping field fills intermittently fail due to Stagehand schema bug. When all fields succeed, the flow gets to `select-shipping` or `verify-price`.
+
+**Sites tested:** bombas.com, pipsnacks.com, brooklinen.com, holstee.com, ugmonk.com
+
+#### Target.com (Tier 2)
+
+**Furthest step reached:** `add-to-cart` (bot detection blocks progress)
+
+**Flow pattern:**
+1. Product page → dismiss popups → "Add to cart" button
+2. Cart overlay → "View cart & check out"
+3. Multi-step checkout (shipping → payment → review)
+4. Guest checkout available
+
+**What fails:** Target's anti-bot system detects automation even with Browserbase stealth mode + residential proxies. Navigation succeeds but interactions trigger blocks. 6+ attempts all failed.
+
+**Recommendation:** Deprioritize until Browserbase fingerprint tuning or Target-specific stealth settings are available.
+
+#### Best Buy / Walmart / Amazon (Tier 2-3)
+
+**Status:** Untested. No runs attempted yet.
+
+### Known Stagehand v3.0.8 Issues
+
+1. **`AI_NoObjectGeneratedError` — arguments string vs array** (Issue [#676](https://github.com/browserbase/stagehand/issues/676), [#1204](https://github.com/browserbase/stagehand/issues/1204))
+   - When using `%var%` syntax, the LLM occasionally returns `"arguments": "%var%"` (string) instead of `"arguments": ["%var%"]` (array)
+   - Zod schema validation rejects the response
+   - Workaround: field-by-field `act()` calls reduce surface area, but bug persists intermittently
+   - Fix needed: Stagehand should coerce string → array when schema expects array
+
+2. **`elementId` format mismatch**
+   - LLM returns element IDs like `"2686"` instead of Stagehand's expected `"2-686"` format
+   - Also returns `"<UNKNOWN>"` when no element matches
+   - Self-healing retry handles this sometimes, but burns retries
+
+3. **`no actionable element returned by LLM`**
+   - Element identified but xpath resolution fails
+   - Occurs when page DOM changes between observation and action
+   - Self-healing sometimes recovers
+
+### Prompt Refinements Applied
+
+| Version | Change | Why |
+|---------|--------|-----|
+| v1 | Original single-prompt approach | Baseline |
+| v2 | Moved popup dismissal before add-to-cart | Overlays were blocking the add-to-cart button |
+| v3 | Split add-to-cart into variant selection + button click | Stagehand was treating variant dropdown selection as "adding to cart" |
+| v4 | Split cart navigation into popup/drawer detection + cart page fallback | Cart slide-out drawers weren't navigating to actual cart page |
+| v5 | Added explicit guest checkout navigation after cart checkout button | Shopify login walls were blocking progress |
+| v6 | Split shipping fill from single mega-prompt to field-by-field `act()` calls | Reduced Stagehand schema bug frequency |
+| v7 | Added "Do NOT fill newsletter" to email prompt | Stagehand was filling footer newsletter email instead of checkout email |
+
+### Next Steps
+
+1. **Replenish Anthropic API credits** — all testing blocked until credits available
+2. **Run full Tier 1 loop** — test 3+ Shopify stores to establish pass rate baseline
+3. **Add retry wrapper for schema bug** — wrap individual `act()` calls in a retry loop (2-3 attempts) to handle intermittent schema failures
+4. **Fix price verification for dry-run** — skip price check when `order.payment.price === "0"` (test harness uses placeholder)
+5. **Test card field observation + CDP fill** — need to reach payment step on a Shopify store
+6. **Explore Stagehand v3 alpha** — check if alpha releases fix the schema bug
+7. **Target.com stealth investigation** — work with Browserbase support on fingerprint tuning
+
+---
+
 ## Run Log
 
 Living record of every test run. After each run, append a new entry below. Each entry captures what happened, what worked, what failed, and what to change for the next iteration.
@@ -578,3 +695,245 @@ Copy this template for each new run:
 ### Runs
 
 _No runs recorded yet. First run will be logged below._
+
+### Run — 2026-02-23 15:56
+
+**URL:** https://www.bombas.com/products/womens-ankle-sock-4-pack
+**Session:** [d7692372-78ab-46d0-a48a-fd86ca52f9bf](https://browserbase.com/sessions/d7692372-78ab-46d0-a48a-fd86ca52f9bf)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 62.7s
+
+---
+
+### Run — 2026-02-23 15:58
+
+**URL:** https://www.target.com/p/scotch-brite-non-scratch-scrub-sponge/-/A-14779553
+**Session:** [f884853c-ba19-4725-b842-7f7aba8bbb44](https://browserbase.com/sessions/f884853c-ba19-4725-b842-7f7aba8bbb44)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 29.7s
+
+---
+
+### Run — 2026-02-23 16:00
+
+**URL:** https://www.target.com/p/scotch-brite-zero-scratch-scrub-sponges/-/A-52893690
+**Session:** [c9e5ea88-c863-4ac4-ba4f-d670d2005039](https://browserbase.com/sessions/c9e5ea88-c863-4ac4-ba4f-d670d2005039)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 73.9s
+
+---
+
+### Run — 2026-02-23 16:02
+
+**URL:** https://www.target.com/p/scotch-brite-zero-scratch-scrub-sponges/-/A-52893690
+**Session:** [1272ef70-d7f2-4549-a119-25da398e45b8](https://browserbase.com/sessions/1272ef70-d7f2-4549-a119-25da398e45b8)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 96.4s
+
+---
+
+### Run — 2026-02-23 16:10
+
+**URL:** https://pipsnacks.com/products/classic-heirloom-popcorn
+**Session:** [8395c7c1-4e7e-4534-83dc-8b9b9a86e1a1](https://browserbase.com/sessions/8395c7c1-4e7e-4534-83dc-8b9b9a86e1a1)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 57.0s
+
+---
+
+### Run — 2026-02-23 16:13
+
+**URL:** https://www.target.com/p/scotch-brite-zero-scratch-scrub-sponges/-/A-52893690
+**Session:** [e8a778d2-0940-4d85-b370-f7feb4dd1d57](https://browserbase.com/sessions/e8a778d2-0940-4d85-b370-f7feb4dd1d57)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 54.1s
+
+---
+
+### Run — 2026-02-23 16:15
+
+**URL:** https://www.brooklinen.com/products/classic-core-sheet-set
+**Session:** [488c27c9-d1bf-4e91-bd10-4c2c9e70827e](https://browserbase.com/sessions/488c27c9-d1bf-4e91-bd10-4c2c9e70827e)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 98.0s
+
+---
+
+### Run — 2026-02-23 16:18
+
+**URL:** https://www.target.com/p/scotch-brite-zero-scratch-scrub-sponges/-/A-52893690
+**Session:** [1e8ea35c-0095-418f-bfbf-fd2f7153b3d4](https://browserbase.com/sessions/1e8ea35c-0095-418f-bfbf-fd2f7153b3d4)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 65.7s
+
+---
+
+### Run — 2026-02-23 16:19
+
+**URL:** https://www.target.com/p/scotch-brite-zero-scratch-scrub-sponges/-/A-52893690
+**Session:** [2a682c25-5a1b-48c4-b408-f6a17f4328ac](https://browserbase.com/sessions/2a682c25-5a1b-48c4-b408-f6a17f4328ac)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 59.0s
+
+---
+
+### Run — 2026-02-23 16:27
+
+**URL:** https://www.target.com/p/scotch-brite-zero-scratch-scrub-sponges/-/A-52893690
+**Session:** [aa89b49a-7c61-4de4-8104-28fc1f73c23b](https://browserbase.com/sessions/aa89b49a-7c61-4de4-8104-28fc1f73c23b)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 56.1s
+
+---
+
+### Run — 2026-02-23 16:29
+
+**URL:** https://www.holstee.com/products/reflection-cards
+**Session:** [5d5d296e-d415-4801-a2aa-a3fa89ba3fb9](https://browserbase.com/sessions/5d5d296e-d415-4801-a2aa-a3fa89ba3fb9)
+**Result:** FAILURE
+**Extracted total:** —
+**Duration:** 85.8s
+
+---
+
+### Loop Run — 2026-02-23 16:38
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Gather (simple product) | 1 | FAIL | add-to-cart | AI_APICallError: Your credit balance is too low to access the Anthropic API. Ple | 30.3s | [replay](https://browserbase.com/sessions/40b44b1a-a080-4e05-bfab-ae3eb1c215d9) |
+
+---
+
+### Loop Run — 2026-02-23 16:43
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Gather (simple product) | 1 | FAIL | add-to-cart | AI_APICallError: Your credit balance is too low to access the Anthropic API. Ple | 29.5s | [replay](https://browserbase.com/sessions/ee0584ce-cb5b-483d-bbaf-ac73d0e05f2c) |
+
+---
+
+### Run — 2026-02-23 23:43
+
+**URL:** https://ugmonk.com/products/analog-cards-3-pack
+**Session:** [89981683-d5b0-4b11-b694-92062afaf06c](https://browserbase.com/sessions/89981683-d5b0-4b11-b694-92062afaf06c)
+**Result:** FAILURE
+**Failed step:** add-to-cart
+**Error:** AI_APICallError: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.
+**Extracted total:** —
+**Duration:** 29.0s
+
+---
+
+### Run — 2026-02-24 23:30
+
+**URL:** https://checkout.hydrogen.shop/products/the-full-stack-snowboard
+**Session:** [85813592-1f83-408d-b1cc-de43822c5ebe](https://browserbase.com/sessions/85813592-1f83-408d-b1cc-de43822c5ebe)
+**Result:** FAILURE
+**Failed step:** add-to-cart
+**Error:** AI_NoObjectGeneratedError: No object generated: response did not match schema.
+{
+  "cause": {
+    "name": "AI_TypeValidationError",
+    "message": "Type validation failed: Value: {\"elementId\":\"<UNK
+**Extracted total:** —
+**Duration:** 53.0s
+
+---
+
+### Run — 2026-02-26 02:22
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [2ed6fd6d-d26f-43f0-b04f-2138db2f234c](https://browserbase.com/sessions/2ed6fd6d-d26f-43f0-b04f-2138db2f234c)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 108.00
+**Duration:** 664.5s
+
+---
+
+### Run — 2026-02-26 08:46
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [0040f168-5aec-4ef3-9d81-68f3ac497384](https://browserbase.com/sessions/0040f168-5aec-4ef3-9d81-68f3ac497384)
+**Result:** FAILURE
+**Failed step:** navigate
+**Error:** StagehandEvalError: Uncaught
+**Extracted total:** —
+**Duration:** 16.1s
+
+---
+
+### Run — 2026-02-26 08:47
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [c9bdeb10-3b9a-4af6-bddd-781faa7f933b](https://browserbase.com/sessions/c9bdeb10-3b9a-4af6-bddd-781faa7f933b)
+**Result:** FAILURE
+**Failed step:** navigate
+**Error:** StagehandEvalError: Uncaught
+**Extracted total:** —
+**Duration:** 16.5s
+
+---
+
+### Run — 2026-02-26 09:28
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [7464180a-b6fb-4ea0-90f7-5d219049bd8b](https://browserbase.com/sessions/7464180a-b6fb-4ea0-90f7-5d219049bd8b)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 216.00
+**Duration:** 1330.6s
+
+---
+
+### Run — 2026-02-26 09:50
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [5c13dfd6-def6-4a32-af9a-562fb0f9cb9b](https://browserbase.com/sessions/5c13dfd6-def6-4a32-af9a-562fb0f9cb9b)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 324.00
+**Duration:** 1296.6s
+
+---
+
+### Run — 2026-02-26 13:45
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [773f88cc-7e8a-42a4-be0e-88c35627de4d](https://browserbase.com/sessions/773f88cc-7e8a-42a4-be0e-88c35627de4d)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 432.00
+**Duration:** 662.8s
+
+---
+
+### Run — 2026-02-26 13:49
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [15cc1078-a90a-4dca-a3a9-be5031c495b8](https://browserbase.com/sessions/15cc1078-a90a-4dca-a3a9-be5031c495b8)
+**Result:** FAILURE
+**Extracted total:** 
+**Duration:** 263.1s
+
+---
+
+### Run — 2026-02-26 13:58
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [509ee1ec-1692-42e5-b0b4-f0060b9b32ef](https://browserbase.com/sessions/509ee1ec-1692-42e5-b0b4-f0060b9b32ef)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 540.00
+**Duration:** 472.0s
+
+---

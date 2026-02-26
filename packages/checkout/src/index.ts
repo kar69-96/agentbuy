@@ -1,6 +1,6 @@
 // ---- Checkout orchestration ----
-export { runCheckout } from "./task.js";
-export type { CheckoutResult, CheckoutInput } from "./task.js";
+export { runCheckout, CHECKOUT_STEPS } from "./task.js";
+export type { CheckoutResult, CheckoutInput, CheckoutStep } from "./task.js";
 
 // ---- Price discovery ----
 export {
@@ -32,7 +32,7 @@ export {
   getBrowserbaseConfig,
   getAnthropicApiKey,
 } from "./session.js";
-export type { BrowserbaseSession } from "./session.js";
+export type { BrowserbaseSession, SessionOptions } from "./session.js";
 
 // ---- Domain cache ----
 export {

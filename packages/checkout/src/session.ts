@@ -6,7 +6,13 @@ export interface BrowserbaseSession {
   replayUrl: string;
 }
 
-const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+export interface SessionOptions {
+  stealth?: boolean;
+  proxies?: boolean;
+  logSession?: boolean;
+}
+
+const SESSION_TIMEOUT_MS = 25 * 60 * 1000;
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 3000;
 const BROWSERBASE_API_URL = "https://api.browserbase.com/v1/sessions";
@@ -36,7 +42,7 @@ export function getAnthropicApiKey(): string {
   return key;
 }
 
-export async function createSession(): Promise<BrowserbaseSession> {
+export async function createSession(options?: SessionOptions): Promise<BrowserbaseSession> {
   const { apiKey, projectId } = getBrowserbaseConfig();
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -48,9 +54,12 @@ export async function createSession(): Promise<BrowserbaseSession> {
       },
       body: JSON.stringify({
         projectId,
+        ...(options?.proxies && { proxies: true }),
         browserSettings: {
           recordSession: true,
           solveCaptchas: true,
+          ...(options?.stealth && { stealth: true }),
+          ...(options?.logSession && { logSession: true }),
         },
         timeout: SESSION_TIMEOUT_MS / 1000,
       }),

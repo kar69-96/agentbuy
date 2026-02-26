@@ -92,6 +92,13 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
       process.env.PROXO_DATA_DIR = tmpDir;
       setupConfig();
       setupTestWallet();
+
+      // Clear domain cache (both tmp and default) so each run starts fresh
+      const tmpCacheDir = path.join(tmpDir, "cache");
+      fs.rmSync(tmpCacheDir, { recursive: true, force: true });
+      const defaultCacheDir = path.join(os.homedir(), ".proxo", "cache");
+      fs.rmSync(defaultCacheDir, { recursive: true, force: true });
+
       app = createApp();
     });
 

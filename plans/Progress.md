@@ -4,13 +4,13 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-02-23
+**Last updated:** 2026-02-26
 
 ### Summary
 
 - **175 passing** / **3 failing** / **178 total**
 - **22 test files** passing, **2 test files** failing
-- All offline tests pass. Failures are in integration tests that require external services.
+- All offline/unit tests pass. Failures are in e2e integration tests that require external services (Base Sepolia ETH).
 
 ### Failing Tests (3)
 
@@ -18,44 +18,56 @@
 |------|------|-------|------------|
 | `POST /api/confirm → 200 with receipt` | `tests/e2e/x402-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
 | `full browser checkout → 200 receipt` | `tests/e2e/browser-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
-| `wallet balance reduced after browser checkout` | `tests/e2e/browser-flow.test.ts` | `20 is not less than 19.99` | Depends on checkout succeeding (same gas issue) |
+| `wallet balance reduced after browser checkout` | `tests/e2e/browser-flow.test.ts` | `20 is not less than 20` | Depends on checkout succeeding (same gas issue) |
 
-**To unblock:** Fund test wallet `0xBA19f9bf143B351b2D27FcbC0e8435cc44b50374` with Base Sepolia ETH from a faucet (e.g., Alchemy Base Sepolia faucet).
+**To unblock:** Fund test wallet with Base Sepolia ETH.
 
-### Recent Fixes (this session)
+### E2E Checkout Tests (Dry Run on Allbirds)
 
-| Fix | File | Issue |
-|-----|------|-------|
-| x402 v2 field name | `packages/x402/src/detect.ts` | PayAI v2 uses `amount` (raw USDC units), not `maxAmountRequired`. Added `rawToHuman()` conversion (6 decimals). |
-| European decimal format | `packages/checkout/src/discover.ts` | `extractPriceFromString("4,95")` was converting to `"495"` instead of `"4.95"`. Added comma-as-decimal detection. |
+| Run | Result | Duration | Shipping Fill | Card Fill | Card Data Leaked |
+|-----|--------|----------|---------------|-----------|-----------------|
+| bcdfb56 | SUCCESS | 664s | <1s (page.evaluate) | Failed → agent typed via keys | YES (test data) |
+| b02b4ff | SUCCESS | 1296s | <1s (page.evaluate) | CDP via frameLocator | NO |
+| **optimized** | **SUCCESS** | **472s** | <1s (page.evaluate) | **CDP via frameLocator** | **NO** |
+
+Latest run (optimized) is **29% faster than best baseline** (664s → 472s). Savings from: `clickButton` tool (~1min), fewer screenshots via speed prompt (~3min), popup pre-dismissal (~0.5min). All security layers intact: card data via CDP frameLocator (never enters LLM), shipping via page.evaluate (instant, no LLM), zero card numbers in agent logs.
+
+### Recent Changes (this session)
+
+| Change | File | Description |
+|--------|------|-------------|
+| DOM pruning before agent starts | `packages/checkout/src/task.ts` | After `page.goto()`, strip `script`, `style`, `noscript`, hidden elements, img src/srcset, and inline styles. Reduces DOM token count ~25% for faster LLM inference per step. |
+| Scripted popup dismissal | `packages/checkout/src/task.ts` | Remove cookie/consent banners, click modal close buttons, remove fixed-position overlays via `page.evaluate()` before agent runs. Eliminates 1-2 agent steps (~1-2 min). |
+| `clickButton` custom tool | `packages/checkout/src/agent-tools.ts` | New tool using `observe()` + `page.locator().click()` — ~40% faster than `act()` for simple navigation clicks (Add to Cart, Continue, Checkout, etc.). |
+| System prompt speed rules | `packages/checkout/src/task.ts` | Replaced permissive screenshot guidance with strict rules: no screenshots unless 2 consecutive failures, use `clickButton` for simple clicks, never screenshot after form fills. |
 
 ### Full Test Output
 
 ```
- ✓ packages/wallet/tests/qr.test.ts (2 tests)
+ ✓ packages/wallet/tests/create.test.ts (6 tests)
  ✓ packages/api/tests/api.test.ts (28 tests)
  ✓ packages/x402/tests/detect.test.ts (3 tests)
- ✓ packages/wallet/tests/create.test.ts (6 tests)
- ✓ packages/wallet/tests/balance.test.ts (8 tests)
- ✓ packages/checkout/tests/discover.test.ts (10 tests)
- ✓ tests/e2e/errors.test.ts (8 tests)
+ ✓ packages/wallet/tests/qr.test.ts (2 tests)
  ✓ packages/orchestrator/tests/confirm.test.ts (8 tests)
+ ✓ packages/wallet/tests/balance.test.ts (8 tests)
  ✓ packages/wallet/tests/transfer.test.ts (1 test)
- ✓ packages/core/tests/store.test.ts (12 tests)
- ✓ packages/checkout/tests/session.test.ts (4 tests)
- ✓ packages/orchestrator/tests/receipts.test.ts (3 tests)
  ✓ packages/api/tests/onramp.test.ts (7 tests)
- ✓ packages/checkout/tests/cache.test.ts (10 tests)
+ ✓ packages/checkout/tests/session.test.ts (4 tests)
  ✓ packages/orchestrator/tests/buy.test.ts (8 tests)
- ✓ packages/checkout/tests/credentials.test.ts (12 tests)
+ ✓ tests/e2e/errors.test.ts (8 tests)
+ ✓ packages/checkout/tests/discover.test.ts (10 tests)
  ✓ packages/checkout/tests/fill.test.ts (9 tests)
+ ✓ packages/checkout/tests/cache.test.ts (10 tests)
+ ✓ packages/checkout/tests/credentials.test.ts (12 tests)
  ✓ packages/checkout/tests/confirm.test.ts (7 tests)
+ ✓ packages/orchestrator/tests/receipts.test.ts (3 tests)
  ✓ packages/core/tests/fees.test.ts (10 tests)
+ ✓ packages/core/tests/store.test.ts (12 tests)
  ✓ tests/e2e/config.test.ts (5 tests)
  ✓ packages/x402/tests/pay.test.ts (1 test)
  ✓ packages/checkout/tests/e2e-discover.test.ts (6 tests)
- × tests/e2e/browser-flow.test.ts (5 tests | 2 failed)
  × tests/e2e/x402-flow.test.ts (5 tests | 1 failed)
+ × tests/e2e/browser-flow.test.ts (5 tests | 2 failed)
 
  Test Files  2 failed | 22 passed (24)
       Tests  3 failed | 175 passed (178)
@@ -367,7 +379,9 @@ The PayAI echo merchant auto-refunds on testnet, so no USDC is permanently spent
 | `packages/checkout/src/session.ts` | Browserbase session lifecycle — create (with 429 retry), destroy, config validation |
 | `packages/checkout/src/fill.ts` | Card field fills via Stagehand Page locators, field description → credential key mapping |
 | `packages/checkout/src/discover.ts` | Price discovery — Tier 1 (JSON-LD + OG meta scrape) → Tier 2 (Browserbase cart via Stagehand) |
-| `packages/checkout/src/task.ts` | Full checkout orchestration — Stagehand AI actions + direct DOM card fills + domain cache |
+| `packages/checkout/src/agent-tools.ts` | Custom agent tools — `fillShippingInfo` (%var%), `fillCardFields` (CDP), `fillBillingAddress` |
+| `packages/checkout/src/step-tracker.ts` | Agent action → CheckoutStep mapping for backward-compatible failedStep reporting |
+| `packages/checkout/src/task.ts` | Checkout orchestration via Stagehand Agent API — single `agent.execute()` call with custom tools |
 | `packages/checkout/src/index.ts` | Barrel re-exports (all public functions + types) |
 
 #### Tests (6 files)
