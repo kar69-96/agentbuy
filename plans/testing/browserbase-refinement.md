@@ -853,3 +853,13 @@ _No runs recorded yet. First run will be logged below._
 **Duration:** 53.0s
 
 ---
+
+### Run — 2026-02-26 02:22
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [2ed6fd6d-d26f-43f0-b04f-2138db2f234c](https://browserbase.com/sessions/2ed6fd6d-d26f-43f0-b04f-2138db2f234c)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 108.00
+**Duration:** 664.5s
+
+---

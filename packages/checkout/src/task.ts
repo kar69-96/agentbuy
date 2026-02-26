@@ -255,22 +255,14 @@ export async function runCheckout(
           const currentUrl = page.url();
           if (/\/checkout|\/checkouts\//i.test(currentUrl)) {
             formState.stepsOnCheckout++;
-            console.log(
-              `[onStepFinish] checkout detected, stepsOnCheckout=${formState.stepsOnCheckout} url=${currentUrl.slice(0, 80)}`,
-            );
           }
 
           tracker.update(toolCalls, currentUrl);
         },
         // Force custom tools when agent reaches checkout forms
         prepareStep: (() => {
-          console.log(
-            `[prepareStep] step=${formState.totalSteps} onCheckout=${formState.stepsOnCheckout} shippingFilled=${formState.shippingFilled} cardFilled=${formState.cardFilled}`,
-          );
-
           // Proactive: force fillShippingInfo after agent has seen checkout page
           if (formState.stepsOnCheckout >= 1 && !formState.shippingFilled) {
-            console.log("[prepareStep] → forcing fillShippingInfo");
             return {
               toolChoice: { type: "tool" as const, toolName: "fillShippingInfo" },
             };
@@ -282,7 +274,6 @@ export async function runCheckout(
             !formState.cardFilled &&
             formState.totalSteps >= formState.stepWhenShippingFilled + 3
           ) {
-            console.log("[prepareStep] → forcing fillCardFields");
             return {
               toolChoice: { type: "tool" as const, toolName: "fillCardFields" },
             };
