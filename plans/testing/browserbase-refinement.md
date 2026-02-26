@@ -837,3 +837,19 @@ _No runs recorded yet. First run will be logged below._
 **Duration:** 29.0s
 
 ---
+
+### Run — 2026-02-24 23:30
+
+**URL:** https://checkout.hydrogen.shop/products/the-full-stack-snowboard
+**Session:** [85813592-1f83-408d-b1cc-de43822c5ebe](https://browserbase.com/sessions/85813592-1f83-408d-b1cc-de43822c5ebe)
+**Result:** FAILURE
+**Failed step:** add-to-cart
+**Error:** AI_NoObjectGeneratedError: No object generated: response did not match schema.
+{
+  "cause": {
+    "name": "AI_TypeValidationError",
+    "message": "Type validation failed: Value: {\"elementId\":\"<UNK
+**Extracted total:** —
+**Duration:** 53.0s
+
+---

@@ -12,7 +12,7 @@ export interface SessionOptions {
   logSession?: boolean;
 }
 
-const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+const SESSION_TIMEOUT_MS = 25 * 60 * 1000;
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 3000;
 const BROWSERBASE_API_URL = "https://api.browserbase.com/v1/sessions";

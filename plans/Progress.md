@@ -4,13 +4,13 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-02-23
+**Last updated:** 2026-02-25
 
 ### Summary
 
 - **174 passing** / **4 failing** / **178 total**
 - **21 test files** passing, **3 test files** failing
-- All offline tests pass. Failures are in integration tests that require external services.
+- All offline/unit tests pass. Failures are in integration tests that require external services.
 
 ### Failing Tests (4)
 
@@ -19,46 +19,45 @@
 | `POST /api/confirm → 200 with receipt` | `tests/e2e/x402-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
 | `full browser checkout → 200 receipt` | `tests/e2e/browser-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
 | `wallet balance reduced after browser checkout` | `tests/e2e/browser-flow.test.ts` | `20 is not less than 20` | Depends on checkout succeeding (same gas issue) |
-| `creates and destroys a session` | `packages/checkout/tests/session.test.ts` | Timeout (30s) | Browserbase session creation timed out (network) |
+| `Tier 2 discovery via cart` | `packages/checkout/tests/e2e-discover.test.ts` | `AI_APICallError` | Anthropic API credit balance too low |
 
-**To unblock:** Fund test wallet `0xBA19f9bf143B351b2D27FcbC0e8435cc44b50374` with Base Sepolia ETH from a faucet (e.g., Alchemy Base Sepolia faucet).
+**To unblock:** Fund test wallet with Base Sepolia ETH, and add Anthropic API credits.
 
 ### Recent Changes (this session)
 
 | Change | File | Description |
 |--------|------|-------------|
-| Step tracking in checkout | `packages/checkout/src/task.ts` | Added `CHECKOUT_STEPS` const, `CheckoutStep` type, `failedStep`/`errorMessage`/`durationMs` to `CheckoutResult`. Inner IIFE wrapped in try-catch to return structured failures instead of throwing. Timeout handled as `failedStep: "timeout"`. |
-| New exports | `packages/checkout/src/index.ts` | Export `CHECKOUT_STEPS` and `CheckoutStep` type |
-| Multi-URL loop runner | `tests/browserbase-refinement/test-checkout-loop.ts` | New test harness: runs multiple URLs sequentially with `--tier` and `--url` flags, prints summary table, appends structured run log to `plans/testing/browserbase-refinement.md` |
-| Loop script | `package.json` | Added `test:checkout:loop` script |
+| Migrate checkout to Stagehand Agent API | `packages/checkout/src/task.ts` | Replaced 13 hardcoded `stagehand.act()` calls with single `agent.execute()` call. Agent autonomously navigates checkout flow, adapts to unexpected popups/layouts. Uses `excludeTools: ["fillForm"]` and structured output schema. |
+| Custom secure agent tools | `packages/checkout/src/agent-tools.ts` | **NEW** — `createCheckoutTools()` factory: `fillShippingInfo` (uses `%var%` substitution), `fillCardFields` (uses CDP fills), `fillBillingAddress`. Card data never enters agent context. |
+| Step tracker for backward compat | `packages/checkout/src/step-tracker.ts` | **NEW** — `StepTracker` class maps agent tool calls + action patterns → `CheckoutStep` values for `failedStep` reporting. |
 
 ### Full Test Output
 
 ```
  ✓ packages/wallet/tests/qr.test.ts (2 tests)
- ✓ tests/e2e/errors.test.ts (8 tests)
- ✓ packages/x402/tests/detect.test.ts (3 tests)
  ✓ packages/api/tests/api.test.ts (28 tests)
+ ✓ packages/x402/tests/detect.test.ts (3 tests)
  ✓ packages/wallet/tests/create.test.ts (6 tests)
- ✓ packages/orchestrator/tests/confirm.test.ts (8 tests)
  ✓ packages/wallet/tests/balance.test.ts (8 tests)
- ✓ packages/api/tests/onramp.test.ts (7 tests)
  ✓ packages/wallet/tests/transfer.test.ts (1 test)
- ✓ packages/checkout/tests/cache.test.ts (10 tests)
- ✓ packages/orchestrator/tests/buy.test.ts (8 tests)
- ✓ packages/core/tests/store.test.ts (12 tests)
- ✓ packages/core/tests/fees.test.ts (10 tests)
  ✓ packages/checkout/tests/discover.test.ts (10 tests)
+ ✓ packages/orchestrator/tests/confirm.test.ts (8 tests)
+ ✓ packages/api/tests/onramp.test.ts (7 tests)
+ ✓ packages/checkout/tests/session.test.ts (4 tests)
+ ✓ packages/orchestrator/tests/buy.test.ts (8 tests)
+ ✓ packages/checkout/tests/cache.test.ts (10 tests)
+ ✓ packages/core/tests/store.test.ts (12 tests)
+ ✓ tests/e2e/errors.test.ts (8 tests)
+ ✓ packages/checkout/tests/confirm.test.ts (7 tests)
  ✓ packages/checkout/tests/credentials.test.ts (12 tests)
  ✓ packages/checkout/tests/fill.test.ts (9 tests)
+ ✓ packages/core/tests/fees.test.ts (10 tests)
  ✓ packages/orchestrator/tests/receipts.test.ts (3 tests)
- ✓ packages/checkout/tests/confirm.test.ts (7 tests)
  ✓ tests/e2e/config.test.ts (5 tests)
  ✓ packages/x402/tests/pay.test.ts (1 test)
- ✓ packages/checkout/tests/e2e-discover.test.ts (6 tests)
  × tests/e2e/x402-flow.test.ts (5 tests | 1 failed)
  × tests/e2e/browser-flow.test.ts (5 tests | 2 failed)
- × packages/checkout/tests/session.test.ts (1 failed — timeout)
+ × packages/checkout/tests/e2e-discover.test.ts (6 tests | 1 failed)
 
  Test Files  3 failed | 21 passed (24)
       Tests  4 failed | 174 passed (178)
@@ -370,7 +369,9 @@ The PayAI echo merchant auto-refunds on testnet, so no USDC is permanently spent
 | `packages/checkout/src/session.ts` | Browserbase session lifecycle — create (with 429 retry), destroy, config validation |
 | `packages/checkout/src/fill.ts` | Card field fills via Stagehand Page locators, field description → credential key mapping |
 | `packages/checkout/src/discover.ts` | Price discovery — Tier 1 (JSON-LD + OG meta scrape) → Tier 2 (Browserbase cart via Stagehand) |
-| `packages/checkout/src/task.ts` | Full checkout orchestration — Stagehand AI actions + direct DOM card fills + domain cache |
+| `packages/checkout/src/agent-tools.ts` | Custom agent tools — `fillShippingInfo` (%var%), `fillCardFields` (CDP), `fillBillingAddress` |
+| `packages/checkout/src/step-tracker.ts` | Agent action → CheckoutStep mapping for backward-compatible failedStep reporting |
+| `packages/checkout/src/task.ts` | Checkout orchestration via Stagehand Agent API — single `agent.execute()` call with custom tools |
 | `packages/checkout/src/index.ts` | Barrel re-exports (all public functions + types) |
 
 #### Tests (6 files)

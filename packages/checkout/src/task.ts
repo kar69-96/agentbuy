@@ -1,5 +1,7 @@
 import { Stagehand } from "@browserbasehq/stagehand";
+import type { Page } from "@browserbasehq/stagehand";
 import type { Order, ShippingInfo } from "@proxo/core";
+import { z } from "zod";
 import {
   buildCredentials,
   getStagehandVariables,
@@ -15,8 +17,8 @@ import {
 } from "./cache.js";
 import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
 import type { SessionOptions } from "./session.js";
-import { fillAllCardFields } from "./fill.js";
-import type { ObservedField } from "./fill.js";
+import { createCheckoutTools } from "./agent-tools.js";
+import { StepTracker } from "./step-tracker.js";
 
 // ---- Checkout steps ----
 
@@ -69,32 +71,77 @@ function isPriceAcceptable(expected: string, actual: string): boolean {
   return diff <= 1 || diff / exp <= 0.05;
 }
 
-// ---- Retry wrapper for Stagehand schema bugs ----
+// ---- Structured output schema for agent ----
 
-const MAX_ACT_RETRIES = 2;
+const CheckoutOutputSchema = z.object({
+  orderNumber: z
+    .string()
+    .optional()
+    .describe("The order or confirmation number, if visible"),
+  finalTotal: z
+    .string()
+    .optional()
+    .describe("The final order total amount (digits and decimals only, no currency symbol)"),
+  confirmationDetected: z
+    .boolean()
+    .describe("True if a confirmation/thank-you page was reached"),
+});
 
-async function actWithRetry(
-  stagehand: InstanceType<typeof Stagehand>,
-  instruction: string,
-  options?: { variables?: Record<string, string> },
-): Promise<void> {
-  for (let attempt = 0; attempt <= MAX_ACT_RETRIES; attempt++) {
-    try {
-      await stagehand.act(instruction, options);
-      return;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      const isSchemaError =
-        msg.includes("AI_NoObjectGeneratedError") ||
-        msg.includes("Invalid response schema") ||
-        msg.includes("did not match the expected schema");
-      if (isSchemaError && attempt < MAX_ACT_RETRIES) {
-        // Stagehand schema bug — retry
-        continue;
-      }
-      throw err;
-    }
-  }
+// ---- System prompt for the checkout agent ----
+
+function buildAgentSystemPrompt(dryRun: boolean): string {
+  const dryRunInstruction = dryRun
+    ? `
+IMPORTANT — DRY RUN MODE:
+- DO NOT click "Place Order", "Complete Purchase", "Submit Order", or any button that finalizes the purchase.
+- Stop AFTER filling payment fields and verifying the order total is visible.
+- Report the order total in your output.`
+    : `
+LIVE PURCHASE MODE:
+- After filling payment, click "Place Order", "Complete Purchase", or "Submit Order" to finalize.
+- Wait for the confirmation page to load.
+- Extract the order/confirmation number and final total from the confirmation page.`;
+
+  return `You are an autonomous checkout agent. Your job is to complete an online purchase on a website.
+
+CRITICAL RULES — YOU MUST FOLLOW THESE EXACTLY:
+
+FORM FILLING — MANDATORY TOOL USAGE:
+- When you reach the shipping/contact form, call the "fillShippingInfo" tool ONCE. It fills ALL fields (email, name, address, city, state, zip, country, phone) in one call. Do NOT use the act tool to fill individual form fields — use fillShippingInfo instead.
+- When you reach the payment step with card fields visible, call the "fillCardFields" tool ONCE. It fills card number, expiry, CVV, and cardholder name securely. You do NOT have card data — only the tool does. NEVER type card data with act.
+- If a separate billing address form appears, call "fillBillingAddress" once.
+
+NAVIGATION RULES:
+- Dismiss any popups, cookie banners, modals, newsletter signups, or overlays.
+- Choose Guest Checkout if asked to log in or create an account.
+- Select the first available in-stock variant/size if selection is required.
+- Click "Add to Cart" / "Add to Bag" to add the product.
+- Proceed to checkout via cart popup, cart icon, or cart page.
+- After calling fillShippingInfo, select the cheapest shipping option and continue to payment.
+- Decline express payment options (Shop Pay, Google Pay, Apple Pay, PayPal) — use regular credit card.
+- If an address autocomplete dropdown appears, dismiss it or press Escape.
+${dryRunInstruction}
+
+SEQUENCE:
+Dismiss popups → Select variant → Add to cart → Proceed to checkout → Guest checkout → call fillShippingInfo → Select shipping → Decline express pay → call fillCardFields → call fillBillingAddress (if needed) → ${dryRun ? "STOP (report total)" : "Place order → Verify confirmation"}
+
+EFFICIENCY: Use act directly for clicks and navigation — do NOT read the page first. Only take screenshots if you need visual context (e.g., to find a popup). Use the custom tools for ALL form filling.`;
+}
+
+// ---- Form-filling detection for prepareStep ----
+
+const SHIPPING_FIELD_RE =
+  /\b(email|name|first\s*name|last\s*name|address|street|city|state|province|zip|postal|phone|country)\b/i;
+const CARD_FIELD_RE =
+  /\b(card\s*number|credit\s*card|expir|cvv|cvc|security\s*code|cardholder)\b/i;
+const FORM_ACTION_RE = /\b(fill|type|enter|input|set)\b/i;
+
+function isShippingFormAction(action: string): boolean {
+  return FORM_ACTION_RE.test(action) && SHIPPING_FIELD_RE.test(action);
+}
+
+function isCardFormAction(action: string): boolean {
+  return FORM_ACTION_RE.test(action) && CARD_FIELD_RE.test(action);
 }
 
 // ---- Full checkout orchestration ----
@@ -120,344 +167,224 @@ export async function runCheckout(
   const startMs = Date.now();
 
   try {
-    // 4. Init Stagehand (Claude Sonnet 4) on session
+    // 4. Init Stagehand with experimental flag for agent API features
     stagehand = new Stagehand({
       env: "BROWSERBASE",
       apiKey: process.env.BROWSERBASE_API_KEY!,
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
-        modelName: "anthropic/claude-sonnet-4-20250514",
+        modelName: "anthropic/claude-haiku-4-5-20251001",
         apiKey: anthropicApiKey,
       },
       browserbaseSessionID: session.id,
+      experimental: true,
     });
 
     await stagehand.init();
-    const page = stagehand.context.activePage()!;
+    const page: Page = stagehand.context.activePage()!;
 
-    // 4. Inject domain cache if available
+    // 5. Inject domain cache if available
     const existingCache = loadDomainCache(domain);
     if (existingCache) {
       await injectDomainCache(page, existingCache);
     }
 
-    {
-      let currentStep: CheckoutStep = CHECKOUT_STEPS.NAVIGATE;
+    // 6. Navigate to product URL (manual — faster than agent)
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeoutMs: 30000,
+    });
+    await page.waitForTimeout(2000);
 
-      try {
-        // 6a. Navigate to product
-        currentStep = CHECKOUT_STEPS.NAVIGATE;
-        await page.goto(url, {
-          waitUntil: "domcontentloaded",
-          timeoutMs: 30000,
-        });
-        await page.waitForTimeout(2000);
+    // 7. Create custom tools
+    const customTools = createCheckoutTools(stagehand, page, stagehandVars, cdpCreds);
 
-        // 6b. Dismiss any initial overlays before interacting
-        currentStep = CHECKOUT_STEPS.DISMISS_POPUPS;
-        try {
-          await actWithRetry(
-            stagehand,
-            "Dismiss any popups, cookie banners, modals, newsletter signups, or overlays that are blocking the page",
-          );
-        } catch {
-          // Nothing to dismiss
-        }
+    // 8. Create step tracker + form state for prepareStep
+    const tracker = new StepTracker();
+    tracker.setStep("navigate");
 
-        // 6c. Add to cart — two explicit steps to avoid Stagehand treating variant selection as add-to-cart
-        currentStep = CHECKOUT_STEPS.ADD_TO_CART;
+    const formState = {
+      shippingFilled: false,
+      cardFilled: false,
+      billingFilled: false,
+      stepsOnCheckout: 0,
+      stepWhenShippingFilled: -1,
+      totalSteps: 0,
+    };
 
-        // Step 1: Select variant/size if needed
-        try {
-          await actWithRetry(
-            stagehand,
-            "If this product requires selecting a size, color, variant, or quantity option before adding to cart, " +
-            "select the first available in-stock option now. " +
-            "If the current selection shows 'Sold Out' or 'Unavailable', choose a different option. " +
-            "If no selection is needed or options are already selected, do nothing.",
-          );
-          await page.waitForTimeout(1000);
-        } catch {
-          // No variant selection needed
-        }
+    // 9. Create agent with custom tools
+    const agent = stagehand.agent({
+      mode: "dom",
+      systemPrompt: buildAgentSystemPrompt(!!input.dryRun),
+      tools: customTools,
+    });
 
-        // Step 2: Explicitly click the Add to Cart button
-        await actWithRetry(
-          stagehand,
-          "Click the 'Add to Cart', 'Add to Bag', or 'Add to Basket' button on this page. " +
-          "This is a button that adds the product to the shopping cart. " +
-          "Do NOT click variant/size selectors, quantity controls, or any other button. " +
-          "The button usually says exactly 'Add to Cart' or 'Add to Bag'.",
-        );
-        // Wait for cart state to persist (some sites need time to update cookies/state)
-        await page.waitForTimeout(3000);
+    // 10. Execute agent
+    const instruction = input.dryRun
+      ? `Complete the checkout flow for the product on this page (${url}). ` +
+        `Fill all shipping and payment fields, but DO NOT place the order. ` +
+        `Report the final order total.`
+      : `Complete the checkout flow for the product on this page (${url}). ` +
+        `Fill all shipping and payment fields, then place the order. ` +
+        `Extract the order number and final total from the confirmation page.`;
 
-        // 6d. Proceed to checkout
-        currentStep = CHECKOUT_STEPS.PROCEED_TO_CHECKOUT;
+    const result = await agent.execute({
+      instruction,
+      maxSteps: 40,
+      excludeTools: ["fillForm", "ariaTree"],
+      output: CheckoutOutputSchema,
+      callbacks: {
+        onStepFinish: (stepResult) => {
+          formState.totalSteps++;
+          const toolCalls = stepResult.toolCalls.map((tc) => ({
+            toolName: tc.toolName as string,
+            input: "input" in tc ? tc.input : undefined,
+          }));
 
-        // First try: look for a checkout/cart link in any popup, drawer, or notification
-        // that appeared after adding to cart (e.g., "View cart & check out", "Checkout")
-        try {
-          await actWithRetry(
-            stagehand,
-            "Look for a 'Checkout', 'View cart & check out', 'Proceed to Checkout', or 'Go to Cart' link " +
-            "in any popup, drawer, notification, or modal that appeared after adding the item. " +
-            "Click it to proceed toward checkout. " +
-            "Do NOT click 'Continue Shopping' or dismiss the notification.",
-          );
-        } catch {
-          // No popup/drawer — fall back to clicking the cart icon
-          await actWithRetry(
-            stagehand,
-            "Click the cart icon or 'Cart' link in the page header to go to the cart page.",
-          );
-        }
-        await page.waitForTimeout(3000);
-
-        // If we're on the cart page, click the checkout button
-        const currentUrl = page.url();
-        if (currentUrl.includes("/cart")) {
-          await actWithRetry(
-            stagehand,
-            "Find and click the main 'Check Out', 'Checkout', or 'Proceed to Checkout' button on this page. " +
-            "It is usually a large, prominent button (often red, green, or blue) near the order summary or cart total. " +
-            "Do NOT click invisible elements, hidden alerts, account buttons, or newsletter signups. " +
-            "Do NOT click 'Log In', 'Sign In', or 'Create Account'. " +
-            "If a guest checkout option appears, select it.",
-          );
-          await page.waitForTimeout(2000);
-        }
-
-        // 6e. Handle any remaining login walls or popups after navigation
-        try {
-          await actWithRetry(
-            stagehand,
-            "If there is a login wall, account creation prompt, or sign-in page, " +
-            "find and click any Guest Checkout, Continue as Guest, or Skip Login option. " +
-            "Also dismiss any new popups, modals, or overlays.",
-          );
-        } catch {
-          // Already past login / no popups
-        }
-
-        // 6f. Fill shipping via Stagehand variables (field-by-field to avoid schema issues)
-        currentStep = CHECKOUT_STEPS.FILL_SHIPPING;
-
-        // Email / contact — must be the checkout/shipping form email, NOT newsletter
-        await actWithRetry(
-          stagehand,
-          "Fill the email or contact email field in the checkout or shipping form with %x_shipping_email%. " +
-          "Do NOT fill any newsletter signup, footer, or promotional email fields.",
-          { variables: stagehandVars },
-        );
-
-        // Name fields — some sites split first/last, some have a single field
-        await actWithRetry(
-          stagehand,
-          "Fill the name, first name, or full name field with %x_shipping_name%",
-          { variables: stagehandVars },
-        );
-
-        // Street address
-        await actWithRetry(
-          stagehand,
-          "Fill the street address or address line 1 field with %x_shipping_street%. If an address autocomplete dropdown appears, dismiss it or press Escape.",
-          { variables: stagehandVars },
-        );
-
-        // City
-        await actWithRetry(
-          stagehand,
-          "Fill the city field with %x_shipping_city%",
-          { variables: stagehandVars },
-        );
-
-        // State — may be dropdown or text input
-        await actWithRetry(
-          stagehand,
-          "Fill or select %x_shipping_state% in the state, province, or region field",
-          { variables: stagehandVars },
-        );
-
-        // ZIP / postal code
-        await actWithRetry(
-          stagehand,
-          "Fill the ZIP code or postal code field with %x_shipping_zip%",
-          { variables: stagehandVars },
-        );
-
-        // Country — often pre-filled, skip errors
-        try {
-          await actWithRetry(
-            stagehand,
-            "Select or fill %x_shipping_country% in the country field if it is not already set",
-            { variables: stagehandVars },
-          );
-        } catch {
-          // Country may be pre-selected
-        }
-
-        // Phone — optional on many sites
-        try {
-          await actWithRetry(
-            stagehand,
-            "Fill the phone number field with %x_shipping_phone%",
-            { variables: stagehandVars },
-          );
-        } catch {
-          // Phone may not be required
-        }
-
-        await page.waitForTimeout(1000);
-
-        // 6g. Select cheapest shipping + continue
-        currentStep = CHECKOUT_STEPS.SELECT_SHIPPING;
-        try {
-          await actWithRetry(
-            stagehand,
-            "Select the cheapest shipping option if multiple are available, then continue to payment",
-          );
-          await page.waitForTimeout(1000);
-        } catch {
-          // Shipping selection may not be applicable
-        }
-
-        // 6h. Avoid express pay
-        currentStep = CHECKOUT_STEPS.AVOID_EXPRESS_PAY;
-        try {
-          await actWithRetry(
-            stagehand,
-            "If asked about express payment (Shop Pay, Google Pay, Apple Pay, PayPal), decline and use regular credit card payment instead",
-          );
-        } catch {
-          // No express pay prompt
-        }
-
-        // 6i. Observe card fields via Stagehand
-        currentStep = CHECKOUT_STEPS.OBSERVE_CARD_FIELDS;
-        const observeResult = await stagehand.observe(
-          "Find all credit card input fields on this page: card number, expiration date, CVV/security code, and cardholder name.",
-        );
-
-        // Map Stagehand observations to ObservedField format
-        const observedFields: ObservedField[] = observeResult.map((obs) => ({
-          selector: obs.selector,
-          description: obs.description,
-        }));
-
-        // 6j. Fill card fields via direct DOM fill (NEVER through Stagehand LLM)
-        currentStep = CHECKOUT_STEPS.FILL_CARD;
-        await fillAllCardFields(page, observedFields, cdpCreds);
-        await page.waitForTimeout(500);
-
-        // 6k. Fill billing address if separate from shipping
-        currentStep = CHECKOUT_STEPS.FILL_BILLING;
-        try {
-          await actWithRetry(
-            stagehand,
-            "If there is a separate billing address form, fill it: street=%x_billing_street%, city=%x_billing_city%, state=%x_billing_state%, zip=%x_billing_zip%, country=%x_billing_country%. If billing is same as shipping, check that box instead.",
-            { variables: stagehandVars },
-          );
-        } catch {
-          // No separate billing
-        }
-
-        // 6l. Verify price before submitting
-        currentStep = CHECKOUT_STEPS.VERIFY_PRICE;
-        try {
-          const bodyText = await page.evaluate(
-            () => document.body.textContent || "",
-          );
-          const totalMatch = /\$?([\d,]+\.?\d*)/.exec(bodyText);
-          if (totalMatch && totalMatch[1]) {
-            if (!isPriceAcceptable(order.payment.price, totalMatch[1])) {
-              throw new Error(
-                `Price mismatch: expected ~$${order.payment.price}, found $${totalMatch[1]}`,
-              );
+          // Track custom tool usage
+          for (const tc of toolCalls) {
+            if (tc.toolName === "fillShippingInfo") {
+              formState.shippingFilled = true;
+              formState.stepWhenShippingFilled = formState.totalSteps;
             }
+            if (tc.toolName === "fillCardFields") formState.cardFilled = true;
+            if (tc.toolName === "fillBillingAddress") formState.billingFilled = true;
           }
-        } catch (e) {
-          if (e instanceof Error && e.message.startsWith("Price mismatch")) {
-            throw e;
+
+          // Track checkout page visits
+          const currentUrl = page.url();
+          if (/\/checkout|\/checkouts\//i.test(currentUrl)) {
+            formState.stepsOnCheckout++;
+            console.log(
+              `[onStepFinish] checkout detected, stepsOnCheckout=${formState.stepsOnCheckout} url=${currentUrl.slice(0, 80)}`,
+            );
           }
-          // Ignore other verification errors
-        }
 
-        let orderNumber: string | undefined;
-        let finalTotal: string | undefined;
-
-        if (!input.dryRun) {
-          // 6l. Click Place Order
-          currentStep = CHECKOUT_STEPS.PLACE_ORDER;
-          await actWithRetry(
-            stagehand,
-            "Click the Place Order, Complete Purchase, or Submit Order button to finalize the purchase",
+          tracker.update(toolCalls, currentUrl);
+        },
+        // Force custom tools when agent reaches checkout forms
+        prepareStep: (() => {
+          console.log(
+            `[prepareStep] step=${formState.totalSteps} onCheckout=${formState.stepsOnCheckout} shippingFilled=${formState.shippingFilled} cardFilled=${formState.cardFilled}`,
           );
-          await page.waitForTimeout(5000);
 
-          // 6m. Verify confirmation page
-          currentStep = CHECKOUT_STEPS.VERIFY_CONFIRMATION;
-          const bodyText = await page.evaluate(
-            () => document.body.textContent || "",
-          );
-          const confirmation = verifyConfirmationPage(bodyText);
-
-          if (confirmation.isConfirmed) {
-            // Extract order number
-            const orderMatch =
-              /(?:order|confirmation)\s*(?:#|number|:)\s*([A-Z0-9-]+)/i.exec(
-                bodyText,
-              );
-            if (orderMatch) {
-              orderNumber = orderMatch[1];
-            }
+          // Proactive: force fillShippingInfo after agent has seen checkout page
+          if (formState.stepsOnCheckout >= 1 && !formState.shippingFilled) {
+            console.log("[prepareStep] → forcing fillShippingInfo");
+            return {
+              toolChoice: { type: "tool" as const, toolName: "fillShippingInfo" },
+            };
           }
 
-          // Extract final total
-          const totalMatch =
-            /(?:total|amount)\s*:?\s*\$?([\d,]+\.\d{2})/i.exec(bodyText);
-          if (totalMatch) {
-            finalTotal = totalMatch[1];
+          // Force fillCardFields a few steps after shipping is done
+          if (
+            formState.shippingFilled &&
+            !formState.cardFilled &&
+            formState.totalSteps >= formState.stepWhenShippingFilled + 3
+          ) {
+            console.log("[prepareStep] → forcing fillCardFields");
+            return {
+              toolChoice: { type: "tool" as const, toolName: "fillCardFields" },
+            };
           }
-        } else {
-          // Dry run: extract diagnostics without placing order
-          const bodyText = await page.evaluate(
-            () => document.body.textContent || "",
-          );
-          const totalMatch =
-            /(?:total|amount)\s*:?\s*\$?([\d,]+\.\d{2})/i.exec(bodyText);
-          if (totalMatch) {
-            finalTotal = totalMatch[1];
+
+          // After both forms filled, guide agent to finish
+          if (formState.shippingFilled && formState.cardFilled) {
+            const hint = input.dryRun
+              ? "Both shipping and payment fields are ALREADY filled. " +
+                "Find the order total on the page and report it. Use the done tool to finish."
+              : "Both shipping and payment fields are ALREADY filled. " +
+                "Click Place Order / Complete Purchase to finalize.";
+            return { system: buildAgentSystemPrompt(!!input.dryRun) + "\n\n" + hint };
           }
-        }
 
-        // 7. Save domain cache
-        try {
-          const newCache = await extractDomainCache(page, domain);
-          saveDomainCache(newCache);
-        } catch {
-          // Cache save is best-effort
-        }
+          return undefined;
+        }) as never,
+      },
+    });
 
+    // 11. Post-execution price verification (defense in depth)
+    const agentOutput = result.output as
+      | { orderNumber?: string; finalTotal?: string; confirmationDetected?: boolean }
+      | undefined;
+
+    const finalTotal = agentOutput?.finalTotal;
+    if (finalTotal && order.payment.price) {
+      if (!isPriceAcceptable(order.payment.price, finalTotal)) {
         return {
-          success: input.dryRun ? true : !!orderNumber,
-          orderNumber,
+          success: false,
           finalTotal,
           sessionId: session.id,
           replayUrl: session.replayUrl,
-          durationMs: Date.now() - startMs,
-        };
-      } catch (err) {
-        return {
-          success: false,
-          sessionId: session.id,
-          replayUrl: session.replayUrl,
-          failedStep: currentStep,
-          errorMessage: err instanceof Error ? err.message : String(err),
+          failedStep: CHECKOUT_STEPS.VERIFY_PRICE as CheckoutStep,
+          errorMessage: `Price mismatch: expected ~$${order.payment.price}, found $${finalTotal}`,
           durationMs: Date.now() - startMs,
         };
       }
     }
+
+    // 12. Save domain cache
+    try {
+      const newCache = await extractDomainCache(page, domain);
+      saveDomainCache(newCache);
+    } catch {
+      // Cache save is best-effort
+    }
+
+    // 13. Map AgentResult → CheckoutResult (backward compat)
+    if (input.dryRun) {
+      return {
+        success: result.success,
+        finalTotal: agentOutput?.finalTotal,
+        sessionId: session.id,
+        replayUrl: session.replayUrl,
+        durationMs: Date.now() - startMs,
+      };
+    }
+
+    // Live purchase: verify confirmation
+    const orderNumber = agentOutput?.orderNumber;
+    const confirmationDetected = agentOutput?.confirmationDetected ?? false;
+
+    // Fallback: check page text for confirmation signals
+    let confirmedViaPageText = false;
+    if (!confirmationDetected) {
+      try {
+        const bodyText = await page.evaluate(
+          () => document.body.textContent || "",
+        );
+        const confirmation = verifyConfirmationPage(bodyText);
+        confirmedViaPageText = confirmation.isConfirmed;
+      } catch {
+        // Ignore page read errors
+      }
+    }
+
+    const isConfirmed = confirmationDetected || confirmedViaPageText;
+
+    return {
+      success: isConfirmed,
+      orderNumber,
+      finalTotal: agentOutput?.finalTotal,
+      sessionId: session.id,
+      replayUrl: session.replayUrl,
+      failedStep: isConfirmed
+        ? undefined
+        : (tracker.currentStep as CheckoutStep),
+      errorMessage: isConfirmed
+        ? undefined
+        : result.message || "Checkout did not reach confirmation page",
+      durationMs: Date.now() - startMs,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      sessionId: session.id,
+      replayUrl: session.replayUrl,
+      failedStep: "navigate" as CheckoutStep,
+      errorMessage: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - startMs,
+    };
   } finally {
     // Destroy session
     if (stagehand) {

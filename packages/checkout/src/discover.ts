@@ -175,7 +175,7 @@ export async function discoverViaCart(
       apiKey: process.env.BROWSERBASE_API_KEY!,
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
-        modelName: "anthropic/claude-sonnet-4-20250514",
+        modelName: "anthropic/claude-haiku-4-5-20251001",
         apiKey: anthropicApiKey,
       },
       browserbaseSessionID: session.id,
