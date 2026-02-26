@@ -29,12 +29,12 @@ export function mapFieldToCredential(description: string): string | null {
   return null;
 }
 
-// ---- Fill a single card field via Stagehand Page CDP ----
+// ---- Fill a single card field via CDP ----
 
 /**
  * Fills a single card field. Handles iframe-based selectors (e.g. Shopify's
- * PCI-compliant card inputs) by splitting the xpath at the iframe boundary
- * and navigating into the iframe's contentFrame.
+ * PCI-compliant Stripe card inputs) by locating the iframe and filling
+ * within its content frame.
  */
 export async function fillCardField(
   page: Page,
@@ -49,13 +49,10 @@ export async function fillCardField(
     const iframeSel = iframeMatch[1]!;
     const innerPath = `xpath=/${iframeMatch[2]}`;
 
-    // Locate the iframe element and get its content frame
-    const iframeHandle = page.locator(iframeSel);
-    const frame = await (iframeHandle as unknown as { contentFrame(): Promise<typeof page> }).contentFrame();
-    if (frame) {
-      await frame.locator(innerPath).fill(value);
-      return;
-    }
+    // Use Playwright's FrameLocator API for cross-origin iframe access
+    const input = page.frameLocator(iframeSel).locator(innerPath);
+    await input.fill(value);
+    return;
   }
 
   // Non-iframe selector — fill directly

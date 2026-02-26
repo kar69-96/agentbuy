@@ -14,6 +14,7 @@ import {
   saveDomainCache,
   extractDomainCache,
   injectDomainCache,
+  injectLocalStorage,
 } from "./cache.js";
 import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
 import type { SessionOptions } from "./session.js";
@@ -125,7 +126,12 @@ ${dryRunInstruction}
 SEQUENCE:
 Dismiss popups → Select variant → Add to cart → Proceed to checkout → Guest checkout → call fillShippingInfo → Select shipping → Decline express pay → call fillCardFields → call fillBillingAddress (if needed) → ${dryRun ? "STOP (report total)" : "Place order → Verify confirmation"}
 
-EFFICIENCY: Use act directly for clicks and navigation — do NOT read the page first. Only take screenshots if you need visual context (e.g., to find a popup). Use the custom tools for ALL form filling.`;
+SPEED RULES — CRITICAL:
+- NEVER call screenshot() unless you have failed 2 consecutive actions and need visual debugging.
+- After calling fillShippingInfo or fillCardFields, do NOT screenshot to verify — the tool output confirms success.
+- Use clickButton for ALL simple clicks (Add to Cart, Continue, Checkout, Close popup). Only use act() for complex interactions like selecting from dropdowns or typing text.
+- Do not take a screenshot after each action — proceed directly to the next step.
+- Use the custom tools for ALL form filling.`;
 }
 
 // ---- Form-filling detection for prepareStep ----
@@ -183,7 +189,7 @@ export async function runCheckout(
     await stagehand.init();
     const page: Page = stagehand.context.activePage()!;
 
-    // 5. Inject domain cache if available
+    // 5. Inject domain cache cookies (before navigation)
     const existingCache = loadDomainCache(domain);
     if (existingCache) {
       await injectDomainCache(page, existingCache);
@@ -194,7 +200,40 @@ export async function runCheckout(
       waitUntil: "domcontentloaded",
       timeoutMs: 30000,
     });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
+
+    // 6b. Inject localStorage (must happen after navigating to target domain)
+    if (existingCache) {
+      try {
+        await injectLocalStorage(page, existingCache);
+      } catch {
+        // localStorage injection is best-effort
+      }
+    }
+
+    // 6c. DOM pruning — strip non-functional elements to reduce token count
+    // NOTE: Do NOT remove <script>, <style>, or <link> — they are needed for page rendering and interactivity
+    await page.evaluate(() => {
+      document.querySelectorAll('noscript')
+        .forEach(e => e.remove());
+      document.querySelectorAll('[aria-hidden="true"]')
+        .forEach(e => e.remove());
+      document.querySelectorAll('img')
+        .forEach(img => { img.removeAttribute('srcset'); });
+    });
+
+    // 6d. Scripted popup dismissal — eliminate cookie banners and modals before agent runs
+    await page.evaluate(() => {
+      // Remove cookie/consent banners
+      document.querySelectorAll('[class*="cookie" i], [id*="cookie" i], [class*="consent" i]')
+        .forEach(e => e.remove());
+      // Click close buttons inside modals/dialogs
+      document.querySelectorAll('[role="dialog"] [aria-label*="close" i], [role="dialog"] [aria-label*="dismiss" i]')
+        .forEach(btn => (btn as HTMLElement).click());
+      // Remove fixed-position overlays
+      document.querySelectorAll('.overlay, .backdrop, [class*="overlay" i]')
+        .forEach(e => { if (getComputedStyle(e).position === 'fixed') e.remove(); });
+    });
 
     // 7. Create custom tools
     const customTools = createCheckoutTools(stagehand, page, stagehandVars, cdpCreds);

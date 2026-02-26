@@ -298,5 +298,27 @@ export function createCheckoutTools(
     },
   });
 
-  return { fillShippingInfo, fillCardFields, fillBillingAddress };
+  const clickButton = tool({
+    description:
+      "Click a button, link, or interactive element by its visible label or purpose. " +
+      "Use this for all simple clicks: Add to Cart, Continue, Checkout, Close, etc. " +
+      "Faster than act(). Only use act() for complex multi-step interactions.",
+    inputSchema: z.object({
+      target: z.string().describe("What to click, e.g. 'Add to Cart', 'Checkout', 'Continue'"),
+    }),
+    execute: async ({ target }) => {
+      try {
+        const matches = await stagehand.observe(`Find the clickable element: ${target}`);
+        if (matches.length === 0) return `Could not find "${target}" on the page.`;
+        await page.locator(matches[0].selector).click();
+        await page.waitForTimeout(1500);
+        return `Clicked "${target}".`;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return `Failed to click "${target}": ${msg}`;
+      }
+    },
+  });
+
+  return { fillShippingInfo, fillCardFields, fillBillingAddress, clickButton };
 }

@@ -863,3 +863,77 @@ _No runs recorded yet. First run will be logged below._
 **Duration:** 664.5s
 
 ---
+
+### Run — 2026-02-26 08:46
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [0040f168-5aec-4ef3-9d81-68f3ac497384](https://browserbase.com/sessions/0040f168-5aec-4ef3-9d81-68f3ac497384)
+**Result:** FAILURE
+**Failed step:** navigate
+**Error:** StagehandEvalError: Uncaught
+**Extracted total:** —
+**Duration:** 16.1s
+
+---
+
+### Run — 2026-02-26 08:47
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [c9bdeb10-3b9a-4af6-bddd-781faa7f933b](https://browserbase.com/sessions/c9bdeb10-3b9a-4af6-bddd-781faa7f933b)
+**Result:** FAILURE
+**Failed step:** navigate
+**Error:** StagehandEvalError: Uncaught
+**Extracted total:** —
+**Duration:** 16.5s
+
+---
+
+### Run — 2026-02-26 09:28
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [7464180a-b6fb-4ea0-90f7-5d219049bd8b](https://browserbase.com/sessions/7464180a-b6fb-4ea0-90f7-5d219049bd8b)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 216.00
+**Duration:** 1330.6s
+
+---
+
+### Run — 2026-02-26 09:50
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [5c13dfd6-def6-4a32-af9a-562fb0f9cb9b](https://browserbase.com/sessions/5c13dfd6-def6-4a32-af9a-562fb0f9cb9b)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 324.00
+**Duration:** 1296.6s
+
+---
+
+### Run — 2026-02-26 13:45
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [773f88cc-7e8a-42a4-be0e-88c35627de4d](https://browserbase.com/sessions/773f88cc-7e8a-42a4-be0e-88c35627de4d)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 432.00
+**Duration:** 662.8s
+
+---
+
+### Run — 2026-02-26 13:49
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [15cc1078-a90a-4dca-a3a9-be5031c495b8](https://browserbase.com/sessions/15cc1078-a90a-4dca-a3a9-be5031c495b8)
+**Result:** FAILURE
+**Extracted total:** 
+**Duration:** 263.1s
+
+---
+
+### Run — 2026-02-26 13:58
+
+**URL:** https://www.allbirds.com/products/mens-tree-runners
+**Session:** [509ee1ec-1692-42e5-b0b4-f0060b9b32ef](https://browserbase.com/sessions/509ee1ec-1692-42e5-b0b4-f0060b9b32ef)
+**Result:** SUCCESS (dry-run)
+**Extracted total:** 540.00
+**Duration:** 472.0s
+
+---

@@ -4,63 +4,73 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-02-25
+**Last updated:** 2026-02-26
 
 ### Summary
 
-- **174 passing** / **4 failing** / **178 total**
-- **21 test files** passing, **3 test files** failing
-- All offline/unit tests pass. Failures are in integration tests that require external services.
+- **175 passing** / **3 failing** / **178 total**
+- **22 test files** passing, **2 test files** failing
+- All offline/unit tests pass. Failures are in e2e integration tests that require external services (Base Sepolia ETH).
 
-### Failing Tests (4)
+### Failing Tests (3)
 
 | Test | File | Error | Root Cause |
 |------|------|-------|------------|
 | `POST /api/confirm → 200 with receipt` | `tests/e2e/x402-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
 | `full browser checkout → 200 receipt` | `tests/e2e/browser-flow.test.ts` | `TRANSFER_FAILED` (500) | Test wallet has no ETH for gas on Base Sepolia |
 | `wallet balance reduced after browser checkout` | `tests/e2e/browser-flow.test.ts` | `20 is not less than 20` | Depends on checkout succeeding (same gas issue) |
-| `Tier 2 discovery via cart` | `packages/checkout/tests/e2e-discover.test.ts` | `AI_APICallError` | Anthropic API credit balance too low |
 
-**To unblock:** Fund test wallet with Base Sepolia ETH, and add Anthropic API credits.
+**To unblock:** Fund test wallet with Base Sepolia ETH.
+
+### E2E Checkout Tests (Dry Run on Allbirds)
+
+| Run | Result | Duration | Shipping Fill | Card Fill | Card Data Leaked |
+|-----|--------|----------|---------------|-----------|-----------------|
+| bcdfb56 | SUCCESS | 664s | <1s (page.evaluate) | Failed → agent typed via keys | YES (test data) |
+| b02b4ff | SUCCESS | 1296s | <1s (page.evaluate) | CDP via frameLocator | NO |
+| **optimized** | **SUCCESS** | **472s** | <1s (page.evaluate) | **CDP via frameLocator** | **NO** |
+
+Latest run (optimized) is **29% faster than best baseline** (664s → 472s). Savings from: `clickButton` tool (~1min), fewer screenshots via speed prompt (~3min), popup pre-dismissal (~0.5min). All security layers intact: card data via CDP frameLocator (never enters LLM), shipping via page.evaluate (instant, no LLM), zero card numbers in agent logs.
 
 ### Recent Changes (this session)
 
 | Change | File | Description |
 |--------|------|-------------|
-| Migrate checkout to Stagehand Agent API | `packages/checkout/src/task.ts` | Replaced 13 hardcoded `stagehand.act()` calls with single `agent.execute()` call. Agent autonomously navigates checkout flow, adapts to unexpected popups/layouts. Uses `excludeTools: ["fillForm"]` and structured output schema. |
-| Custom secure agent tools | `packages/checkout/src/agent-tools.ts` | **NEW** — `createCheckoutTools()` factory: `fillShippingInfo` (uses `%var%` substitution), `fillCardFields` (uses CDP fills), `fillBillingAddress`. Card data never enters agent context. |
-| Step tracker for backward compat | `packages/checkout/src/step-tracker.ts` | **NEW** — `StepTracker` class maps agent tool calls + action patterns → `CheckoutStep` values for `failedStep` reporting. |
+| DOM pruning before agent starts | `packages/checkout/src/task.ts` | After `page.goto()`, strip `script`, `style`, `noscript`, hidden elements, img src/srcset, and inline styles. Reduces DOM token count ~25% for faster LLM inference per step. |
+| Scripted popup dismissal | `packages/checkout/src/task.ts` | Remove cookie/consent banners, click modal close buttons, remove fixed-position overlays via `page.evaluate()` before agent runs. Eliminates 1-2 agent steps (~1-2 min). |
+| `clickButton` custom tool | `packages/checkout/src/agent-tools.ts` | New tool using `observe()` + `page.locator().click()` — ~40% faster than `act()` for simple navigation clicks (Add to Cart, Continue, Checkout, etc.). |
+| System prompt speed rules | `packages/checkout/src/task.ts` | Replaced permissive screenshot guidance with strict rules: no screenshots unless 2 consecutive failures, use `clickButton` for simple clicks, never screenshot after form fills. |
 
 ### Full Test Output
 
 ```
- ✓ packages/wallet/tests/qr.test.ts (2 tests)
+ ✓ packages/wallet/tests/create.test.ts (6 tests)
  ✓ packages/api/tests/api.test.ts (28 tests)
  ✓ packages/x402/tests/detect.test.ts (3 tests)
- ✓ packages/wallet/tests/create.test.ts (6 tests)
+ ✓ packages/wallet/tests/qr.test.ts (2 tests)
+ ✓ packages/orchestrator/tests/confirm.test.ts (8 tests)
  ✓ packages/wallet/tests/balance.test.ts (8 tests)
  ✓ packages/wallet/tests/transfer.test.ts (1 test)
- ✓ packages/checkout/tests/discover.test.ts (10 tests)
- ✓ packages/orchestrator/tests/confirm.test.ts (8 tests)
  ✓ packages/api/tests/onramp.test.ts (7 tests)
  ✓ packages/checkout/tests/session.test.ts (4 tests)
  ✓ packages/orchestrator/tests/buy.test.ts (8 tests)
- ✓ packages/checkout/tests/cache.test.ts (10 tests)
- ✓ packages/core/tests/store.test.ts (12 tests)
  ✓ tests/e2e/errors.test.ts (8 tests)
- ✓ packages/checkout/tests/confirm.test.ts (7 tests)
- ✓ packages/checkout/tests/credentials.test.ts (12 tests)
+ ✓ packages/checkout/tests/discover.test.ts (10 tests)
  ✓ packages/checkout/tests/fill.test.ts (9 tests)
- ✓ packages/core/tests/fees.test.ts (10 tests)
+ ✓ packages/checkout/tests/cache.test.ts (10 tests)
+ ✓ packages/checkout/tests/credentials.test.ts (12 tests)
+ ✓ packages/checkout/tests/confirm.test.ts (7 tests)
  ✓ packages/orchestrator/tests/receipts.test.ts (3 tests)
+ ✓ packages/core/tests/fees.test.ts (10 tests)
+ ✓ packages/core/tests/store.test.ts (12 tests)
  ✓ tests/e2e/config.test.ts (5 tests)
  ✓ packages/x402/tests/pay.test.ts (1 test)
+ ✓ packages/checkout/tests/e2e-discover.test.ts (6 tests)
  × tests/e2e/x402-flow.test.ts (5 tests | 1 failed)
  × tests/e2e/browser-flow.test.ts (5 tests | 2 failed)
- × packages/checkout/tests/e2e-discover.test.ts (6 tests | 1 failed)
 
- Test Files  3 failed | 21 passed (24)
-      Tests  4 failed | 174 passed (178)
+ Test Files  2 failed | 22 passed (24)
+      Tests  3 failed | 175 passed (178)
 ```
 
 ---

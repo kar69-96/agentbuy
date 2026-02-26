@@ -12,6 +12,8 @@ Pre-implementation. Full specification lives in `plans/`. No source code exists 
 
 ## Architecture
 
+> **When:** Designing new features, understanding code flow, or answering "where does X live?" questions. Skim on first read; no need to re-read on every run.
+
 ### REST API (Hono) — NOT MCP
 
 Proxo is API-first. MCP wrapper is planned for v2. The API has 4 JSON endpoints + 1 HTML page:
@@ -38,6 +40,8 @@ No auth. `wallet_id` is the spending credential. `funding_token` is a separate s
 
 ### Credential Placeholder System
 
+> **When:** Working on `packages/checkout` or anything touching card/payment form fields.
+
 LLM never sees real card numbers. Card fields are filled via Playwright CDP directly into the DOM — never through Stagehand's LLM. Non-card fields use Stagehand's `variables` parameter (`%var%` syntax) which substitutes at the execution layer. Real values come from `.env` and never enter the LLM context.
 
 ### Two Secrets Per Wallet
@@ -51,6 +55,8 @@ These are independent — knowing one doesn't reveal the other.
 
 ## Tech Stack
 
+> **When:** Adding dependencies, debugging import/version issues, or choosing a library. Not needed for routine edits.
+
 - **API Server:** Hono 4.x
 - **Wallets:** viem 2.x (NOT Coinbase CDP)
 - **x402 Payments:** @x402/fetch
@@ -62,6 +68,8 @@ These are independent — knowing one doesn't reveal the other.
 
 ## Package Structure
 
+> **When:** Creating new files, moving code, or deciding which package owns a piece of logic.
+
 ```
 packages/
 ├── core/        # Types, fees, routing logic, store (JSON persistence)
@@ -72,6 +80,8 @@ packages/
 ```
 
 ## Key Design Decisions
+
+> **When:** Proposing architectural changes, questioning why something works a certain way, or considering alternatives. Not needed for routine bug fixes.
 
 - **API-first, not MCP** — curl-testable, language-agnostic, simpler debugging. MCP wrapper in v2.
 - **No auth** — wallet_id is the credential. Acceptable for single operator + testnet. API key auth in v1.5.
@@ -85,6 +95,8 @@ packages/
 
 ## Constraints (v1)
 
+> **When:** Evaluating whether a feature or behavior is in scope for v1, or when a user asks "can Proxo do X?"
+
 - $25 cap per transaction
 - USDC on Base only
 - URL-only (no product search)
@@ -94,7 +106,9 @@ packages/
 - Manual refunds for failed purchases
 - Localhost only (deploy behind reverse proxy for production)
 
-## Security — IMPORTANT
+## Security — ALWAYS APPLIES
+
+> **When:** Every run. These rules are non-negotiable regardless of task.
 
 - Never log or expose private keys, seed phrases, or wallet secrets
 - LLM must NEVER see real card numbers — use the placeholder system (`x_card_number`, etc.)
@@ -108,6 +122,8 @@ packages/
 
 ### Adding an API Endpoint
 
+> **When:** Adding or modifying API routes in `packages/api`. Skip for non-API work.
+
 1. Define request/response types in `packages/core/src/types.ts`
 2. Implement business logic in the relevant package (x402, checkout, or wallet)
 3. Create route handler in `packages/api/src/routes/`
@@ -115,6 +131,8 @@ packages/
 5. Test with curl
 
 ### Testing a Browser Checkout Flow
+
+> **When:** Working on `packages/checkout` or browser automation. Skip for non-checkout work.
 
 1. Use Browserbase session replay to verify each step
 2. Test with a known product URL and fixed shipping info
@@ -124,10 +142,11 @@ packages/
 
 ## Final Steps
 
-YOU MUST run these in order after finishing any task:
+> **When:** After finishing any task that touches source code (implementation, bug fix, refactor). Skip for documentation-only or plan-only changes.
 
-0. If any API endpoints were added, changed, or removed, update `/docs/skill.md` to reflect the current endpoints.
+Run these in order after finishing any code task:
 
+0. **Only if API endpoints were added, changed, or removed:** update `/docs/skill.md` to reflect the current endpoints.
 1. `pnpm type-check` — fix any TypeScript errors before proceeding
 2. `pnpm lint` — fix any linting errors related to your changes
 3. `pnpm format` — ensure consistent formatting
@@ -137,6 +156,8 @@ YOU MUST run these in order after finishing any task:
 
 ## Gotchas
 
+> **When:** Working on the related package. Each bullet applies to a specific area — only consult the relevant ones.
+
 - viem's `waitForTransactionReceipt` can hang if the RPC is slow — always set a timeout
 - Browserbase sessions are cloud-hosted — never assume local filesystem access in `packages/checkout`
 - `@x402/fetch` auto-intercepts 402 responses — don't manually handle 402 in code that uses it
@@ -145,6 +166,8 @@ YOU MUST run these in order after finishing any task:
 
 ## Testing
 
+> **When:** Writing tests, debugging test failures, or running the test suite. Not needed for non-test work.
+
 - Always test on real websites (Shopify → Target → Best Buy → Amazon)
 - All on Base Sepolia with test USDC
 - Each build phase has a test gate — don't proceed until all pass
@@ -152,6 +175,8 @@ YOU MUST run these in order after finishing any task:
 - See `plans/07-testing-guidelines.md` and `plans/14-phased-build-plan.md` for details
 
 ## Plans Reference
+
+> **When:** You need detailed specs beyond what's in this file. Look up the relevant doc rather than guessing.
 
 All specification docs are in `plans/`:
 
