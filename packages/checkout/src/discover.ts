@@ -1,9 +1,7 @@
-//Stagehand uses a 1288x711 viewport by default
-
 import { Stagehand } from "@browserbasehq/stagehand";
 import { z } from "zod";
 import type { ShippingInfo } from "@proxo/core";
-import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
+import { createSession, destroySession, getModelApiKey } from "./session.js";
 import { sanitizeShipping } from "./credentials.js";
 
 // ---- Discovery result ----
@@ -167,7 +165,7 @@ export async function discoverViaCart(
   url: string,
   shipping: ShippingInfo,
 ): Promise<DiscoveryResult> {
-  const anthropicApiKey = getAnthropicApiKey();
+  const modelApiKey = getModelApiKey();
   const session = await createSession();
   let stagehand: InstanceType<typeof Stagehand> | undefined;
 
@@ -177,8 +175,8 @@ export async function discoverViaCart(
       apiKey: process.env.BROWSERBASE_API_KEY!,
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
-        modelName: "anthropic/claude-haiku-4-5-20251001",
-        apiKey: anthropicApiKey,
+        modelName: "google/gemini-2.5-flash",
+        apiKey: modelApiKey,
       },
       browserbaseSessionID: session.id,
     });
@@ -187,7 +185,7 @@ export async function discoverViaCart(
     const page = stagehand.context.activePage()!;
 
     await page.goto(url, { waitUntil: "domcontentloaded", timeoutMs: 30000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
     await stagehand.act("Add this product to cart");
     await page.waitForTimeout(1000);

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { scrapePrice, discoverViaCart, discoverPrice } from "../src/discover.js";
 
 const HAS_KEYS =
-  !!process.env.BROWSERBASE_API_KEY && !!process.env.ANTHROPIC_API_KEY;
+  !!process.env.BROWSERBASE_API_KEY && !!process.env.GOOGLE_API_KEY;
 
 // ---- Tier 1: Server-side scrape against real sites ----
 

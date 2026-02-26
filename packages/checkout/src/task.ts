@@ -16,7 +16,7 @@ import {
   injectDomainCache,
   injectLocalStorage,
 } from "./cache.js";
-import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
+import { createSession, destroySession, getModelApiKey } from "./session.js";
 import type { SessionOptions } from "./session.js";
 import { createCheckoutTools } from "./agent-tools.js";
 import { StepTracker } from "./step-tracker.js";
@@ -165,7 +165,7 @@ export async function runCheckout(
   const cdpCreds = getCdpCredentials(creds);
 
   // 2. Validate keys early (fail fast with clear error)
-  const anthropicApiKey = getAnthropicApiKey();
+  const modelApiKey = getModelApiKey();
 
   // 3. Create Browserbase session
   const session = await createSession(input.sessionOptions);
@@ -179,8 +179,8 @@ export async function runCheckout(
       apiKey: process.env.BROWSERBASE_API_KEY!,
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
-        modelName: "anthropic/claude-sonnet-4-20250514",
-        apiKey: anthropicApiKey,
+        modelName: "google/gemini-2.5-flash",
+        apiKey: modelApiKey,
       },
       browserbaseSessionID: session.id,
       experimental: true,
@@ -300,6 +300,7 @@ export async function runCheckout(
     // 9. Create agent with custom tools
     const agent = stagehand.agent({
       mode: "dom",
+      executionModel: "google/gemini-2.0-flash",
       systemPrompt: buildAgentSystemPrompt(!!input.dryRun),
       tools: customTools,
     });
