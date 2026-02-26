@@ -141,6 +141,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       const checkoutResult = await runCheckout({
         order,
         shipping: order.shipping,
+        sessionOptions: { stealth: true, proxies: true },
       });
 
       if (!checkoutResult.success) {

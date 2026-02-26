@@ -19,6 +19,8 @@ export interface BuyInput {
   url: string;
   wallet_id: string;
   shipping?: ShippingInfo;
+  /** Caller-supplied price — skips price discovery when provided. */
+  price?: string;
 }
 
 export async function buy(input: BuyInput): Promise<Order> {
@@ -71,20 +73,27 @@ export async function buy(input: BuyInput): Promise<Order> {
       );
     }
 
-    let discovery;
-    try {
-      discovery = await discoverPrice(url, resolvedShipping);
-    } catch (e) {
-      if (e instanceof ProxoError) throw e;
-      throw new ProxoError(
-        ErrorCodes.PRICE_EXTRACTION_FAILED,
-        `Price discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
-      );
+    if (input.price) {
+      // Caller-supplied price — skip discovery
+      price = input.price;
+      productName = new URL(url).hostname;
+      priceSource = "caller";
+    } else {
+      let discovery;
+      try {
+        discovery = await discoverPrice(url, resolvedShipping);
+      } catch (e) {
+        if (e instanceof ProxoError) throw e;
+        throw new ProxoError(
+          ErrorCodes.PRICE_EXTRACTION_FAILED,
+          `Price discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
+        );
+      }
+      productName = discovery.name;
+      price = discovery.price;
+      priceSource = discovery.method;
+      imageUrl = discovery.image_url;
     }
-    productName = discovery.name;
-    price = discovery.price;
-    priceSource = discovery.method;
-    imageUrl = discovery.image_url;
   }
 
   // 5. Calculate fees (also enforces $25 max)

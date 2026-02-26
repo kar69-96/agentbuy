@@ -31,6 +31,48 @@ export async function actWithRetry(
   }
 }
 
+// ---- Iframe card field scanner ----
+
+const CARD_FIELD_SELECTORS: Array<{ selector: string; credKey: string }> = [
+  { selector: 'input[name*="cardnumber" i], input[name*="card-number" i], input[name*="encryptedCardNumber" i], input[autocomplete="cc-number"]', credKey: "x_card_number" },
+  { selector: 'input[name*="exp" i], input[name*="encryptedExpiryDate" i], input[autocomplete="cc-exp"]', credKey: "x_card_expiry" },
+  { selector: 'input[name*="cvc" i], input[name*="cvv" i], input[name*="encryptedSecurityCode" i], input[autocomplete="cc-csc"]', credKey: "x_card_cvv" },
+  { selector: 'input[name*="holderName" i], input[name*="cardholder" i], input[autocomplete="cc-name"]', credKey: "x_cardholder_name" },
+];
+
+async function scanIframesForCardFields(
+  page: Page,
+  cdpCreds: Record<string, string>,
+): Promise<{ filled: number }> {
+  let filled = 0;
+
+  // Find all iframes on the page and try filling card fields inside each
+  const iframes = page.locator("iframe");
+  const count = await iframes.count();
+
+  for (let i = 0; i < count; i++) {
+    const frameLocator = page.frameLocator(`iframe >> nth=${i}`);
+
+    for (const { selector, credKey } of CARD_FIELD_SELECTORS) {
+      const value = cdpCreds[credKey];
+      if (!value) continue;
+
+      try {
+        const el = frameLocator.locator(selector).first();
+        // Quick check — don't wait long
+        await el.fill(value);
+        filled++;
+      } catch {
+        // Field not found in this frame — continue
+      }
+    }
+
+    if (filled > 0) break; // Found the payment frame
+  }
+
+  return { filled };
+}
+
 // ---- Custom checkout tools factory ----
 
 export function createCheckoutTools(
@@ -199,44 +241,25 @@ export function createCheckoutTools(
         }, shippingData);
 
         if (filled.length === 0) {
-          // Fallback: use stagehand.act() for each field
-          await actWithRetry(
-            stagehand,
-            "Fill the email field with %x_shipping_email%",
-            { variables: stagehandVars },
-          );
-          await actWithRetry(
-            stagehand,
-            "Fill the first name field with %x_val%",
-            { variables: { x_val: shippingData.firstName } },
-          );
-          await actWithRetry(
-            stagehand,
-            "Fill the last name field with %x_val%",
-            { variables: { x_val: shippingData.lastName } },
-          );
-          await actWithRetry(
-            stagehand,
-            "Fill the address field with %x_shipping_street%",
-            { variables: stagehandVars },
-          );
-          await actWithRetry(
-            stagehand,
-            "Fill the city field with %x_shipping_city%",
-            { variables: stagehandVars },
-          );
-          await actWithRetry(
-            stagehand,
-            "Select %x_shipping_state% in the state field",
-            { variables: stagehandVars },
-          );
-          await actWithRetry(
-            stagehand,
-            "Fill the ZIP code field with %x_shipping_zip%",
-            { variables: stagehandVars },
-          );
-          return "Filled shipping fields via act fallback.";
+          return "No shipping/contact fields found on this page. Navigate to the form first.";
         }
+
+        // Brief wait for any modals/popups triggered by form fill (e.g. login prompts, address autocomplete)
+        await page.waitForTimeout(1500);
+        await page.evaluate(() => {
+          // Click close/dismiss buttons on any dialog that isn't a CAPTCHA
+          document.querySelectorAll(
+            '[role="dialog"] button[aria-label*="close" i], ' +
+            '[role="dialog"] button[aria-label*="dismiss" i]'
+          ).forEach(btn => {
+            const dialog = btn.closest('[role="dialog"]');
+            const text = dialog?.textContent?.toLowerCase() || '';
+            const isCaptcha = /captcha|recaptcha|hcaptcha|turnstile/i.test(text);
+            if (!isCaptcha) (btn as HTMLElement).click();
+          });
+          // Press Escape to dismiss any remaining modal/autocomplete
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+        });
 
         return `Successfully filled ${filled.length} shipping fields (${filled.join(", ")}).`;
       } catch (err) {
@@ -254,21 +277,27 @@ export function createCheckoutTools(
     inputSchema: z.object({}),
     execute: async () => {
       try {
-        // 1. Observe card fields via Stagehand
+        // 1. Observe card fields via Stagehand (main page)
         const observeResult = await stagehand.observe(
           "Find all credit card input fields on this page: card number, expiration date, CVV/security code, and cardholder name.",
         );
 
-        const observedFields: ObservedField[] = observeResult.map((obs) => ({
+        let observedFields: ObservedField[] = observeResult.map((obs) => ({
           selector: obs.selector,
           description: obs.description,
         }));
 
+        // 2. Iframe fallback — scan payment iframes for card fields
+        //    Handles Adyen, Stripe, Braintree, etc. that embed card inputs in cross-origin iframes
         if (observedFields.length === 0) {
+          const iframeFields = await scanIframesForCardFields(page, cdpCreds);
+          if (iframeFields.filled > 0) {
+            return `Successfully filled ${iframeFields.filled} card fields via payment iframe.`;
+          }
           return "No card fields found on this page. The payment form may not be visible yet.";
         }
 
-        // 2. Fill via CDP (card data NEVER enters LLM context)
+        // 3. Fill via CDP (card data NEVER enters LLM context)
         await fillAllCardFields(page, observedFields, cdpCreds);
 
         return "Successfully filled all card payment fields.";
@@ -301,13 +330,55 @@ export function createCheckoutTools(
   const clickButton = tool({
     description:
       "Click a button, link, or interactive element by its visible label or purpose. " +
-      "Use this for all simple clicks: Add to Cart, Continue, Checkout, Close, etc. " +
-      "Faster than act(). Only use act() for complex multi-step interactions.",
+      "Use this for all simple clicks: Add to Cart, Continue, Checkout, Close, Pay, etc. " +
+      "Much faster than act(). Only use act() for complex multi-step interactions.",
     inputSchema: z.object({
-      target: z.string().describe("What to click, e.g. 'Add to Cart', 'Checkout', 'Continue'"),
+      target: z.string().describe("What to click, e.g. 'Add to Cart', 'Checkout', 'Continue', 'Pay now'"),
     }),
     execute: async ({ target }) => {
       try {
+        // Fast path: find button by text content (instant, no LLM)
+        const clicked = await page.evaluate((t) => {
+          const lower = t.toLowerCase();
+          const candidates = document.querySelectorAll(
+            'button, a[role="button"], input[type="submit"], [role="button"], a.btn, a.button, ' +
+            'label[role="button"], div[role="button"], span[role="button"]'
+          );
+          for (const el of candidates) {
+            const text = (el.textContent || "").trim().toLowerCase();
+            const value = (el as HTMLInputElement).value?.toLowerCase() || "";
+            const label = el.getAttribute("aria-label")?.toLowerCase() || "";
+            if (text.includes(lower) || value.includes(lower) || label.includes(lower)) {
+              // Check for inline onclick handler (e.g. onclick="someFunction(); return false;")
+              const onclick = el.getAttribute("onclick");
+              if (onclick) {
+                // Execute the inline handler directly — some sites use onclick with return false
+                // which prevents normal click() from triggering the handler correctly
+                try {
+                  new Function(onclick).call(el);
+                  return true;
+                } catch {
+                  // Inline handler failed, fall through to regular click
+                }
+              }
+              (el as HTMLElement).click();
+              return true;
+            }
+          }
+          return false;
+        }, target);
+
+        if (clicked) {
+          // Wait for potential page navigation or content load
+          try {
+            await page.waitForTimeout(3000);
+          } catch {
+            // Page may have navigated
+          }
+          return `Clicked "${target}".`;
+        }
+
+        // Slow path: use observe (LLM-based, handles complex selectors)
         const matches = await stagehand.observe(`Find the clickable element: ${target}`);
         if (matches.length === 0) return `Could not find "${target}" on the page.`;
         await page.locator(matches[0].selector).click();
@@ -320,5 +391,51 @@ export function createCheckoutTools(
     },
   });
 
-  return { fillShippingInfo, fillCardFields, fillBillingAddress, clickButton };
+  const dismissPopups = tool({
+    description:
+      "Dismiss any visible popups, modals, or overlays on the page. " +
+      "Clicks close/dismiss buttons and removes blocking overlays. " +
+      "Does NOT dismiss CAPTCHAs (Browserbase auto-solves those). " +
+      "Use this before interacting with the page if popups are blocking.",
+    inputSchema: z.object({}),
+    execute: async () => {
+      try {
+        const dismissed = await page.evaluate(() => {
+          const CAPTCHA_RE = /captcha|recaptcha|hcaptcha|turnstile/i;
+          const actions: string[] = [];
+          // Click close/dismiss buttons in dialogs
+          document.querySelectorAll(
+            '[role="dialog"] button[aria-label*="close" i], ' +
+            '[role="dialog"] button[aria-label*="dismiss" i], ' +
+            'button[aria-label*="close" i][class*="modal" i], ' +
+            '.modal button.close, .modal .btn-close'
+          ).forEach(btn => {
+            const dialog = btn.closest('[role="dialog"], .modal');
+            if (!CAPTCHA_RE.test(dialog?.textContent || '')) {
+              (btn as HTMLElement).click();
+              actions.push("clicked close button");
+            }
+          });
+          // Remove fixed overlays
+          document.querySelectorAll('.overlay, .backdrop, [class*="overlay" i], [class*="backdrop" i]')
+            .forEach(e => {
+              if (!CAPTCHA_RE.test(e.textContent || '') && getComputedStyle(e).position === 'fixed') {
+                e.remove();
+                actions.push("removed overlay");
+              }
+            });
+          // Press Escape
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          actions.push("pressed Escape");
+          return actions;
+        });
+        return `Dismissed popups: ${dismissed.join(", ")}.`;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return `Popup dismissal attempted: ${msg}`;
+      }
+    },
+  });
+
+  return { fillShippingInfo, fillCardFields, fillBillingAddress, clickButton, dismissPopups };
 }

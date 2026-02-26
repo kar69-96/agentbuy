@@ -26,6 +26,7 @@ buyRoutes.post("/buy", async (c) => {
     url: body.url.trim(),
     wallet_id: body.wallet_id.trim(),
     shipping: body.shipping,
+    price: body.price,
   });
 
   const wallet = getWallet(order.wallet_id)!;

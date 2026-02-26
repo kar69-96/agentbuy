@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { privateKeyToAccount } from "viem/accounts";
 import type {
   Network,
   CardInfo,
@@ -101,7 +102,7 @@ export function loadConfig(): ProxoConfig {
 
   const config: ProxoConfig = {
     master_wallet: {
-      address: "",
+      address: privateKeyToAccount(masterKey as `0x${string}`).address,
       private_key: masterKey,
     },
     network: getNetwork(),
