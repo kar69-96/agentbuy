@@ -86,14 +86,23 @@ export function getCdpApiKeySecret(): string {
 
 // ---- Config management ----
 
-export function loadOrCreateConfig(): ProxoConfig {
+export function loadConfig(): ProxoConfig {
   const existing = getConfig();
   if (existing) return existing;
+
+  const masterKey = process.env.PROXO_MASTER_PRIVATE_KEY;
+  if (!masterKey || masterKey === "0x...") {
+    throw new Error(
+      "PROXO_MASTER_PRIVATE_KEY is not set. " +
+        "Generate a wallet, add the private key to .env, and fund it with ETH on Base Sepolia. " +
+        "See plans/06-human-dependencies.md for details.",
+    );
+  }
 
   const config: ProxoConfig = {
     master_wallet: {
       address: "",
-      private_key: process.env.PROXO_MASTER_PRIVATE_KEY || "",
+      private_key: masterKey,
     },
     network: getNetwork(),
     usdc_contract: getUsdcContract(),

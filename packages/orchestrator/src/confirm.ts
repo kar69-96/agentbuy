@@ -6,7 +6,7 @@ import {
   getOrder,
   getWallet,
   updateOrder,
-  loadOrCreateConfig,
+  loadConfig,
 } from "@proxo/core";
 import { getBalance, transferUSDC } from "@proxo/wallet";
 import { payX402 } from "@proxo/x402";
@@ -69,7 +69,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
     );
   }
 
-  const config = loadOrCreateConfig();
+  const config = loadConfig();
   const masterAddress = config.master_wallet.address;
 
   // 7. Re-check balance (may have changed since buy-time)

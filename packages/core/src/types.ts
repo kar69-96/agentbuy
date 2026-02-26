@@ -202,6 +202,7 @@ export const ErrorCodes = {
   MISSING_FIELD: "MISSING_FIELD",
   INVALID_URL: "INVALID_URL",
   ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
+  GAS_TRANSFER_FAILED: "GAS_TRANSFER_FAILED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

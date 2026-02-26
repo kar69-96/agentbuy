@@ -9,7 +9,7 @@ import {
   calculateFee,
   calculateTotal,
   getDefaultShipping,
-  loadOrCreateConfig,
+  loadConfig,
 } from "@proxo/core";
 import { getBalance } from "@proxo/wallet";
 import { discoverPrice } from "@proxo/checkout";
@@ -101,7 +101,7 @@ export async function buy(input: BuyInput): Promise<Order> {
   }
 
   // 7. Build order
-  const config = loadOrCreateConfig();
+  const config = loadConfig();
   const now = new Date();
   const expiresAt = new Date(
     now.getTime() + config.default_order_expiry_seconds * 1000,

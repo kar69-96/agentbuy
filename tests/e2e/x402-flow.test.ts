@@ -17,13 +17,16 @@ let app: ReturnType<typeof createApp>;
 let testWalletId: string;
 
 function setupConfig(): void {
+  const masterAccount = privateKeyToAccount(
+    process.env.TEST_WALLET_PRIVATE_KEY as `0x${string}`,
+  );
   const configPath = path.join(tmpDir, "config.json");
   fs.writeFileSync(
     configPath,
     JSON.stringify({
       master_wallet: {
-        address: "0x" + "c".repeat(40),
-        private_key: "0x" + "d".repeat(64),
+        address: masterAccount.address,
+        private_key: process.env.TEST_WALLET_PRIVATE_KEY,
       },
       network: "base-sepolia",
       usdc_contract: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
