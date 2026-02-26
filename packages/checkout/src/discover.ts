@@ -187,21 +187,9 @@ export async function discoverViaCart(
     await page.goto(url, { waitUntil: "domcontentloaded", timeoutMs: 30000 });
     await page.waitForTimeout(3000);
 
-    // Retry wrapper — cheaper models occasionally return empty elementId
-    const actWithRetry = async (instruction: string, retries = 2) => {
-      for (let i = 0; i <= retries; i++) {
-        try {
-          return await stagehand!.act(instruction);
-        } catch (err) {
-          if (i === retries) throw err;
-          await page.waitForTimeout(1500);
-        }
-      }
-    };
-
-    await actWithRetry("Add this product to cart");
+    await stagehand.act("Add this product to cart");
     await page.waitForTimeout(1000);
-    await actWithRetry("Go to cart or proceed to checkout");
+    await stagehand.act("Go to cart or proceed to checkout");
     await page.waitForTimeout(2000);
 
     // Fill shipping if applicable (sanitize to prevent prompt injection)
