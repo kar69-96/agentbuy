@@ -2,12 +2,12 @@
 
 ## Circular Dependency Solution
 
-Spec says put files in `packages/core/src/`, but `buy.ts`/`confirm.ts` need `@proxo/wallet`, `@proxo/x402`, `@proxo/checkout` — which already depend on `@proxo/core`. Circular dep breaks the build.
+Spec says put files in `packages/core/src/`, but `buy.ts`/`confirm.ts` need `@bloon/wallet`, `@bloon/x402`, `@bloon/checkout` — which already depend on `@bloon/core`. Circular dep breaks the build.
 
-**Solution:** New package `packages/orchestrator/` (`@proxo/orchestrator`).
-- Depends on: `@proxo/core`, `@proxo/wallet`, `@proxo/x402`, `@proxo/checkout`
+**Solution:** New package `packages/orchestrator/` (`@bloon/orchestrator`).
+- Depends on: `@bloon/core`, `@bloon/wallet`, `@bloon/x402`, `@bloon/checkout`
 - Clean acyclic graph: `core → wallet/x402/checkout → orchestrator`
-- Phase 6 API imports from `@proxo/orchestrator`
+- Phase 6 API imports from `@bloon/orchestrator`
 
 ---
 
@@ -78,8 +78,8 @@ browserbase route:
 ## Tests (all offline, mocked)
 
 ### buy.test.ts (8 tests)
-- buy x402 URL → order with route "x402", 0.5% fee
-- buy normal URL → order with route "browserbase", 5% fee
+- buy x402 URL → order with route "x402", 2% fee
+- buy normal URL → order with route "browserbase", 2% fee
 - buy browser + no shipping + no defaults → SHIPPING_REQUIRED
 - buy browser + no shipping + env defaults → uses defaults
 - buy with explicit shipping → uses provided

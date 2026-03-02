@@ -1,6 +1,6 @@
 import { createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { ProxoError, ErrorCodes, getRpcUrl } from "@proxo/core";
+import { BloonError, ErrorCodes, getRpcUrl } from "@bloon/core";
 import { getChain, getPublicClient } from "./client.js";
 
 /** ETH to auto-send to each new agent wallet (~$0.025, covers ~25 Base txs) */
@@ -35,8 +35,8 @@ export async function sendGas(
 
     return { tx_hash: hash, amount: AUTO_GAS_ETH };
   } catch (error) {
-    if (error instanceof ProxoError) throw error;
-    throw new ProxoError(
+    if (error instanceof BloonError) throw error;
+    throw new BloonError(
       ErrorCodes.GAS_TRANSFER_FAILED,
       `Failed to send gas to new wallet: ${error instanceof Error ? error.message : "Unknown error"}`,
     );

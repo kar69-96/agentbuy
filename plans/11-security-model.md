@@ -1,4 +1,4 @@
-# Security Model — Proxo v1
+# Security Model — Bloon v1
 
 ## Auth Model: wallet_id IS the Credential
 
@@ -19,7 +19,7 @@ No API keys. No registration. No auth headers.
 | LLM sees card numbers | HIGH | Card fields filled via Playwright CDP (bypasses LLM entirely). Non-card fields use Stagehand `%var%` variables (not shared with LLM). |
 | wallet_id leaked | MEDIUM | IDs are cryptographically random. $25 cap. Testnet. v2 adds API key auth. |
 | funding_url leaked | LOW | Only lets someone send you money. Cannot spend. |
-| Wallet private key leak | MEDIUM | Keys in `~/.proxo/` with 600 permissions. Single-user, local only. v1.5 adds encryption. |
+| Wallet private key leak | MEDIUM | Keys in `~/.bloon/` with 600 permissions. Single-user, local only. v1.5 adds encryption. |
 | Prompt injection | MEDIUM | Agents call structured REST endpoints. Stagehand receives step-by-step act() calls, not raw agent input. Shipping info sanitized. |
 | Double-spend / replay | LOW | Unique order IDs. On-chain verification. Order marked completed after fulfillment. |
 | Failed purchase, funds lost | MEDIUM | tx_hash preserved on failure. Manual refund for v1. |
@@ -41,9 +41,9 @@ No API keys. No registration. No auth headers.
   │     ▼  Card fields: Playwright CDP fill (bypasses LLM)
   │     ▼  Non-card fields: Stagehand variables (not shared with LLM)
   │
-  ├─ PROXO_MASTER_PRIVATE_KEY → signs x402 payments, server-side only
+  ├─ BLOON_MASTER_PRIVATE_KEY → signs x402 payments, server-side only
   │
-  └─ Wallet private keys (~/.proxo/wallets.json) → signs USDC transfers, server-side only
+  └─ Wallet private keys (~/.bloon/wallets.json) → signs USDC transfers, server-side only
 ```
 
 ## What the LLM Can See
@@ -56,7 +56,7 @@ No API keys. No registration. No auth headers.
 | Credit card number | **No** |
 | Card expiry, CVV | **No** |
 | Wallet private keys | **No** |
-| Proxo master wallet key | **No** |
+| Bloon master wallet key | **No** |
 | USDC tx hashes | Yes |
 | wallet_id | Yes (agent needs it) |
 | funding_token | Yes (agent shares with human) |

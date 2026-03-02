@@ -1,5 +1,5 @@
-import { type PaymentRoute, type X402Requirements, ProxoError, ErrorCodes } from "@proxo/core";
-import { getNetwork } from "@proxo/core";
+import { type PaymentRoute, type X402Requirements, BloonError, ErrorCodes } from "@bloon/core";
+import { getNetwork } from "@bloon/core";
 
 export interface DetectResult {
   route: PaymentRoute;
@@ -32,7 +32,7 @@ export async function detectRoute(url: string): Promise<DetectResult> {
   try {
     response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   } catch {
-    throw new ProxoError(ErrorCodes.URL_UNREACHABLE, `Cannot reach ${url}`);
+    throw new BloonError(ErrorCodes.URL_UNREACHABLE, `Cannot reach ${url}`);
   }
 
   if (response.status !== 402) {

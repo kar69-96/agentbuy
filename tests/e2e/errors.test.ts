@@ -2,25 +2,25 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { ProxoError, ErrorCodes } from "@proxo/core";
-import type { Order } from "@proxo/core";
+import { BloonError, ErrorCodes } from "@bloon/core";
+import type { Order } from "@bloon/core";
 
 // ---- Mock external packages ----
 
-vi.mock("@proxo/wallet", () => ({
+vi.mock("@bloon/wallet", () => ({
   createWallet: vi.fn(),
   getBalance: vi.fn(),
   generateQR: vi.fn(),
 }));
 
-vi.mock("@proxo/orchestrator", () => ({
+vi.mock("@bloon/orchestrator", () => ({
   buy: vi.fn(),
   confirm: vi.fn(),
 }));
 
-import { createWallet, getBalance, generateQR } from "@proxo/wallet";
-import { buy, confirm } from "@proxo/orchestrator";
-import { createApp } from "@proxo/api/src/server.js";
+import { createWallet, getBalance, generateQR } from "@bloon/wallet";
+import { buy, confirm } from "@bloon/orchestrator";
+import { createApp } from "@bloon/api/src/server.js";
 
 const mockedCreateWallet = vi.mocked(createWallet);
 const mockedGetBalance = vi.mocked(getBalance);
@@ -33,7 +33,7 @@ const mockedConfirm = vi.mocked(confirm);
 let tmpDir: string;
 let app: ReturnType<typeof createApp>;
 
-const TEST_WALLET_ID = "proxo_w_e2e01";
+const TEST_WALLET_ID = "bloon_w_e2e01";
 const TEST_ADDRESS = "0x" + "a".repeat(40);
 const TEST_FUNDING_TOKEN = "tok_e2e_fund";
 
@@ -88,8 +88,8 @@ async function req(method: string, pathStr: string, body?: unknown) {
 // ---- Setup / Teardown ----
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-e2e-errors-"));
-  process.env.PROXO_DATA_DIR = tmpDir;
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-e2e-errors-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
   setupWallet();
   setupConfig();
   vi.clearAllMocks();
@@ -100,7 +100,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  delete process.env.PROXO_DATA_DIR;
+  delete process.env.BLOON_DATA_DIR;
 });
 
 // ---- Scenario E: Error scenarios ----
@@ -108,7 +108,7 @@ afterEach(() => {
 describe("E2E — Scenario E: Error scenarios", () => {
   it("full flow: create wallet → get wallet → response shapes chain correctly", async () => {
     mockedCreateWallet.mockResolvedValue({
-      wallet_id: "proxo_w_new",
+      wallet_id: "bloon_w_new",
       address: "0x" + "f".repeat(40),
       private_key: "0x" + "1".repeat(64),
       funding_token: "tok_new",
@@ -123,7 +123,7 @@ describe("E2E — Scenario E: Error scenarios", () => {
     });
     expect(createRes.status).toBe(201);
     const created = await createRes.json();
-    expect(created.wallet_id).toBe("proxo_w_new");
+    expect(created.wallet_id).toBe("bloon_w_new");
     expect(created.address).toBeDefined();
     expect(created.funding_url).toContain("/fund/tok_new");
     expect(created.balance_usdc).toBe("50.00");
@@ -139,7 +139,7 @@ describe("E2E — Scenario E: Error scenarios", () => {
 
   it("buy $30 product → 400 PRICE_EXCEEDS_LIMIT", async () => {
     mockedBuy.mockRejectedValue(
-      new ProxoError(
+      new BloonError(
         ErrorCodes.PRICE_EXCEEDS_LIMIT,
         "Price exceeds $25 limit",
       ),
@@ -156,7 +156,7 @@ describe("E2E — Scenario E: Error scenarios", () => {
 
   it("buy with insufficient balance → 400 INSUFFICIENT_BALANCE", async () => {
     mockedBuy.mockRejectedValue(
-      new ProxoError(
+      new BloonError(
         ErrorCodes.INSUFFICIENT_BALANCE,
         "Not enough USDC",
       ),
@@ -173,12 +173,12 @@ describe("E2E — Scenario E: Error scenarios", () => {
 
   it("buy with bad wallet_id → 404 WALLET_NOT_FOUND", async () => {
     mockedBuy.mockRejectedValue(
-      new ProxoError(ErrorCodes.WALLET_NOT_FOUND, "Not found"),
+      new BloonError(ErrorCodes.WALLET_NOT_FOUND, "Not found"),
     );
 
     const res = await req("POST", "/api/buy", {
       url: "https://shop.example.com/product",
-      wallet_id: "proxo_w_nonexistent",
+      wallet_id: "bloon_w_nonexistent",
     });
     expect(res.status).toBe(404);
     const json = await res.json();
@@ -187,11 +187,11 @@ describe("E2E — Scenario E: Error scenarios", () => {
 
   it("confirm with bad order_id → 404 ORDER_NOT_FOUND", async () => {
     mockedConfirm.mockRejectedValue(
-      new ProxoError(ErrorCodes.ORDER_NOT_FOUND, "Not found"),
+      new BloonError(ErrorCodes.ORDER_NOT_FOUND, "Not found"),
     );
 
     const res = await req("POST", "/api/confirm", {
-      order_id: "proxo_ord_nonexistent",
+      order_id: "bloon_ord_nonexistent",
     });
     expect(res.status).toBe(404);
     const json = await res.json();
@@ -200,11 +200,11 @@ describe("E2E — Scenario E: Error scenarios", () => {
 
   it("confirm expired order → 410 ORDER_EXPIRED", async () => {
     mockedConfirm.mockRejectedValue(
-      new ProxoError(ErrorCodes.ORDER_EXPIRED, "Expired"),
+      new BloonError(ErrorCodes.ORDER_EXPIRED, "Expired"),
     );
 
     const res = await req("POST", "/api/confirm", {
-      order_id: "proxo_ord_expired",
+      order_id: "bloon_ord_expired",
     });
     expect(res.status).toBe(410);
     const json = await res.json();
@@ -213,7 +213,7 @@ describe("E2E — Scenario E: Error scenarios", () => {
 
   it("buy without shipping (browser route) → 400 SHIPPING_REQUIRED", async () => {
     mockedBuy.mockRejectedValue(
-      new ProxoError(ErrorCodes.SHIPPING_REQUIRED, "Shipping required"),
+      new BloonError(ErrorCodes.SHIPPING_REQUIRED, "Shipping required"),
     );
 
     const res = await req("POST", "/api/buy", {
@@ -227,7 +227,7 @@ describe("E2E — Scenario E: Error scenarios", () => {
 
   it("retry buy with shipping → 200 quote returned", async () => {
     const fakeOrder: Order = {
-      order_id: "proxo_ord_retry",
+      order_id: "bloon_ord_retry",
       wallet_id: TEST_WALLET_ID,
       status: "awaiting_confirmation",
       product: {
@@ -237,10 +237,10 @@ describe("E2E — Scenario E: Error scenarios", () => {
         source: "scrape",
       },
       payment: {
-        amount_usdc: "10.50",
+        amount_usdc: "10.20",
         price: "10.00",
-        fee: "0.50",
-        fee_rate: "5%",
+        fee: "0.20",
+        fee_rate: "2%",
         route: "browserbase",
       },
       created_at: new Date().toISOString(),
@@ -264,7 +264,7 @@ describe("E2E — Scenario E: Error scenarios", () => {
     });
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.order_id).toBe("proxo_ord_retry");
+    expect(json.order_id).toBe("bloon_ord_retry");
     expect(json.payment.route).toBe("browserbase");
     expect(json.status).toBe("awaiting_confirmation");
   });

@@ -1,5 +1,5 @@
-import { getCardInfo, getBillingInfo } from "@proxo/core";
-import type { ShippingInfo, CredentialsMap } from "@proxo/core";
+import { getCardInfo, getBillingInfo } from "@bloon/core";
+import type { ShippingInfo, CredentialsMap } from "@bloon/core";
 
 // ---- CDP-only fields (card data — never sent through Stagehand LLM) ----
 
@@ -27,6 +27,7 @@ export function sanitizeShipping(shipping: ShippingInfo): ShippingInfo {
   return {
     name: clean(shipping.name),
     street: clean(shipping.street),
+    apartment: shipping.apartment ? clean(shipping.apartment) : undefined,
     city: clean(shipping.city),
     state: clean(shipping.state),
     zip: clean(shipping.zip),
@@ -55,6 +56,7 @@ export function buildCredentials(shipping: ShippingInfo): CredentialsMap {
     x_billing_country: billing.country,
     x_shipping_name: safe.name,
     x_shipping_street: safe.street,
+    x_shipping_apartment: safe.apartment ?? "",
     x_shipping_city: safe.city,
     x_shipping_state: safe.state,
     x_shipping_zip: safe.zip,

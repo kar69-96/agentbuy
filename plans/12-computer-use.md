@@ -1,6 +1,6 @@
 # Computer Use — Browserbase + Stagehand (Phase 4)
 
-Phase 4 is the largest and highest-risk phase. It builds `packages/checkout/` — the browser automation system that lets Proxo purchase physical products from any e-commerce site using a cloud browser controlled by an LLM.
+Phase 4 is the largest and highest-risk phase. It builds `packages/checkout/` — the browser automation system that lets Bloon purchase physical products from any e-commerce site using a cloud browser controlled by an LLM.
 
 **Stack**: Browserbase (cloud browser) + Stagehand (AI browser automation SDK, also by Browserbase) + Playwright (CDP credential fills).
 
@@ -199,7 +199,7 @@ try {
 
 ## Stagehand Primitives
 
-Stagehand provides three core methods + an agent mode. Proxo uses the primitives directly for maximum control.
+Stagehand provides three core methods + an agent mode. Bloon uses the primitives directly for maximum control.
 
 ### `act()` — Perform an Action
 
@@ -271,7 +271,7 @@ Stagehand also has an `agent()` mode for autonomous multi-step tasks. We do NOT 
 2. Less control over individual steps — harder to insert CDP fills at the right moment
 3. Harder to audit and debug
 
-Instead, Proxo orchestrates the checkout step-by-step using `act()`, `observe()`, and `extract()`.
+Instead, Bloon orchestrates the checkout step-by-step using `act()`, `observe()`, and `extract()`.
 
 ---
 
@@ -510,93 +510,38 @@ For sites with unusual flows, the `act()` instructions can be adjusted. The stru
 
 ## Price Discovery
 
-`POST /api/buy` needs the full price before the agent confirms. Two tiers:
+Product discovery runs through three tiers. See `plans/16-firecrawl-discovery.md` for the full Firecrawl pipeline spec.
 
-### Tier 1: HTML Scrape (Fast, Free)
+### Tier 1: Firecrawl (Primary, Rich)
 
-Server-side HTTP fetch + structured data parsing. No Browserbase session needed.
+Uses Firecrawl's `/extract` endpoint to pull structured product data from the rendered page — name, price, brand, image, variant options with values and per-variant pricing, and variant URLs. Three sub-steps:
 
-```typescript
-// discover.ts — Tier 1
-async function scrapePrice(url: string): Promise<ScrapeResult | null> {
-  const response = await fetch(url, {
-    headers: { "User-Agent": "Mozilla/5.0 ..." },
-  });
-  const html = await response.text();
+1. `/extract` on product URL (always)
+2. If variant URLs found → `/extract` on each variant URL for per-variant pricing
+3. If options found but no variant URLs → `/crawl` (maxDepth: 1) to discover variant pages
 
-  // Try JSON-LD first
-  const jsonLd = extractJsonLd(html);
-  if (jsonLd?.["@type"] === "Product" && jsonLd.offers?.price) {
-    return {
-      name: jsonLd.name,
-      price: parseFloat(jsonLd.offers.price),
-      method: "scrape",
-    };
-  }
+Requires `FIRECRAWL_API_KEY`. Skipped if not set.
 
-  // Try Open Graph meta tags
-  const ogPrice = extractMeta(html, 'product:price:amount');
-  const ogName = extractMeta(html, 'og:title');
-  if (ogPrice) {
-    return {
-      name: ogName ?? "Unknown Product",
-      price: parseFloat(ogPrice),
-      method: "scrape",
-    };
-  }
+### Tier 2: HTML Scrape (Fast, Free)
 
-  return null; // Fall through to Tier 2
-}
+Server-side HTTP fetch + structured data parsing. No API keys or browser sessions needed.
+
+- JSON-LD (`@type: Product`) → extract name, price, variant options from `hasVariant`/`offers`
+- Open Graph meta tags → `product:price:amount`, `og:title`
+- Falls through to Tier 3 if bot-blocked or no structured data found
+
+### Tier 3: Browserbase + Stagehand (Slow, Last Resort)
+
+Launch a Browserbase headless Chrome session. Stagehand LLM agent extracts product info and variant options from the rendered DOM. For per-variant pricing, the agent selects each variant and reports the updated price.
+
+Used for anti-bot sites (Amazon, Best Buy) and pages with no structured data or Firecrawl support.
+
 ```
-
-### Tier 2: Browserbase + Stagehand Full Cart (Slow, Accurate)
-
-Launch a Browserbase session, use Stagehand to add to cart, fill shipping, and extract the full price breakdown. Do NOT submit.
-
-```typescript
-// discover.ts — Tier 2
-async function discoverViaCart(
-  url: string,
-  shipping: ShippingInfo,
-): Promise<CartDiscoveryResult> {
-  const session = await createBrowserbaseSession();
-  const stagehand = await initStagehand(session);
-
-  try {
-    await stagehand.act(`navigate to ${url}`);
-    await stagehand.act("add the product to the cart");
-    await stagehand.act("proceed to checkout");
-
-    // Fill shipping via variables (no card data needed for discovery)
-    await stagehand.act("fill shipping address with %street%, %city%, %state% %zip%", {
-      variables: {
-        street: shipping.street,
-        city: shipping.city,
-        state: shipping.state,
-        zip: shipping.zip,
-      },
-    });
-
-    // Wait for shipping rates
-    await stagehand.act("select the cheapest shipping option");
-
-    // Extract breakdown WITHOUT entering payment
-    const pricing = await stagehand.extract(
-      "extract the item price, tax, shipping cost, and order total",
-      z.object({
-        itemPrice: z.string(),
-        tax: z.string(),
-        shipping: z.string(),
-        total: z.string(),
-      }),
-    );
-
-    return { ...pricing, method: "browserbase_cart" };
-  } finally {
-    await stagehand.close();
-    await destroySession(session.id);
-  }
-}
+discoverProduct(url)
+  → discoverViaFirecrawl(url)     // Tier 1
+  → scrapePriceWithOptions(url)   // Tier 2
+  → discoverViaBrowser(url)       // Tier 3
+  → throw QUERY_FAILED
 ```
 
 ---
@@ -720,7 +665,7 @@ Fresh sessions per checkout means no state carries over. But we cache cookies an
 ### Storage
 
 ```
-~/.proxo/cache/
+~/.bloon/cache/
   target.com.json
   bestbuy.com.json
   amazon.com.json
@@ -926,7 +871,7 @@ try {
 
 **Domain cache:**
 ```
-[ ] First visit creates ~/.proxo/cache/{domain}.json
+[ ] First visit creates ~/.bloon/cache/{domain}.json
 [ ] Second visit injects cached cookies
 [ ] No auth tokens in cache
 ```
@@ -938,7 +883,7 @@ After **every** browser checkout test:
 - [ ] Card fills only appear in CDP/Playwright logs
 - [ ] Non-card fields show `%var%` placeholders in Stagehand logs
 - [ ] No credentials in API response bodies
-- [ ] No credentials in `~/.proxo/orders.json`
+- [ ] No credentials in `~/.bloon/orders.json`
 
 ### Debugging Failed Checkouts
 
@@ -980,9 +925,9 @@ Prevents prompt injection via shipping fields.
 
 ### Stagehand vs browser-use
 
-Proxo uses Stagehand (not browser-use) because:
+Bloon uses Stagehand (not browser-use) because:
 - **Same vendor**: Stagehand is built by Browserbase — tightest integration
-- **TypeScript-native**: No Python dependency, runs natively in the Proxo stack
+- **TypeScript-native**: No Python dependency, runs natively in the Bloon stack
 - **Primitives over agents**: `act()`/`observe()`/`extract()` give step-by-step control vs browser-use's autonomous agent loop
 - **Built-in iframe/shadow DOM**: Stagehand handles these automatically
 - **`variables` parameter**: Built-in credential protection without needing `sensitive_data` workarounds
@@ -991,9 +936,9 @@ Proxo uses Stagehand (not browser-use) because:
 
 ## Reference: AgentPay Patterns
 
-Proxo's checkout system draws from AgentPay's `StagehandProxy`. Key patterns adapted:
+Bloon's checkout system draws from AgentPay's `StagehandProxy`. Key patterns adapted:
 
-| AgentPay Pattern | Proxo Adaptation |
+| AgentPay Pattern | Bloon Adaptation |
 |-----------------|------------------|
 | `StagehandProxy` — dual channel (Stagehand + CDP) | Same architecture: Stagehand for navigation, CDP for card fills |
 | `fillField(selector, value)` via Playwright CDP | `fill.ts` — same approach, card values go direct to DOM |
@@ -1003,4 +948,4 @@ Proxo's checkout system draws from AgentPay's `StagehandProxy`. Key patterns ada
 | `VALID_FIELD_NAMES` + `getCredentialValue()` | `credentials.ts` — same field map pattern |
 | REST API session creation + 429 retry | `session.ts` — same REST API, same retry pattern |
 | Session replay URL logging | Stored in order record + receipt |
-| 10-minute idle timeout | 5-minute hard timeout (Proxo checkouts are non-interactive) |
+| 10-minute idle timeout | 5-minute hard timeout (Bloon checkouts are non-interactive) |

@@ -2,25 +2,25 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { ShippingInfo } from "@proxo/core";
+import type { ShippingInfo } from "@bloon/core";
 
 // ---- Mock external packages ----
 
-vi.mock("@proxo/x402", () => ({
+vi.mock("@bloon/x402", () => ({
   detectRoute: vi.fn(),
 }));
 
-vi.mock("@proxo/wallet", () => ({
+vi.mock("@bloon/wallet", () => ({
   getBalance: vi.fn(),
 }));
 
-vi.mock("@proxo/checkout", () => ({
+vi.mock("@bloon/checkout", () => ({
   discoverPrice: vi.fn(),
 }));
 
-import { detectRoute } from "@proxo/x402";
-import { getBalance } from "@proxo/wallet";
-import { discoverPrice } from "@proxo/checkout";
+import { detectRoute } from "@bloon/x402";
+import { getBalance } from "@bloon/wallet";
+import { discoverPrice } from "@bloon/checkout";
 import { buy } from "../src/buy.js";
 
 const mockedDetectRoute = vi.mocked(detectRoute);
@@ -31,7 +31,7 @@ const mockedDiscoverPrice = vi.mocked(discoverPrice);
 
 let tmpDir: string;
 
-const TEST_WALLET_ID = "proxo_w_test01";
+const TEST_WALLET_ID = "bloon_w_test01";
 const TEST_ADDRESS = "0x" + "a".repeat(40);
 
 function setupWallet(): void {
@@ -84,8 +84,8 @@ const testShipping: ShippingInfo = {
 };
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-buy-test-"));
-  process.env.PROXO_DATA_DIR = tmpDir;
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-buy-test-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
   setupWallet();
   setupConfig();
   vi.clearAllMocks();
@@ -95,13 +95,13 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  delete process.env.PROXO_DATA_DIR;
+  delete process.env.BLOON_DATA_DIR;
 });
 
 // ---- Tests ----
 
 describe("buy", () => {
-  it("buy x402 URL returns order with route x402 and 0.5% fee", async () => {
+  it("buy x402 URL returns order with route x402 and 2% fee", async () => {
     mockedDetectRoute.mockResolvedValue({
       route: "x402",
       requirements: {
@@ -122,14 +122,14 @@ describe("buy", () => {
 
     expect(order.payment.route).toBe("x402");
     expect(order.payment.price).toBe("0.10");
-    expect(order.payment.fee).toBe("0.0005");
-    expect(order.payment.fee_rate).toBe("0.5%");
+    expect(order.payment.fee).toBe("0.002");
+    expect(order.payment.fee_rate).toBe("2%");
     expect(order.product.name).toBe("Echo Service");
     expect(order.status).toBe("awaiting_confirmation");
     expect(order.shipping).toBeUndefined();
   });
 
-  it("buy normal URL returns order with route browserbase and 5% fee", async () => {
+  it("buy normal URL returns order with route browserbase and 2% fee", async () => {
     mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
     mockedDiscoverPrice.mockResolvedValue({
       name: "Test Product",
@@ -146,8 +146,8 @@ describe("buy", () => {
 
     expect(order.payment.route).toBe("browserbase");
     expect(order.payment.price).toBe("17.99");
-    expect(order.payment.fee).toBe("0.90");
-    expect(order.payment.fee_rate).toBe("5%");
+    expect(order.payment.fee).toBe("0.36");
+    expect(order.payment.fee_rate).toBe("2%");
     expect(order.product.name).toBe("Test Product");
     expect(order.shipping).toEqual(testShipping);
   });
@@ -253,6 +253,90 @@ describe("buy", () => {
     ).rejects.toThrow(
       expect.objectContaining({ code: "INSUFFICIENT_BALANCE" }),
     );
+  });
+
+  it("buy with selections stores them on order", async () => {
+    mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
+    mockedDiscoverPrice.mockResolvedValue({
+      name: "Sneaker",
+      price: "19.99",
+      method: "scrape",
+    });
+    mockedGetBalance.mockResolvedValue("50.00");
+
+    const order = await buy({
+      url: "https://shop.example.com/sneaker",
+      wallet_id: TEST_WALLET_ID,
+      shipping: testShipping,
+      selections: { Color: "Charcoal", Size: "10" },
+    });
+
+    expect(order.selections).toEqual({ Color: "Charcoal", Size: "10" });
+  });
+
+  it("buy with empty shipping.email throws MISSING_FIELD", async () => {
+    mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
+    mockedDiscoverPrice.mockResolvedValue({
+      name: "Widget",
+      price: "10.00",
+      method: "scrape",
+    });
+    mockedGetBalance.mockResolvedValue("50.00");
+
+    await expect(
+      buy({
+        url: "https://shop.example.com/widget",
+        wallet_id: TEST_WALLET_ID,
+        shipping: { ...testShipping, email: "" },
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({ code: "MISSING_FIELD" }),
+    );
+  });
+
+  it("buy with blank selection value throws INVALID_SELECTION", async () => {
+    mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
+    mockedDiscoverPrice.mockResolvedValue({
+      name: "Widget",
+      price: "10.00",
+      method: "scrape",
+    });
+    mockedGetBalance.mockResolvedValue("50.00");
+
+    await expect(
+      buy({
+        url: "https://shop.example.com/widget",
+        wallet_id: TEST_WALLET_ID,
+        shipping: testShipping,
+        selections: { Color: "" },
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({ code: "INVALID_SELECTION" }),
+    );
+  });
+
+  it("buy x402 with selections still succeeds (selections ignored at checkout)", async () => {
+    mockedDetectRoute.mockResolvedValue({
+      route: "x402",
+      requirements: {
+        scheme: "exact",
+        network: "eip155:84532",
+        maxAmountRequired: "1.00",
+        payTo: "0x" + "e".repeat(40),
+        asset: "USDC",
+      },
+    });
+    mockedGetBalance.mockResolvedValue("10.00");
+
+    const order = await buy({
+      url: "https://x402.example.com/api",
+      wallet_id: TEST_WALLET_ID,
+      selections: { Color: "Red" },
+    });
+
+    expect(order.payment.route).toBe("x402");
+    expect(order.shipping).toBeUndefined();
+    // Selections are stored on order but unused for x402 route
   });
 
   it("buy price > $25 throws PRICE_EXCEEDS_LIMIT", async () => {

@@ -32,9 +32,9 @@ vi.mock("../src/client.js", () => ({
   }),
 }));
 
-vi.mock("@proxo/core", async () => {
-  const actual = await vi.importActual<typeof import("@proxo/core")>(
-    "@proxo/core",
+vi.mock("@bloon/core", async () => {
+  const actual = await vi.importActual<typeof import("@bloon/core")>(
+    "@bloon/core",
   );
   return {
     ...actual,
@@ -77,7 +77,7 @@ describe("sendGas", () => {
     mockSendTransaction.mockRejectedValue(new Error("insufficient funds"));
 
     const { sendGas } = await import("../src/gas.js");
-    const { ErrorCodes } = await import("@proxo/core");
+    const { ErrorCodes } = await import("@bloon/core");
 
     try {
       await sendGas(
@@ -100,7 +100,7 @@ describe("sendGas", () => {
     );
 
     const { sendGas } = await import("../src/gas.js");
-    const { ErrorCodes } = await import("@proxo/core");
+    const { ErrorCodes } = await import("@bloon/core");
 
     try {
       await sendGas(

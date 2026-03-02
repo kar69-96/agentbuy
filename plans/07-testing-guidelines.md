@@ -1,4 +1,4 @@
-# Testing Guidelines — Proxo v1
+# Testing Guidelines — Bloon v1
 
 ## Testing Philosophy
 
@@ -50,9 +50,9 @@ Start with Shopify, prove the flow works, then expand.
 ### 1. Unit Tests (per package)
 
 **Core (fees, validation):**
-- `calculateFee("17.99", "browserbase")` === `"0.90"`
-- `calculateFee("0.10", "x402")` === `"0.0005"`
-- `calculateTotal("17.99", "browserbase")` === `"18.89"`
+- `calculateFee("17.99", "browserbase")` === `"0.36"`
+- `calculateFee("0.10", "x402")` === `"0.002"`
+- `calculateTotal("17.99", "browserbase")` === `"18.35"`
 - Price > $25 throws `PRICE_EXCEEDS_LIMIT`
 
 **Wallet:**
@@ -125,18 +125,18 @@ curl -s -X POST http://localhost:3000/api/confirm \
 
 **Scenario A: x402 Purchase**
 1. Create wallet → fund with test USDC → verify balance
-2. `POST /api/buy` with x402 URL → quote with 0.5% fee
+2. `POST /api/buy` with x402 URL → quote with 2% fee
 3. `POST /api/confirm` → receipt with service response
 4. Verify balance decreased by correct amount
 
 **Scenario B: Browser Purchase (Shopify → Target)**
 1. Create wallet → fund → verify
-2. `POST /api/buy` with product URL + shipping → quote with 5% fee
+2. `POST /api/buy` with product URL + shipping → quote with 2% fee
 3. `POST /api/confirm` → receipt with order number
 4. Verify balance decreased
 
 **Scenario C: Domain Cache**
-1. Buy from Target (first time) → cache created at `~/.proxo/cache/target.com.json`
+1. Buy from Target (first time) → cache created at `~/.bloon/cache/target.com.json`
 2. Buy from Target (second time) → cache injected, checkout completes
 
 ---
@@ -148,7 +148,7 @@ After every browser checkout test, verify:
 - [ ] LLM log contains only `x_card_number`, `x_card_cvv`, etc.
 - [ ] Real values only appear in DOM injection (Browserbase session)
 - [ ] No credentials in API response bodies
-- [ ] No credentials in `~/.proxo/orders.json`
+- [ ] No credentials in `~/.bloon/orders.json`
 
 ---
 

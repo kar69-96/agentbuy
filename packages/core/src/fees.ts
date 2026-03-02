@@ -1,4 +1,4 @@
-import { type PaymentRoute, ProxoError, ErrorCodes } from "./types.js";
+import { type PaymentRoute, BloonError, ErrorCodes } from "./types.js";
 
 const MAX_PRICE = 25;
 
@@ -9,8 +9,8 @@ interface Decimal {
 
 /** Fee rate numerators (denominator is 1000) */
 const FEE_RATES: Record<PaymentRoute, bigint> = {
-  x402: 5n,          // 0.5%
-  browserbase: 50n,  // 5%
+  x402: 20n,         // 2%
+  browserbase: 20n,  // 2%
 };
 
 function parseDecimal(s: string): Decimal {
@@ -72,7 +72,7 @@ function addDecimals(a: Decimal, b: Decimal): Decimal {
 export function calculateFee(price: string, route: PaymentRoute): string {
   const priceNum = Number(price);
   if (priceNum > MAX_PRICE) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.PRICE_EXCEEDS_LIMIT,
       `Price $${price} exceeds maximum of $${MAX_PRICE}`
     );

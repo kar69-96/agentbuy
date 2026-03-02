@@ -4,7 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { privateKeyToAccount } from "viem/accounts";
 import { isAddress } from "viem";
-import { getWallet, getNetwork } from "@proxo/core";
+import { getWallet, getNetwork } from "@bloon/core";
 
 // Mock sendGas so createWallet doesn't try to hit the network
 vi.mock("../src/gas.js", () => ({
@@ -12,9 +12,9 @@ vi.mock("../src/gas.js", () => ({
 }));
 
 // Mock loadConfig to return a fake master wallet key
-vi.mock("@proxo/core", async () => {
-  const actual = await vi.importActual<typeof import("@proxo/core")>(
-    "@proxo/core",
+vi.mock("@bloon/core", async () => {
+  const actual = await vi.importActual<typeof import("@bloon/core")>(
+    "@bloon/core",
   );
   return {
     ...actual,
@@ -37,12 +37,12 @@ import { createWallet } from "../src/create.js";
 let tmpDir: string;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-wallet-test-"));
-  process.env.PROXO_DATA_DIR = tmpDir;
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-wallet-test-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
 });
 
 afterEach(() => {
-  delete process.env.PROXO_DATA_DIR;
+  delete process.env.BLOON_DATA_DIR;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -50,7 +50,7 @@ describe("createWallet", () => {
   it("returns a wallet with all required fields", async () => {
     const wallet = await createWallet("TestAgent");
 
-    expect(wallet.wallet_id).toMatch(/^proxo_w_[a-z0-9]{6}$/);
+    expect(wallet.wallet_id).toMatch(/^bloon_w_[a-z0-9]{6}$/);
     expect(wallet.address).toMatch(/^0x[0-9a-fA-F]{40}$/);
     expect(wallet.private_key).toMatch(/^0x[0-9a-fA-F]{64}$/);
     expect(wallet.funding_token).toBeTruthy();

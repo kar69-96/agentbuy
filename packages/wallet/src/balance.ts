@@ -1,5 +1,5 @@
 import { formatUnits } from "viem";
-import { getUsdcContract } from "@proxo/core";
+import { getUsdcContract } from "@bloon/core";
 import { getPublicClient } from "./client.js";
 import { USDC_ABI } from "./usdc-abi.js";
 

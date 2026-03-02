@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { getNetwork, getUsdcContract } from "@proxo/core";
+import { getNetwork, getUsdcContract } from "@bloon/core";
 
 // ---- Config tests — verify mainnet/testnet USDC contracts ----
 

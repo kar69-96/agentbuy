@@ -1,11 +1,11 @@
-# Technical Spec — Proxo v1
+# Technical Spec — Bloon v1
 
 ## API vs MCP — Why API-First
 
 | | REST API (chosen) | MCP |
 |---|---|---|
 | **Reach** | Any agent, any language, any framework — just HTTP | Only MCP-compatible clients |
-| **Discovery** | skill.md — agents find and use Proxo immediately | Must pre-install locally |
+| **Discovery** | skill.md — agents find and use Bloon immediately | Must pre-install locally |
 | **Hosting** | One server, many agents, works remotely | Local only |
 | **Multi-tenant path** | Natural | Full rewrite |
 | **Long-running checkout** | Async HTTP — natural fit | Blocks stdio pipe |
@@ -48,14 +48,14 @@ MCP wrapper planned for v2 — thin layer that calls the REST API.
 ## Monorepo Structure
 
 ```
-proxo/
+bloon/
 ├── packages/
 │   ├── core/src/
 │   │   ├── types.ts        # All TypeScript interfaces
-│   │   ├── store.ts        # JSON file persistence (~/.proxo/)
+│   │   ├── store.ts        # JSON file persistence (~/.bloon/)
 │   │   ├── router.ts       # x402 detection + route selection
 │   │   ├── receipts.ts     # Uniform receipt generation
-│   │   ├── fees.ts         # 0.5% x402, 5% browser
+│   │   ├── fees.ts         # 2% flat fee
 │   │   ├── config.ts       # Load .env + config.json
 │   │   ├── buy.ts          # Buy orchestrator
 │   │   ├── confirm.ts      # Confirm orchestrator
@@ -70,7 +70,7 @@ proxo/
 │   │
 │   ├── x402/src/
 │   │   ├── detect.ts       # HEAD probe for 402
-│   │   ├── pay.ts          # @x402/fetch from Proxo wallet
+│   │   ├── pay.ts          # @x402/fetch from Bloon wallet
 │   │   └── index.ts
 │   │
 │   ├── checkout/src/
@@ -151,7 +151,7 @@ From AgentPay. Browserbase's AI browser automation SDK — provides `act()`, `ob
 Each checkout = fresh session. But we cache cookies/localStorage per domain:
 - Skips cookie banners, preserves preferences on repeat visits
 - NOT login persistence — no auth tokens cached
-- Cache stored at `~/.proxo/cache/{domain}.json`
+- Cache stored at `~/.bloon/cache/{domain}.json`
 
 ### 7. Hono
 
@@ -163,37 +163,42 @@ Not open source. Deployed and operated by you.
 
 ### 9. Price Discovery — Tiered Approach
 
-`POST /api/buy` must return the **full price** the agent will pay (item + tax + shipping + Proxo fee). How that price is discovered depends on the route:
+`POST /api/buy` must return the **full price** the agent will pay (item + tax + shipping + Bloon fee). How that price is discovered depends on the route:
 
 **x402 route:**
 - Fetch the URL → receive 402 response → parse the JSON body for payment requirements
 - The 402 body contains `accepts[]` with `maxAmountRequired` (price in token base units), `payTo`, `asset`, `network`, `scheme`
 - USDC has 6 decimals, so `10000` = $0.01
 - No tax, no shipping — digital services only
-- Add 0.5% Proxo fee → return quote
+- Add 2% Bloon fee → return quote
 - Reference: this is the same flow that purl (purl.dev) and `@x402/fetch` use under the hood
 
-**Browser route — Tier 1: HTML Scrape (fast, free)**
+**Browser route — Tier 1: Firecrawl (primary, rich)**
+- Uses Firecrawl `/extract` endpoint to pull structured product data from the rendered page
+- Extracts: name, price, brand, image, currency, variant options with values and per-variant prices, variant URLs
+- If variant URLs are found → runs `/extract` on each variant URL to resolve per-variant pricing
+- If options exist but no variant URLs → runs `/crawl` (maxDepth: 1) to discover variant pages
+- Requires `FIRECRAWL_API_KEY` env var. If not set, skipped entirely.
+- See `plans/16-firecrawl-discovery.md` for the full pipeline spec
+
+**Browser route — Tier 2: HTML Scrape (fast, free)**
 - Server-side HTTP fetch of the product URL
 - Parse structured data: JSON-LD (`@type: Product`), Open Graph meta tags, `<meta property="product:price:amount">`
-- Extract item price + product name
-- Estimate tax from shipping address zip code
-- If shipping cost **can** be determined (e.g., "free shipping" in page data) → calculate subtotal + fee → return quote
-- If shipping cost **cannot** be determined → fall through to Tier 2
+- Extract item price + product name + variant options from JSON-LD `hasVariant`/`offers`
+- Falls through to Tier 3 if bot-blocked or no structured data found
 
-**Browser route — Tier 2: Browserbase Full Cart (slow, accurate)**
-- Launch a Browserbase session
-- Navigate to product URL → add to cart → proceed to checkout
-- Fill shipping address (from request body — required)
-- Reach the order review / payment page — extract the full breakdown: item price, tax, shipping cost, order total
-- Do NOT submit the order. Close session.
-- Add 5% Proxo fee to the extracted total → return quote
+**Browser route — Tier 3: Browserbase + Stagehand (slow, accurate, last resort)**
+- Launch a Browserbase session with headless Chrome
+- Navigate to product URL → LLM extracts product info and variant options
+- For per-variant pricing: Stagehand agent selects each variant and reports the updated price
+- Used for anti-bot sites (Amazon, Best Buy) and pages without structured data
+- Most expensive tier (Browserbase session + LLM API calls per variant)
 
-The `discovery_method` field in the response tells the agent (and us) which tier was used: `"x402"`, `"scrape"`, or `"browserbase_cart"`.
+The `discovery_method` field in the response tells the agent (and us) which tier was used: `"x402"`, `"firecrawl"`, `"scrape"`, or `"browserbase"`.
 
 At confirm time, the browser route runs a **fresh** Browserbase session to do the actual checkout. If the final cart total at checkout time differs from the quoted total by more than $1 or 5% (whichever is smaller), the checkout aborts with `PRICE_MISMATCH` before payment — no funds at risk.
 
-**Gas costs:** ETH gas for on-chain USDC transfers is covered by Proxo's fee margin. The agent only needs USDC in their wallet, not ETH. Proxo's master wallet holds ETH for gas and uses the fee revenue to replenish it.
+**Gas costs:** ETH gas for on-chain USDC transfers is covered by Bloon's fee margin. The agent only needs USDC in their wallet, not ETH. Bloon's master wallet holds ETH for gas and uses the fee revenue to replenish it.
 
 ## Payment Flow
 
@@ -202,7 +207,7 @@ POST /api/confirm { order_id }
   │
   ├─ Load order + agent wallet from store
   ├─ Verify sufficient USDC balance
-  ├─ Transfer USDC: agent wallet → Proxo master wallet (on-chain)
+  ├─ Transfer USDC: agent wallet → Bloon master wallet (on-chain)
   ├─ Wait for confirmation (~2s on Base)
   │
   ├─ IF x402:

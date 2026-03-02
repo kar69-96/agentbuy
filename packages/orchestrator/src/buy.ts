@@ -19,8 +19,7 @@ export interface BuyInput {
   url: string;
   wallet_id: string;
   shipping?: ShippingInfo;
-  /** Caller-supplied price — skips price discovery when provided. */
-  price?: string;
+  selections?: Record<string, string>;
 }
 
 export async function buy(input: BuyInput): Promise<Order> {
@@ -73,27 +72,40 @@ export async function buy(input: BuyInput): Promise<Order> {
       );
     }
 
-    if (input.price) {
-      // Caller-supplied price — skip discovery
-      price = input.price;
-      productName = new URL(url).hostname;
-      priceSource = "caller";
-    } else {
-      let discovery;
-      try {
-        discovery = await discoverPrice(url, resolvedShipping);
-      } catch (e) {
-        if (e instanceof ProxoError) throw e;
-        throw new ProxoError(
-          ErrorCodes.PRICE_EXTRACTION_FAILED,
-          `Price discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
-        );
-      }
-      productName = discovery.name;
-      price = discovery.price;
-      priceSource = discovery.method;
-      imageUrl = discovery.image_url;
+    // Validate all required shipping fields are non-empty
+    const shipping = resolvedShipping;
+    const requiredShippingFields = ['name', 'street', 'city', 'state', 'zip', 'country', 'email', 'phone'] as const;
+    const blankFields = requiredShippingFields.filter(f => !shipping[f]?.trim());
+    if (blankFields.length > 0) {
+      throw new ProxoError(
+        ErrorCodes.MISSING_FIELD,
+        `Missing required fields: ${blankFields.map(f => `shipping.${f}`).join(', ')}`,
+      );
     }
+
+    // Validate selections if provided
+    if (input.selections) {
+      for (const [key, value] of Object.entries(input.selections)) {
+        if (typeof key !== 'string' || typeof value !== 'string' || !key.trim() || !value.trim()) {
+          throw new ProxoError(ErrorCodes.INVALID_SELECTION, 'Selections must have non-empty string keys and values');
+        }
+      }
+    }
+
+    let discovery;
+    try {
+      discovery = await discoverPrice(url, resolvedShipping);
+    } catch (e) {
+      if (e instanceof ProxoError) throw e;
+      throw new ProxoError(
+        ErrorCodes.PRICE_EXTRACTION_FAILED,
+        `Price discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
+      );
+    }
+    productName = discovery.name;
+    price = discovery.price;
+    priceSource = discovery.method;
+    imageUrl = discovery.image_url;
   }
 
   // 5. Calculate fees (also enforces $25 max)
@@ -131,10 +143,11 @@ export async function buy(input: BuyInput): Promise<Order> {
       amount_usdc: total,
       price,
       fee,
-      fee_rate: decision.route === "x402" ? "0.5%" : "5%",
+      fee_rate: "2%",
       route: decision.route,
     },
     shipping: resolvedShipping,
+    selections: input.selections,
     created_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
   };

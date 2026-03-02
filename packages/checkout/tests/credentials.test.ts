@@ -6,7 +6,7 @@ import {
   getStagehandVariables,
   getCdpCredentials,
 } from "../src/credentials.js";
-import type { ShippingInfo } from "@proxo/core";
+import type { ShippingInfo } from "@bloon/core";
 
 // Set up card/billing env vars for tests
 const CARD_ENV = {
@@ -101,9 +101,9 @@ describe("sanitizeShipping", () => {
 });
 
 describe("buildCredentials", () => {
-  it("builds a map with all 17 keys", () => {
+  it("builds a map with all 18 keys", () => {
     const creds = buildCredentials(testShipping);
-    expect(Object.keys(creds)).toHaveLength(17);
+    expect(Object.keys(creds)).toHaveLength(18);
   });
 
   it("maps card values from env", () => {
@@ -128,10 +128,10 @@ describe("buildCredentials", () => {
 });
 
 describe("getStagehandVariables", () => {
-  it("returns 13 non-card fields", () => {
+  it("returns 14 non-card fields", () => {
     const creds = buildCredentials(testShipping);
     const vars = getStagehandVariables(creds);
-    expect(Object.keys(vars)).toHaveLength(13);
+    expect(Object.keys(vars)).toHaveLength(14);
   });
 
   it("excludes all card fields", () => {

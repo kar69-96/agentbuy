@@ -1,6 +1,6 @@
 import { createPublicClient, http, type PublicClient } from "viem";
 import { base, baseSepolia } from "viem/chains";
-import { getNetwork, getRpcUrl } from "@proxo/core";
+import { getNetwork, getRpcUrl } from "@bloon/core";
 import type { Chain } from "viem";
 
 export function getChain(): Chain {

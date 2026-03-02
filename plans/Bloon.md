@@ -1,24 +1,24 @@
-# Proxo
+# Bloon
 
 **Any website. Any product. One USDC payment. The agent handles the rest.**
 
-Proxo is a REST API (TypeScript/Hono) that lets AI agents purchase anything on the internet using USDC on Base. No API keys. No registration. The agent's `wallet_id` is its credential. Proxo auto-routes payments — x402-native merchants get paid directly (0.5% fee), everything else goes through Browserbase cloud browser checkout with Stagehand (5% fee). Same interface, same receipt format either way.
+Bloon is a REST API (TypeScript/Hono) that lets AI agents purchase anything on the internet using USDC on Base. No API keys. No registration. The agent's `wallet_id` is its credential. Bloon auto-routes payments — x402-native merchants get paid directly (2% fee), everything else goes through Browserbase cloud browser checkout with Stagehand (2% fee). Same interface, same receipt format either way.
 
-The internet has two emerging payment layers for agents: x402 (for services that natively accept stablecoin over HTTP) and ACP (Stripe/OpenAI's protocol for opted-in merchants). But 99.9% of e-commerce speaks neither. Proxo bridges that gap — turning every checkout page on the web into an endpoint an agent can pay.
+The internet has two emerging payment layers for agents: x402 (for services that natively accept stablecoin over HTTP) and ACP (Stripe/OpenAI's protocol for opted-in merchants). But 99.9% of e-commerce speaks neither. Bloon bridges that gap — turning every checkout page on the web into an endpoint an agent can pay.
 
 ## v1 Scope
 
 - **REST API** (Hono) with 4 JSON endpoints + 1 HTML funding page
 - **No auth** — `wallet_id` is the spending credential, `funding_token` controls deposits
 - **URL-only purchases** — agent provides a direct product URL (search by description deferred to v1.5)
-- **Two payment routes**: x402 (auto-detected, 0.5% fee) and browser checkout (5% fee)
+- **Two payment routes**: x402 (auto-detected, 2% fee) and browser checkout (2% fee)
 - **Two-phase purchase**: `POST /api/buy` returns a quote, `POST /api/confirm` executes
 - **viem wallets** on Base (Sepolia for testnet, mainnet for prod) — no Coinbase CDP dependency
 - **Private funding page** per wallet with QR code + live balance polling
 - **Credential placeholder system** — LLM never sees real card numbers
 - **Fresh Browserbase sessions** per checkout, with domain-level page caching
 - **$25 max** per transaction, US shipping only, buy-only wallets
-- **JSON file storage** in `~/.proxo/` — no database
+- **JSON file storage** in `~/.bloon/` — no database
 - **Closed source**, single operator
 
 ## API Endpoints
@@ -33,8 +33,8 @@ The internet has two emerging payment layers for agents: x402 (for services that
 
 ## Fee Model
 
-- **x402-native merchants:** 0.5% fee (Proxo pays the service on behalf of the agent)
-- **Non-x402 merchants (browser checkout):** 5% fee (covers Browserbase sessions, Stagehand LLM inference, and margin)
+- **x402-native merchants:** 2% fee (Bloon pays the service on behalf of the agent)
+- **Non-x402 merchants (browser checkout):** 2% fee (covers Browserbase sessions, Stagehand LLM inference, and margin)
 - **Gas costs** are covered by the fee — the agent only needs USDC, not ETH
 
 The agent never sees the difference. One flow, one interface, one receipt format.
@@ -56,8 +56,8 @@ Human opens funding_url → QR code → sends USDC on Base → balance updates
 Agent: POST /api/buy { "url": "https://amazon.com/dp/B08...", "wallet_id": "...", "shipping": {...} }
 
 Server probes URL:
-  - x402 detected? → 0.5% fee quote
-  - Normal website? → browser price discovery → 5% fee quote
+  - x402 detected? → 2% fee quote
+  - Normal website? → browser price discovery → 2% fee quote
 
 → Returns: order_id, product name/price, fee breakdown, route
 ```
@@ -65,9 +65,9 @@ Server probes URL:
 ### 3. Confirm & Purchase
 
 ```
-Agent: POST /api/confirm { "order_id": "proxo_ord_9x2k4m" }
+Agent: POST /api/confirm { "order_id": "bloon_ord_9x2k4m" }
 
-Server: transfers USDC from agent wallet → Proxo master wallet
+Server: transfers USDC from agent wallet → Bloon master wallet
   - x402: pays service via @x402/fetch → returns response + receipt
   - Browser: Browserbase session → Stagehand checkout → returns order number + receipt
 ```
@@ -154,12 +154,12 @@ packages/
 
 ## Competitive Landscape
 
-| Solution | What it does | Gap Proxo fills |
+| Solution | What it does | Gap Bloon fills |
 |----------|-------------|-----------------|
 | x402 (Coinbase) | Native stablecoin payments over HTTP | Only works if the seller has integrated x402 |
 | ACP (Stripe/OpenAI) | Agentic checkout for opted-in merchants | Only works for merchants in the ACP network |
 | Sponge (YC) | Agent wallets + business gateway | Requires businesses to onboard; can't buy from arbitrary websites |
-| **Proxo** | **Any URL. One USDC payment. Receipt back.** | **Bridges the 99.9% of the web that doesn't speak any agent protocol** |
+| **Bloon** | **Any URL. One USDC payment. Receipt back.** | **Bridges the 99.9% of the web that doesn't speak any agent protocol** |
 
 ---
 

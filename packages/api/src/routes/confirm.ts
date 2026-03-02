@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { ProxoError, ErrorCodes, getOrder } from "@proxo/core";
-import { confirm } from "@proxo/orchestrator";
+import { BloonError, ErrorCodes, getOrder } from "@bloon/core";
+import { confirm } from "@bloon/orchestrator";
 import {
   formatConfirmResponse,
   formatConfirmFailedResponse,
@@ -17,7 +17,7 @@ confirmRoutes.post("/confirm", async (c) => {
     typeof body.order_id !== "string" ||
     body.order_id.trim() === ""
   ) {
-    throw new ProxoError(ErrorCodes.MISSING_FIELD, "order_id is required");
+    throw new BloonError(ErrorCodes.MISSING_FIELD, "order_id is required");
   }
 
   try {
@@ -27,7 +27,7 @@ confirmRoutes.post("/confirm", async (c) => {
     // For CHECKOUT_FAILED / X402_PAYMENT_FAILED with tx_hash,
     // return 200 with failed order details per spec
     if (
-      err instanceof ProxoError &&
+      err instanceof BloonError &&
       (err.code === ErrorCodes.CHECKOUT_FAILED ||
         err.code === ErrorCodes.X402_PAYMENT_FAILED)
     ) {

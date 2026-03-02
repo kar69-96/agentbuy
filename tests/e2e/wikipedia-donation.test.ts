@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { privateKeyToAccount } from "viem/accounts";
-import { createApp } from "@proxo/api/src/server.js";
+import { createApp } from "@bloon/api/src/server.js";
 
 // ---- Skip unless all credentials are available ----
 
@@ -59,7 +59,7 @@ function setupTestWallet(): void {
   );
 
   const walletsPath = path.join(tmpDir, "wallets.json");
-  testWalletId = "proxo_w_wikitest";
+  testWalletId = "bloon_w_wikitest";
   fs.writeFileSync(
     walletsPath,
     JSON.stringify({
@@ -94,8 +94,8 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
   "E2E — Wikipedia $2.50 one-time donation",
   () => {
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-e2e-wiki-"));
-      process.env.PROXO_DATA_DIR = tmpDir;
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-e2e-wiki-"));
+      process.env.BLOON_DATA_DIR = tmpDir;
       setupConfig();
       setupTestWallet();
       app = createApp();
@@ -103,7 +103,7 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
 
     afterEach(() => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-      delete process.env.PROXO_DATA_DIR;
+      delete process.env.BLOON_DATA_DIR;
     });
 
     it(

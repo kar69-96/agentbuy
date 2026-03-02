@@ -1,5 +1,5 @@
 {
-  "name": "@proxo/checkout",
+  "name": "@bloon/checkout",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -8,7 +8,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@proxo/core": "workspace:*",
+    "@bloon/core": "workspace:*",
     "@browserbasehq/stagehand": "^3.0.0",
     "zod": "^3.22.0"
   }

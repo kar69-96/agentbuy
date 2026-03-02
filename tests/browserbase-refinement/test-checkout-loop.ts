@@ -11,10 +11,10 @@
 import "dotenv/config";
 import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { runCheckout } from "@proxo/checkout";
-import type { CheckoutInput, CheckoutResult } from "@proxo/checkout";
-import { getDefaultShipping } from "@proxo/core";
-import type { Order } from "@proxo/core";
+import { runCheckout } from "@bloon/checkout";
+import type { CheckoutInput, CheckoutResult } from "@bloon/checkout";
+import { getDefaultShipping } from "@bloon/core";
+import type { Order } from "@bloon/core";
 
 // ---- Test URLs ----
 

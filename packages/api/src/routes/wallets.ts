@@ -1,6 +1,6 @@
 import { Hono } from "hono";
-import { ProxoError, ErrorCodes, getWallet } from "@proxo/core";
-import { createWallet, getBalance } from "@proxo/wallet";
+import { BloonError, ErrorCodes, getWallet } from "@bloon/core";
+import { createWallet, getBalance } from "@bloon/wallet";
 import {
   formatWalletCreateResponse,
   formatWalletGetResponse,
@@ -14,7 +14,7 @@ walletsRoutes.post("/", async (c) => {
   const agentName = body.agent_name;
 
   if (!agentName || typeof agentName !== "string" || agentName.trim() === "") {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.MISSING_FIELD,
       "agent_name is required",
     );
@@ -33,7 +33,7 @@ walletsRoutes.get("/:wallet_id", async (c) => {
   const wallet = getWallet(walletId);
 
   if (!wallet) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.WALLET_NOT_FOUND,
       `Wallet not found: ${walletId}`,
     );

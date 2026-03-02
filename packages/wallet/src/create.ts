@@ -5,8 +5,8 @@ import {
   createWallet as storeCreateWallet,
   getNetwork,
   loadConfig,
-} from "@proxo/core";
-import type { Wallet } from "@proxo/core";
+} from "@bloon/core";
+import type { Wallet } from "@bloon/core";
 import { sendGas } from "./gas.js";
 
 export async function createWallet(agentName: string): Promise<Wallet> {

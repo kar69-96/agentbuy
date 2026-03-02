@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { privateKeyToAccount } from "viem/accounts";
-import { createApp } from "@proxo/api/src/server.js";
+import { createApp } from "@bloon/api/src/server.js";
 
 // ---- Skip unless RPC + funded wallet are available ----
 
@@ -53,14 +53,14 @@ describe.skipIf(!hasRpc || !hasTestWallet)(
   "E2E — Scenario A: x402 full flow",
   () => {
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-e2e-x402-"));
-      process.env.PROXO_DATA_DIR = tmpDir;
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-e2e-x402-"));
+      process.env.BLOON_DATA_DIR = tmpDir;
       setupConfig();
 
       // Clear domain cache (both tmp and default) so each run starts fresh
       const tmpCacheDir = path.join(tmpDir, "cache");
       fs.rmSync(tmpCacheDir, { recursive: true, force: true });
-      const defaultCacheDir = path.join(os.homedir(), ".proxo", "cache");
+      const defaultCacheDir = path.join(os.homedir(), ".bloon", "cache");
       fs.rmSync(defaultCacheDir, { recursive: true, force: true });
 
       // Pre-seed wallet with the test private key
@@ -69,7 +69,7 @@ describe.skipIf(!hasRpc || !hasTestWallet)(
       );
 
       const walletsPath = path.join(tmpDir, "wallets.json");
-      testWalletId = "proxo_w_x402test";
+      testWalletId = "bloon_w_x402test";
       fs.writeFileSync(
         walletsPath,
         JSON.stringify({
@@ -92,7 +92,7 @@ describe.skipIf(!hasRpc || !hasTestWallet)(
 
     afterEach(() => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-      delete process.env.PROXO_DATA_DIR;
+      delete process.env.BLOON_DATA_DIR;
     });
 
     it(
@@ -124,7 +124,7 @@ describe.skipIf(!hasRpc || !hasTestWallet)(
     );
 
     it(
-      "POST /api/buy with PayAI echo endpoint → 200 with x402 route and 0.5% fee",
+      "POST /api/buy with PayAI echo endpoint → 200 with x402 route and 2% fee",
       async () => {
         const res = await req("POST", "/api/buy", {
           url: "https://x402.payai.network/api/base-sepolia/paid-content",
@@ -133,7 +133,7 @@ describe.skipIf(!hasRpc || !hasTestWallet)(
         expect(res.status).toBe(200);
         const json = await res.json();
         expect(json.payment.route).toBe("x402");
-        expect(json.payment.fee_rate).toBe("0.5%");
+        expect(json.payment.fee_rate).toBe("2%");
         expect(json.status).toBe("awaiting_confirmation");
       },
       30_000,

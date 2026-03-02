@@ -9,8 +9,27 @@ export {
   discoverViaCart,
   extractJsonLd,
   extractMetaTag,
+  discoverProduct,
+  scrapePriceWithOptions,
+  discoverViaFirecrawl,
+  discoverViaBrowser,
+  extractVariantsFromJsonLd,
+  fetchVariantPriceBrowser,
+  resolveVariantPricesViaBrowser,
+  sanitizeVariantValue,
+  dismissPopupsOnPage,
 } from "./discover.js";
-export type { DiscoveryResult } from "./discover.js";
+export type {
+  DiscoveryResult,
+  DiscoveryResultWithOptions,
+  FullDiscoveryResult,
+} from "./discover.js";
+
+// ---- Concurrency pool ----
+export { concurrencyPool } from "./concurrency-pool.js";
+
+// ---- Cost tracking ----
+export { CostTracker } from "./cost-tracker.js";
 
 // ---- Confirmation detection ----
 export { verifyConfirmationPage } from "./confirm.js";

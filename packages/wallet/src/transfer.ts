@@ -1,6 +1,6 @@
 import { createWalletClient, http, parseUnits } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { getUsdcContract, getRpcUrl, ProxoError, ErrorCodes } from "@proxo/core";
+import { getUsdcContract, getRpcUrl, BloonError, ErrorCodes } from "@bloon/core";
 import { getChain, getPublicClient } from "./client.js";
 import { USDC_ABI } from "./usdc-abi.js";
 import { getBalance } from "./balance.js";
@@ -22,7 +22,7 @@ export async function transferUSDC(
 
     const balance = await getBalance(account.address);
     if (parseFloat(balance) < parseFloat(amount)) {
-      throw new ProxoError(
+      throw new BloonError(
         ErrorCodes.TRANSFER_FAILED,
         `Insufficient balance: have ${balance} USDC, need ${amount} USDC`,
       );
@@ -55,8 +55,8 @@ export async function transferUSDC(
       amount,
     };
   } catch (error) {
-    if (error instanceof ProxoError) throw error;
-    throw new ProxoError(
+    if (error instanceof BloonError) throw error;
+    throw new BloonError(
       ErrorCodes.TRANSFER_FAILED,
       error instanceof Error ? error.message : "Transfer failed",
     );

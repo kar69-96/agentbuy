@@ -5,13 +5,13 @@ import * as os from "node:os";
 
 // ---- Mock external packages ----
 
-vi.mock("@proxo/wallet", () => ({
+vi.mock("@bloon/wallet", () => ({
   createWallet: vi.fn(),
   getBalance: vi.fn(),
   generateQR: vi.fn(),
 }));
 
-vi.mock("@proxo/orchestrator", () => ({
+vi.mock("@bloon/orchestrator", () => ({
   buy: vi.fn(),
   confirm: vi.fn(),
 }));
@@ -21,7 +21,7 @@ vi.mock("jose", () => ({
   SignJWT: vi.fn(),
 }));
 
-import { getBalance, generateQR } from "@proxo/wallet";
+import { getBalance, generateQR } from "@bloon/wallet";
 import * as jose from "jose";
 import { createApp } from "../src/server.js";
 
@@ -33,7 +33,7 @@ const mockedGenerateQR = vi.mocked(generateQR);
 let tmpDir: string;
 let app: ReturnType<typeof createApp>;
 
-const TEST_WALLET_ID = "proxo_w_onramp01";
+const TEST_WALLET_ID = "bloon_w_onramp01";
 const TEST_ADDRESS = "0x" + "a".repeat(40);
 const TEST_FUNDING_TOKEN = "tok_onramp_fund";
 
@@ -86,8 +86,8 @@ let savedCdpKeyId: string | undefined;
 let savedCdpKeySecret: string | undefined;
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-onramp-test-"));
-  process.env.PROXO_DATA_DIR = tmpDir;
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-onramp-test-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
   savedCdpKeyId = process.env.CDP_API_KEY_ID;
   savedCdpKeySecret = process.env.CDP_API_KEY_SECRET;
   setupWallet();
@@ -100,7 +100,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  delete process.env.PROXO_DATA_DIR;
+  delete process.env.BLOON_DATA_DIR;
   // Restore CDP env vars
   if (savedCdpKeyId !== undefined) process.env.CDP_API_KEY_ID = savedCdpKeyId;
   else delete process.env.CDP_API_KEY_ID;
