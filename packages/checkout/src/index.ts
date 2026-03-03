@@ -70,3 +70,21 @@ export {
   mapFieldToCredential,
 } from "./fill.js";
 export type { ObservedField } from "./fill.js";
+
+// ---- Scripted actions (zero-LLM DOM manipulation) ----
+export {
+  scriptedDismissPopups,
+  scriptedFillShipping,
+  scriptedFillCardFields,
+  scriptedFillBilling,
+  scriptedUncheckBillingSameAsShipping,
+  scriptedClickButton,
+  scriptedSelectOption,
+  detectPageType,
+  extractConfirmationData,
+  extractVisibleTotal,
+} from "./scripted-actions.js";
+export type { PageType, ConfirmationData } from "./scripted-actions.js";
+
+// ---- Agent tools (includes iframe scanner) ----
+export { scanIframesForCardFields } from "./agent-tools.js";

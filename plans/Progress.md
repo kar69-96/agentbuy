@@ -4,61 +4,88 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-03-02
+**Last updated:** 2026-03-03 (session 3)
 
 ### Summary
 
-- **266 passing**, **11 failing** (all failures pre-existing, unrelated to Firecrawl changes)
-- **26 test files** passing, **5 failing**
-- All 41 discover unit tests pass (19 new Firecrawl 3-step pipeline tests)
-- TypeScript: all 5 packages compile cleanly (`tsc --noEmit`)
+- TypeScript: all packages compile cleanly
+- **3 stores fully passing** (Allbirds, Glossier, Stripe) — full product → checkout → shipping + card fill → total extraction
+- 17 store test cases in `tests/buy/checkout.test.ts`
+- Key breakthrough: **cross-origin iframe card fill working** — Stripe Elements card fields filled via `frame.locator().type()` (CDP-backed) + `frame.evaluate()` fallback for card number
 
-### Failing Tests (all pre-existing)
+### E2E Checkout Test Results (dry-run mode)
 
-| Test File | Failures | Cause |
-|-----------|----------|-------|
-| `tests/e2e/browser-flow.test.ts` | 1 | Requires live server + funded wallet |
-| `tests/e2e/wikipedia-donation.test.ts` | 1 | Requires live server + funded wallet |
-| `tests/e2e/x402-flow.test.ts` | 2 | Requires live server + funded wallet |
-| `packages/checkout/tests/e2e-discover.test.ts` | 5 | Browserbase e2e (Tier 2/3 + Amazon/Best Buy) — requires live BB sessions |
-| `packages/wallet/tests/gas-network.test.ts` | 2 | Insufficient ETH on testnet faucet wallet |
+| Store | Status | Flow | Duration | Notes |
+|-------|--------|------|----------|-------|
+| **Allbirds** | **PASS** | product → size 10 → ATC → checkout → shipping (9 fields) → total $200.00 | 149s | Full Shopify flow |
+| **Glossier** | **PASS** | product → ATC → /checkout → shipping (9 fields) → total $192.00 | 97s | Combined checkout page |
+| **Stripe** | **PASS** | payment-gateway → shipping (7 fields) → card (3 fields via iframe) → total $43.94 | 97s | Cross-origin iframe card fill working |
+| Bombas | FAIL | Product needs more selections than Size: M (color/pattern required) | — | Test data issue |
+| Target | PARTIAL | Bot detection blocked page content (2919 tokens) | — | Browserbase stealth limitation |
+| Best Buy | NOT TESTED | — | — | Likely bot detection |
+| Walmart | NOT TESTED | — | — | Likely bot detection |
+| Amazon | NOT TESTED | — | — | Requires login |
+| Nike | TIMEOUT | Inconsistent: sometimes reaches checkout, sometimes stuck on cart | 180s | Cart button matching varies |
+| Etsy | FAIL | Product page detected as "unknown" (bot protection?) | 94s | ATC not detected |
+| Nordstrom | PARTIAL | Product → size M → ATC → login gate (requires account) | 103s | No guest checkout |
+| Home Depot | PARTIAL | Bot detection blocked content (812 tokens) | — | Browserbase stealth limitation |
+| B&H Photo | FAIL | Cart page stuck — checkout button not found | — | Non-standard cart buttons |
+| Apple | FAIL | Stale product URL → redirected to search page | 96s | Test data needs update |
+| Wikipedia | PARTIAL | Donation landing page — LLM couldn't navigate complex form | 95s | Donation flow needs tuning |
 
 ### Recent Changes (this session)
 
 | Change | File | Description |
 |--------|------|-------------|
-| Merge conflict resolved | `packages/checkout/src/discover.ts` | Reconstructed full ~850-line TypeScript source from dist + incoming merge side |
-| `ProxoError` → `BloonError` | `packages/checkout/src/discover.ts` | Renamed to match current `@bloon/core` export |
-| 3-step Firecrawl pipeline | `packages/checkout/src/discover.ts` | Replaced single `/v1/scrape` with `/v1/extract` (Step 1) + variant `/extract` (Step 2) + `/crawl` fallback (Step 3) |
-| Async polling helpers | `packages/checkout/src/discover.ts` | `pollFirecrawlJob`, `firecrawlExtractAsync`, `firecrawlCrawlAsync` |
-| Firecrawl response fix | `packages/checkout/src/discover.ts` | Handle both array and flat object in `/extract` poll response `data` field |
-| `mapOptions` fix | `packages/checkout/src/discover.ts` | Empty `prices: {}` treated as no prices (omitted from result) |
-| `description` field | `packages/checkout/src/discover.ts` | Added to `FirecrawlExtract`, `FullDiscoveryResult`, and `discoverViaFirecrawl` return |
-| Unit tests | `packages/checkout/tests/discover.test.ts` | 41 total tests (was 22): +19 new covering async polling (3), Step 2 variant resolution (4), Step 3 crawl (4), pipeline routing (3), field passthrough (2), API contract (1), existing updated (2) |
-| E2E tests | `packages/checkout/tests/e2e-discover.test.ts` | Added Firecrawl 3-step pipeline e2e tests (Path 1: simple, Path 2: variants, Path 3: crawl, full pipeline). Fixed Nike/Patagonia to gracefully handle all-methods-fail. |
-| Test tracking | `plans/testing/firecrawl-discovery.md` | NEW — test matrix + run log with actual results from e2e + direct API validation |
+| **FIX: cross-origin iframe card fill** | `agent-tools.ts` | Complete rewrite of `scanIframesForCardFields` — uses `page.frames()` + `frame.evaluate()` for CDP-backed cross-origin frame access |
+| ADD: Stripe Card Element support | `agent-tools.ts` | Detects `elements-inner-card` iframes, fills cardnumber/exp-date/cvc using `frame.locator().type()` (real keystrokes) |
+| ADD: frame.evaluate() fallback | `agent-tools.ts` | When `locator.type()` times out (card number field), falls back to `frame.evaluate()` with direct keyboard event dispatch |
+| FIX: skip non-card Stripe iframes | `agent-tools.ts` | Filters out payment-request, iban, ideal-bank, universal-link, controller iframes |
+| ADD: iframe diagnostic logging | `agent-tools.ts` | Logs all iframe metadata (name, src) and input elements inside each frame |
+| FIX: page detection order | `scripted-actions.ts` | Product page checked BEFORE payment-form to prevent Shop Pay misclassification |
+| ADD: combined checkout shipping | `task.ts` | Payment handler fills shipping first on combined checkout pages |
+| ADD: addedToCart/selectionsApplied tracking | `task.ts` | Prevents re-adding items and re-selecting options |
+| ADD: /checkout direct navigation | `task.ts` | Product + cart pages navigate to /checkout when buttons fail |
+| FIX: fill timeout wrapper | `scripted-actions.ts` | Card field fill uses 1.5s `Promise.race` timeout |
 
-### Firecrawl E2E Results
-
-Confirmed working via direct API test (curl + tsx script):
-- **Allbirds**: name, price ($100), brand, description, Color (3), Size (7) — 48s
-- **Hydrogen demo**: name, price ($749.95), brand, description, Size (3), Color (1) — 20s
-
-See `plans/testing/firecrawl-discovery.md` for full results.
-
-### Unit Test Output (all packages)
+### Cross-Origin Iframe Card Fill Architecture
 
 ```
- ✓ packages/checkout/tests/discover.test.ts (41 tests) 6790ms
- ✓ packages/checkout/tests/concurrency-pool.test.ts (5 tests)
- ✓ packages/core/tests/store.test.ts (12 tests)
- ✓ packages/checkout/tests/cache.test.ts (10 tests)
- ✓ packages/checkout/tests/credentials.test.ts (12 tests)
- ✓ packages/core/tests/fees.test.ts (10 tests)
- + 20 more test files passing (api, orchestrator, wallet, x402, e2e config)
+scriptedFillCardFields(page, cdpCreds)
+├── 1. Main page CSS selectors (fillWithTimeout, 1.5s per field)
+├── 2. Split expiry fields (month/year selectors for Stripe/Adyen)
+└── 3. scanIframesForCardFields(page, cdpCreds) — iframe fallback
+    ├── Get iframe metadata via page.evaluate()
+    ├── Filter: skip non-card Stripe iframes (payment-request, iban, etc.)
+    ├── Match frame handles via page.frames() + frame.evaluate(window.location.href)
+    ├── Diagnostic: frame.evaluate() lists all inputs in each frame
+    ├── Stripe Card Element (elements-inner-card):
+    │   ├── frame.locator('input[name="cardnumber"]').click() + .type()
+    │   ├── On timeout → frame.evaluate() with keyboard event dispatch
+    │   ├── frame.locator('input[name="exp-date"]').type() (digits only)
+    │   └── frame.locator('input[name="cvc"]').type()
+    └── Generic: frame.locator(CSS selectors).click() + .type()
+```
 
- Test Files  26 passed, 5 failed (31)
-      Tests  266 passed, 11 failed, 1 skipped (278)
+### Architecture: Checkout Page Loop
+
+```
+for pageIdx = 0..19:
+  1. Wait for page to settle
+  2. scriptedDismissPopups()
+  3. detectPageType() → handler (product checked BEFORE payment)
+  4. Run scripted handler (0 LLM):
+     donation-landing → defer to LLM (site-specific)
+     product (no ATC yet) → scripted ATC or LLM selection → /checkout fallback
+     product (ATC done) → navigate to /checkout
+     cart → click checkout/proceed → /checkout fallback
+     login-gate → click guest/continue
+     shipping-form → fillShipping() + LLM supplement if <3 fields, click continue
+     payment-form/gateway → fill shipping if not done, fillCardFields(), fillBilling()
+     confirmation → extractConfirmationData(), return
+  5. Stall detection: same URL + same pageType → increment counter (5 = stuck)
+  6. LLM fallback if scripted failed OR stalled ≥2 times
+  7. Post-LLM: mark selectionsApplied, try scripted ATC, check for confirmation
 ```
 
 ---

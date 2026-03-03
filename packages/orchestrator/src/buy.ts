@@ -1,7 +1,7 @@
 import {
   type Order,
   type ShippingInfo,
-  ProxoError,
+  BloonError,
   ErrorCodes,
   getWallet,
   generateId,
@@ -10,9 +10,9 @@ import {
   calculateTotal,
   getDefaultShipping,
   loadConfig,
-} from "@proxo/core";
-import { getBalance } from "@proxo/wallet";
-import { discoverPrice } from "@proxo/checkout";
+} from "@bloon/core";
+import { getBalance } from "@bloon/wallet";
+import { discoverPrice } from "@bloon/checkout";
 import { routeOrder } from "./router.js";
 
 export interface BuyInput {
@@ -29,13 +29,13 @@ export async function buy(input: BuyInput): Promise<Order> {
   try {
     new URL(url);
   } catch {
-    throw new ProxoError(ErrorCodes.INVALID_URL, `Invalid URL: ${url}`);
+    throw new BloonError(ErrorCodes.INVALID_URL, `Invalid URL: ${url}`);
   }
 
   // 2. Look up wallet
   const wallet = getWallet(wallet_id);
   if (!wallet) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.WALLET_NOT_FOUND,
       `Wallet not found: ${wallet_id}`,
     );
@@ -53,7 +53,7 @@ export async function buy(input: BuyInput): Promise<Order> {
   if (decision.route === "x402") {
     // 4a. x402: price from requirements
     if (!decision.requirements) {
-      throw new ProxoError(
+      throw new BloonError(
         ErrorCodes.PRICE_EXTRACTION_FAILED,
         "x402 route detected but no payment requirements found",
       );
@@ -66,7 +66,7 @@ export async function buy(input: BuyInput): Promise<Order> {
     // 4b. Browserbase: resolve shipping, discover price
     resolvedShipping = input.shipping || getDefaultShipping();
     if (!resolvedShipping) {
-      throw new ProxoError(
+      throw new BloonError(
         ErrorCodes.SHIPPING_REQUIRED,
         "Shipping address required for browser checkout (no defaults configured)",
       );
@@ -77,7 +77,7 @@ export async function buy(input: BuyInput): Promise<Order> {
     const requiredShippingFields = ['name', 'street', 'city', 'state', 'zip', 'country', 'email', 'phone'] as const;
     const blankFields = requiredShippingFields.filter(f => !shipping[f]?.trim());
     if (blankFields.length > 0) {
-      throw new ProxoError(
+      throw new BloonError(
         ErrorCodes.MISSING_FIELD,
         `Missing required fields: ${blankFields.map(f => `shipping.${f}`).join(', ')}`,
       );
@@ -87,7 +87,7 @@ export async function buy(input: BuyInput): Promise<Order> {
     if (input.selections) {
       for (const [key, value] of Object.entries(input.selections)) {
         if (typeof key !== 'string' || typeof value !== 'string' || !key.trim() || !value.trim()) {
-          throw new ProxoError(ErrorCodes.INVALID_SELECTION, 'Selections must have non-empty string keys and values');
+          throw new BloonError(ErrorCodes.INVALID_SELECTION, 'Selections must have non-empty string keys and values');
         }
       }
     }
@@ -96,8 +96,8 @@ export async function buy(input: BuyInput): Promise<Order> {
     try {
       discovery = await discoverPrice(url, resolvedShipping);
     } catch (e) {
-      if (e instanceof ProxoError) throw e;
-      throw new ProxoError(
+      if (e instanceof BloonError) throw e;
+      throw new BloonError(
         ErrorCodes.PRICE_EXTRACTION_FAILED,
         `Price discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
       );
@@ -115,7 +115,7 @@ export async function buy(input: BuyInput): Promise<Order> {
   // 6. Balance check
   const balance = await getBalance(wallet.address);
   if (parseFloat(balance) < parseFloat(total)) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.INSUFFICIENT_BALANCE,
       `Insufficient balance: have ${balance} USDC, need ${total} USDC`,
     );

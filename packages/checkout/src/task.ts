@@ -1,7 +1,6 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import type { Page } from "@browserbasehq/stagehand";
-import type { Order, ShippingInfo } from "@proxo/core";
-import { z } from "zod";
+import type { Order, ShippingInfo } from "@bloon/core";
 import {
   buildCredentials,
   getStagehandVariables,
@@ -16,10 +15,21 @@ import {
   injectDomainCache,
   injectLocalStorage,
 } from "./cache.js";
-import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
+import { createSession, destroySession, getModelApiKey } from "./session.js";
 import type { SessionOptions } from "./session.js";
-import { createCheckoutTools } from "./agent-tools.js";
-import { StepTracker } from "./step-tracker.js";
+import {
+  scriptedDismissPopups,
+  scriptedFillShipping,
+  scriptedFillCardFields,
+  scriptedFillBilling,
+  scriptedUncheckBillingSameAsShipping,
+  scriptedClickButton,
+  scriptedSelectOption,
+  detectPageType,
+  extractConfirmationData,
+  extractVisibleTotal,
+} from "./scripted-actions.js";
+import type { PageType } from "./scripted-actions.js";
 
 // ---- Checkout steps ----
 
@@ -73,83 +83,135 @@ function isPriceAcceptable(expected: string, actual: string): boolean {
   return diff <= 1 || diff / exp <= 0.05;
 }
 
-// ---- Structured output schema for agent ----
+// ---- Max pages & LLM budget ----
 
-const CheckoutOutputSchema = z.object({
-  orderNumber: z
-    .string()
-    .optional()
-    .describe("The order or confirmation number, if visible"),
-  finalTotal: z
-    .string()
-    .optional()
-    .describe("The final order total amount (digits and decimals only, no currency symbol)"),
-  confirmationDetected: z
-    .boolean()
-    .describe("True if a confirmation/thank-you page was reached"),
-});
+const MAX_PAGES = 20;
+const MAX_LLM_CALLS = 25;
 
-// ---- System prompt for the checkout agent ----
+// ---- Page loop state ----
 
-function buildAgentSystemPrompt(dryRun: boolean, selections?: Record<string, string>): string {
-  const dryRunInstruction = dryRun
-    ? `
-IMPORTANT — DRY RUN MODE:
-- DO NOT click "Place Order", "Complete Purchase", "Submit Order", or any button that finalizes the purchase.
-- Stop AFTER filling payment fields and verifying the order total is visible.
-- Report the order total in your output.`
-    : `
-LIVE PURCHASE MODE:
-- After filling payment, click "Place Order", "Complete Purchase", or "Submit Order" to finalize.
-- Wait for the confirmation page to load.
-- Extract the order/confirmation number and final total from the confirmation page.`;
-
-  return `You are an autonomous checkout agent. Your job is to complete an online purchase on a website.
-
-CRITICAL RULES — YOU MUST FOLLOW THESE EXACTLY:
-
-FORM FILLING — MANDATORY TOOL USAGE:
-- When you reach the shipping/contact form, call the "fillShippingInfo" tool ONCE. It fills ALL fields (email, name, address, city, state, zip, country, phone) in one call. Do NOT use the act tool to fill individual form fields — use fillShippingInfo instead.
-- When you reach the payment step with card fields visible, call the "fillCardFields" tool ONCE. It fills card number, expiry, CVV, and cardholder name securely. You do NOT have card data — only the tool does. NEVER type card data with act.
-- If a separate billing address form appears, call "fillBillingAddress" once.
-
-NAVIGATION RULES:
-- Dismiss any popups, cookie banners, modals, newsletter signups, or overlays.
-- Choose Guest Checkout if asked to log in or create an account.
-- ${selections && Object.keys(selections).length > 0 ? `Select these specific product options: ${Object.entries(selections).map(([k, v]) => `${k}: ${v}`).join(', ')}.` : 'Select the first available in-stock variant/size if selection is required.'}
-- ALWAYS uncheck any "billing address same as shipping" or "use shipping address for billing" checkbox. The billing address is DIFFERENT from shipping and will be filled separately via the fillBillingAddress tool. If billing address fields are hidden behind this checkbox, uncheck it to reveal them, then call fillBillingAddress.
-- Click "Add to Cart" / "Add to Bag" to add the product.
-- Proceed to checkout via cart popup, cart icon, or cart page.
-- After calling fillShippingInfo, select the cheapest shipping option and continue to payment.
-- Decline express payment options (Shop Pay, Google Pay, Apple Pay, PayPal) — use regular credit card.
-- If an address autocomplete dropdown appears, dismiss it or press Escape.
-${dryRunInstruction}
-
-SEQUENCE:
-Dismiss popups → Select variant → Add to cart → Proceed to checkout → Guest checkout → call fillShippingInfo → Select shipping → Decline express pay → call fillCardFields → call fillBillingAddress (if needed) → ${dryRun ? "STOP (report total)" : "Place order → Verify confirmation"}
-
-SPEED RULES — CRITICAL:
-- NEVER call screenshot() unless you have failed 2 consecutive actions and need visual debugging.
-- After calling fillShippingInfo or fillCardFields, do NOT screenshot to verify — the tool output confirms success.
-- Use clickButton for ALL simple clicks (Add to Cart, Continue, Checkout, Close popup). Only use act() for complex interactions like selecting from dropdowns or typing text.
-- Do not take a screenshot after each action — proceed directly to the next step.
-- Use the custom tools for ALL form filling.`;
+interface LoopState {
+  currentStep: CheckoutStep;
+  addedToCart: boolean;
+  shippingFilled: boolean;
+  cardFilled: boolean;
+  billingFilled: boolean;
+  selectionsApplied: boolean;
+  llmCalls: number;
+  pagesVisited: number;
+  lastUrl: string;
+  lastPageType: PageType | null;
+  stallCount: number;
+  confirmationData?: { orderNumber?: string; total?: string };
 }
 
-// ---- Form-filling detection for prepareStep ----
+// ---- Map page type → checkout step for reporting ----
 
-const SHIPPING_FIELD_RE =
-  /\b(email|name|first\s*name|last\s*name|address|street|city|state|province|zip|postal|phone|country)\b/i;
-const CARD_FIELD_RE =
-  /\b(card\s*number|credit\s*card|expir|cvv|cvc|security\s*code|cardholder)\b/i;
-const FORM_ACTION_RE = /\b(fill|type|enter|input|set)\b/i;
-
-function isShippingFormAction(action: string): boolean {
-  return FORM_ACTION_RE.test(action) && SHIPPING_FIELD_RE.test(action);
+function pageTypeToStep(pageType: PageType): CheckoutStep {
+  switch (pageType) {
+    case "donation-landing":
+    case "product":
+      return "add-to-cart";
+    case "cart":
+      return "proceed-to-checkout";
+    case "login-gate":
+      return "proceed-to-checkout";
+    case "shipping-form":
+      return "fill-shipping";
+    case "payment-form":
+    case "payment-gateway":
+      return "fill-card";
+    case "confirmation":
+      return "verify-confirmation";
+    default:
+      return "navigate";
+  }
 }
 
-function isCardFormAction(action: string): boolean {
-  return FORM_ACTION_RE.test(action) && CARD_FIELD_RE.test(action);
+// ---- Build contextual LLM fallback instruction ----
+
+function buildPageInstruction(
+  pageType: PageType,
+  input: CheckoutInput,
+  state: LoopState,
+  isStalled = false,
+): string {
+  const price = input.order.product.price;
+  const dryRun = input.dryRun;
+  const selections = input.selections;
+  const domain = extractDomain(input.order.product.url);
+
+  // Context prefix for the LLM
+  const done: string[] = [];
+  if (state.shippingFilled) done.push("shipping filled");
+  if (state.cardFilled) done.push("card filled");
+  if (state.billingFilled) done.push("billing filled");
+  const ctx = done.length > 0
+    ? `[${domain}] Already done: ${done.join(", ")}. `
+    : `[${domain}] `;
+  const stallHint = isStalled
+    ? "Previous action didn't advance the page. Try a different approach — scroll down, look for alternative buttons, or try clicking directly. "
+    : "";
+
+  switch (pageType) {
+    case "donation-landing":
+      if (isStalled) {
+        return `${ctx}${stallHint}The donation amount should already be selected. Now click the button to proceed to payment — look for "Donate by card", "Continue", "Donate", "Give now", or "Proceed to payment". Do NOT re-select the amount.`;
+      }
+      return `${ctx}Select a $${price} donation amount if available. Choose a one-time donation (not recurring). Decline any optional extras like newsletters or email updates. Then click the button to proceed to pay by credit/debit card.`;
+
+    case "product": {
+      // Buy endpoint: selections come from the order (set at query time).
+      // Checkout should ONLY apply known selections, never explore/discover variants.
+
+      // Item already in cart — navigate to checkout
+      if (state.addedToCart) {
+        return `${ctx}${stallHint}The item is already in the cart. Click the "Checkout" button to proceed. If you see a cart drawer/sidebar, click "Checkout" inside it. Do NOT click "Add to Cart" again.`;
+      }
+
+      if (selections && Object.keys(selections).length > 0) {
+        if (state.selectionsApplied) {
+          // Selections applied — click Add to Cart
+          return `${ctx}${stallHint}Product options are already selected. Click the "Add to Cart", "Add to Bag", or "Buy Now" button NOW. Do NOT re-select any options.`;
+        }
+        // First attempt: select options
+        return `${ctx}Select exactly these options: ${Object.entries(selections).map(([k, v]) => `${k}: ${v}`).join(", ")}. After selecting, click "Add to Cart" or "Add to Bag".`;
+      }
+      // No selections — just add to cart.
+      return `${ctx}Click "Add to Cart", "Add to Bag", or "Buy Now". Do NOT browse or select any product options.`;
+    }
+
+    case "cart":
+      return `${ctx}${stallHint}Click "Checkout", "Proceed to Checkout", or "Continue to Checkout" to advance to the checkout page.`;
+
+    case "login-gate":
+      return `${ctx}${stallHint}Click "Guest Checkout", "Continue as Guest", or "Continue without account" to skip login. Do NOT create an account.`;
+
+    case "shipping-form": {
+      if (!state.shippingFilled) {
+        return `${ctx}${stallHint}Fill the shipping/contact form with: email=%x_shipping_email%, name=%x_shipping_name%, address=%x_shipping_street%, city=%x_shipping_city%, state=%x_shipping_state%, zip=%x_shipping_zip%, phone=%x_shipping_phone%. Then click "Continue" or "Continue to payment".`;
+      }
+      return `${ctx}${stallHint}Shipping is already filled. Click "Continue", "Continue to payment", "Next", or "Save and continue" to proceed.`;
+    }
+
+    case "payment-form":
+    case "payment-gateway":
+      if (state.cardFilled) {
+        return dryRun
+          ? `${ctx}${stallHint}Payment fields are already filled. Find the order total and report it. Do NOT click Place Order.`
+          : `${ctx}${stallHint}Payment fields are already filled. Click "Place Order", "Complete Purchase", "Submit Order", "Pay Now", or "Donate" to finalize.`;
+      }
+      return `${ctx}${stallHint}Fill the credit card payment fields, then ${dryRun ? "stop — do NOT place the order" : "click Place Order to finalize"}.`;
+
+    case "confirmation":
+      return `${ctx}Extract the order/confirmation number and final total from this confirmation page.`;
+
+    default:
+      if (state.addedToCart) {
+        return `${ctx}${stallHint}Navigate to checkout. Look for a "Checkout" button (maybe inside a cart drawer), or click the cart icon and then "Checkout". Do NOT add items again.`;
+      }
+      return `${ctx}${stallHint}Navigate towards checkout completion. Look for checkout, cart, or payment links. Scroll down if needed.`;
+  }
 }
 
 // ---- Full checkout orchestration ----
@@ -166,23 +228,47 @@ export async function runCheckout(
   const stagehandVars = getStagehandVariables(creds);
   const cdpCreds = getCdpCredentials(creds);
 
-  // 2. Validate keys early (fail fast with clear error)
-  const anthropicApiKey = getAnthropicApiKey();
+  // 2. Prepare shipping data for scripted fill
+  const nameParts = (stagehandVars.x_shipping_name ?? "").split(" ");
+  const shippingData = {
+    email: stagehandVars.x_shipping_email ?? "",
+    firstName: nameParts[0] ?? "",
+    lastName: nameParts.slice(1).join(" ") || "",
+    street: stagehandVars.x_shipping_street ?? "",
+    apartment: stagehandVars.x_shipping_apartment ?? "",
+    city: stagehandVars.x_shipping_city ?? "",
+    state: stagehandVars.x_shipping_state ?? "",
+    zip: stagehandVars.x_shipping_zip ?? "",
+    country: stagehandVars.x_shipping_country ?? "",
+    phone: stagehandVars.x_shipping_phone ?? "",
+  };
 
-  // 3. Create Browserbase session
+  // 3. Billing data
+  const billingData = {
+    street: stagehandVars.x_billing_street ?? "",
+    city: stagehandVars.x_billing_city ?? "",
+    state: stagehandVars.x_billing_state ?? "",
+    zip: stagehandVars.x_billing_zip ?? "",
+    country: stagehandVars.x_billing_country ?? "",
+  };
+
+  // 4. Validate keys early (fail fast with clear error)
+  const modelApiKey = getModelApiKey();
+
+  // 5. Create Browserbase session
   const session = await createSession(input.sessionOptions);
   let stagehand: InstanceType<typeof Stagehand> | undefined;
   const startMs = Date.now();
 
   try {
-    // 4. Init Stagehand with experimental flag for agent API features
+    // 6. Init Stagehand
     stagehand = new Stagehand({
       env: "BROWSERBASE",
       apiKey: process.env.BROWSERBASE_API_KEY!,
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
-        modelName: "anthropic/claude-haiku-4-5-20251001",
-        apiKey: anthropicApiKey,
+        modelName: "google/gemini-2.5-flash",
+        apiKey: modelApiKey,
       },
       browserbaseSessionID: session.id,
       experimental: true,
@@ -191,20 +277,20 @@ export async function runCheckout(
     await stagehand.init();
     const page: Page = stagehand.context.activePage()!;
 
-    // 5. Inject domain cache cookies (before navigation)
+    // 7. Inject domain cache cookies (before navigation)
     const existingCache = loadDomainCache(domain);
     if (existingCache) {
       await injectDomainCache(page, existingCache);
     }
 
-    // 6. Navigate to product URL (manual — faster than agent)
+    // 8. Navigate to product URL
     await page.goto(url, {
-      waitUntil: "domcontentloaded",
+      waitUntil: "load",
       timeoutMs: 30000,
     });
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(5000);
 
-    // 6b. Inject localStorage (must happen after navigating to target domain)
+    // 8b. Inject localStorage (must happen after navigating to target domain)
     if (existingCache) {
       try {
         await injectLocalStorage(page, existingCache);
@@ -213,138 +299,459 @@ export async function runCheckout(
       }
     }
 
-    // 6c. DOM pruning — strip non-functional elements to reduce token count
-    // NOTE: Do NOT remove <script>, <style>, or <link> — they are needed for page rendering and interactivity
+    // 8c. DOM pruning — strip non-functional elements to reduce token count
     await page.evaluate(() => {
-      document.querySelectorAll('noscript')
-        .forEach(e => e.remove());
-      document.querySelectorAll('[aria-hidden="true"]')
-        .forEach(e => e.remove());
-      document.querySelectorAll('img')
-        .forEach(img => { img.removeAttribute('srcset'); });
+      document.querySelectorAll("noscript").forEach(e => e.remove());
+      document.querySelectorAll('[aria-hidden="true"]').forEach(e => e.remove());
+      document.querySelectorAll("img").forEach(img => { img.removeAttribute("srcset"); });
     });
 
-    // 6d. Scripted popup dismissal — eliminate cookie banners and modals before agent runs
-    await page.evaluate(() => {
-      // Remove cookie/consent banners
-      document.querySelectorAll('[class*="cookie" i], [id*="cookie" i], [class*="consent" i]')
-        .forEach(e => e.remove());
-      // Click close buttons inside modals/dialogs
-      document.querySelectorAll('[role="dialog"] [aria-label*="close" i], [role="dialog"] [aria-label*="dismiss" i]')
-        .forEach(btn => (btn as HTMLElement).click());
-      // Remove fixed-position overlays
-      document.querySelectorAll('.overlay, .backdrop, [class*="overlay" i]')
-        .forEach(e => { if (getComputedStyle(e).position === 'fixed') e.remove(); });
-    });
+    // 8d. Initial scripted popup dismissal
+    await scriptedDismissPopups(page);
 
-    // 7. Create custom tools
-    const customTools = createCheckoutTools(stagehand, page, stagehandVars, cdpCreds);
-
-    // 8. Create step tracker + form state for prepareStep
-    const tracker = new StepTracker();
-    tracker.setStep("navigate");
-
-    const formState = {
+    // 9. Page-based loop
+    const state: LoopState = {
+      currentStep: "navigate",
+      addedToCart: false,
       shippingFilled: false,
       cardFilled: false,
       billingFilled: false,
-      stepsOnCheckout: 0,
-      stepWhenShippingFilled: -1,
-      totalSteps: 0,
+      selectionsApplied: false,
+      llmCalls: 0,
+      pagesVisited: 0,
+      lastUrl: page.url(),
+      lastPageType: null,
+      stallCount: 0,
+      confirmationData: undefined,
     };
 
-    // 9. Create agent with custom tools
-    const agent = stagehand.agent({
-      mode: "dom",
-      systemPrompt: buildAgentSystemPrompt(!!input.dryRun, input.selections),
-      tools: customTools,
-    });
+    for (let pageIdx = 0; pageIdx < MAX_PAGES; pageIdx++) {
+      state.pagesVisited = pageIdx;
 
-    // 10. Execute agent
-    const selectionInstruction = input.selections && Object.keys(input.selections).length > 0
-      ? `First select these product options: ${Object.entries(input.selections).map(([k, v]) => `${k}: ${v}`).join(', ')}. `
-      : '';
+      // 9a. Wait for page to settle
+      await page.waitForTimeout(2000);
 
-    const instruction = input.dryRun
-      ? `${selectionInstruction}Complete the checkout flow for the product on this page (${url}). ` +
-        `Fill all shipping and payment fields, but DO NOT place the order. ` +
-        `Report the final order total.`
-      : `${selectionInstruction}Complete the checkout flow for the product on this page (${url}). ` +
-        `Fill all shipping and payment fields, then place the order. ` +
-        `Extract the order number and final total from the confirmation page.`;
+      // 9b. Dismiss popups
+      await scriptedDismissPopups(page);
 
-    const result = await agent.execute({
-      instruction,
-      maxSteps: 40,
-      excludeTools: ["fillForm", "ariaTree"],
-      output: CheckoutOutputSchema,
-      callbacks: {
-        onStepFinish: (stepResult) => {
-          formState.totalSteps++;
-          const toolCalls = stepResult.toolCalls.map((tc) => ({
-            toolName: tc.toolName as string,
-            input: "input" in tc ? tc.input : undefined,
-          }));
+      // 9c. Detect page type
+      const pageType = await detectPageType(page);
+      state.currentStep = pageTypeToStep(pageType);
+      console.log(`[page ${pageIdx}] type=${pageType} url=${page.url().slice(0, 80)}`);
 
-          // Track custom tool usage
-          for (const tc of toolCalls) {
-            if (tc.toolName === "fillShippingInfo") {
-              formState.shippingFilled = true;
-              formState.stepWhenShippingFilled = formState.totalSteps;
+      // 9d. Run page-type handler (all scripted, 0 LLM)
+      let advanced = false;
+
+      switch (pageType) {
+        case "donation-landing": {
+          // Donation pages vary wildly — always defer to LLM
+          // (amount options, frequency, email opt-in, payment method are all site-specific)
+          advanced = false;
+          break;
+        }
+
+        case "product": {
+          if (input.selections && Object.keys(input.selections).length > 0 && !state.selectionsApplied) {
+            // Variant selection needed and not yet applied — defer to LLM
+            // advanced stays false → LLM fallback handles selection
+            break;
+          }
+
+          // If already added to cart, navigate to /checkout directly
+          if (state.addedToCart) {
+            console.log(`  [product] already in cart, navigating to /checkout`);
+            try {
+              const checkoutUrl = new URL(page.url());
+              checkoutUrl.pathname = "/checkout";
+              checkoutUrl.search = "";
+              await page.goto(checkoutUrl.toString(), { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+              advanced = true;
+            } catch {
+              // Fall through to LLM
             }
-            if (tc.toolName === "fillCardFields") formState.cardFilled = true;
-            if (tc.toolName === "fillBillingAddress") formState.billingFilled = true;
+            break;
           }
 
-          // Track checkout page visits
-          const currentUrl = page.url();
-          if (/\/checkout|\/checkouts\//i.test(currentUrl)) {
-            formState.stepsOnCheckout++;
+          // No selections needed, or selections already applied — try scripted add-to-cart
+          // Prefer "buy now" (goes directly to checkout, skips cart drawer)
+          const addedToCart =
+            await scriptedClickButton(page, "buy now") ||
+            await scriptedClickButton(page, "add to cart") ||
+            await scriptedClickButton(page, "add to bag") ||
+            await scriptedClickButton(page, "add to basket");
+          if (addedToCart) {
+            state.addedToCart = true;
+            console.log(`  [product] added to cart via scripted click`);
+            // Wait for navigation or cart drawer to appear
+            await page.waitForTimeout(3000);
+            // Check if page already navigated (buy now can go direct to checkout)
+            const postAtcUrl = page.url();
+            if (postAtcUrl !== url) {
+              advanced = true;
+            } else {
+              // Still on product page — try checkout buttons in cart drawer
+              advanced =
+                await scriptedClickButton(page, "checkout") ||
+                await scriptedClickButton(page, "proceed to checkout") ||
+                await scriptedClickButton(page, "go to checkout") ||
+                await scriptedClickButton(page, "view bag") ||
+                await scriptedClickButton(page, "view cart");
+              // If no checkout button found, navigate directly to /checkout
+              if (!advanced) {
+                console.log(`  [product] no checkout button in drawer, navigating to /checkout`);
+                try {
+                  const checkoutUrl = new URL(page.url());
+                  checkoutUrl.pathname = "/checkout";
+                  checkoutUrl.search = "";
+                  await page.goto(checkoutUrl.toString(), { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+                  advanced = true;
+                } catch {
+                  // Fall through to LLM
+                }
+              }
+            }
+          }
+          break;
+        }
+
+        case "cart": {
+          advanced =
+            await scriptedClickButton(page, "checkout") ||
+            await scriptedClickButton(page, "proceed to checkout") ||
+            await scriptedClickButton(page, "continue to checkout");
+          // Fallback: navigate directly to /checkout if buttons didn't work
+          if (!advanced) {
+            console.log(`  [cart] no checkout button found, navigating to /checkout`);
+            try {
+              const checkoutUrl = new URL(page.url());
+              checkoutUrl.pathname = "/checkout";
+              checkoutUrl.search = "";
+              await page.goto(checkoutUrl.toString(), { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+              advanced = true;
+            } catch {
+              // Fall through to LLM
+            }
+          }
+          break;
+        }
+
+        case "login-gate": {
+          advanced =
+            await scriptedClickButton(page, "guest checkout") ||
+            await scriptedClickButton(page, "continue as guest") ||
+            await scriptedClickButton(page, "continue without account") ||
+            await scriptedClickButton(page, "guest");
+          break;
+        }
+
+        case "shipping-form": {
+          const filled = await scriptedFillShipping(page, shippingData);
+          state.shippingFilled = filled.length > 0;
+          if (filled.length > 0) {
+            console.log(`  [shipping] filled ${filled.length} fields: ${filled.join(", ")}`);
           }
 
-          tracker.update(toolCalls, currentUrl);
-        },
-        // Force custom tools when agent reaches checkout forms
-        prepareStep: (() => {
-          // Proactive: force fillShippingInfo after agent has seen checkout page
-          if (formState.stepsOnCheckout >= 1 && !formState.shippingFilled) {
+          // If scripted fill got < 3 fields, supplement with LLM using variables
+          if (filled.length < 3 && state.llmCalls < MAX_LLM_CALLS) {
+            console.log(`  [shipping] only ${filled.length} fields via script, supplementing with LLM`);
+            try {
+              await stagehand.act(
+                `Fill the shipping/contact form: email=%x_shipping_email%, name=%x_shipping_name%, address=%x_shipping_street%, city=%x_shipping_city%, state=%x_shipping_state%, zip=%x_shipping_zip%, phone=%x_shipping_phone%. Skip any fields already filled.`,
+                { variables: stagehandVars },
+              );
+              state.llmCalls++;
+              state.shippingFilled = true;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              console.log(`  [shipping llm error] ${msg.slice(0, 100)}`);
+              state.llmCalls++;
+            }
+          }
+
+          if (state.shippingFilled || filled.length > 0) {
+            await page.waitForTimeout(1000);
+            advanced =
+              await scriptedClickButton(page, "continue") ||
+              await scriptedClickButton(page, "continue to payment") ||
+              await scriptedClickButton(page, "next") ||
+              await scriptedClickButton(page, "save and continue") ||
+              await scriptedClickButton(page, "continue to shipping");
+          }
+          break;
+        }
+
+        case "payment-form":
+        case "payment-gateway": {
+          // Combined checkout pages (Glossier, etc.) show shipping + payment on same page.
+          // Fill shipping first if not done yet.
+          if (!state.shippingFilled) {
+            const shippingFilled = await scriptedFillShipping(page, shippingData);
+            state.shippingFilled = shippingFilled.length > 0;
+            if (shippingFilled.length > 0) {
+              console.log(`  [payment-page shipping] filled ${shippingFilled.length} fields: ${shippingFilled.join(", ")}`);
+            }
+            // Supplement with LLM if scripted got < 3 fields
+            if (shippingFilled.length < 3 && state.llmCalls < MAX_LLM_CALLS) {
+              console.log(`  [payment-page shipping] only ${shippingFilled.length} fields via script, supplementing with LLM`);
+              try {
+                await stagehand.act(
+                  `Fill the shipping/contact form fields on this page: email=%x_shipping_email%, name=%x_shipping_name%, address=%x_shipping_street%, city=%x_shipping_city%, state=%x_shipping_state%, zip=%x_shipping_zip%, phone=%x_shipping_phone%. Skip any fields already filled.`,
+                  { variables: stagehandVars },
+                );
+                state.llmCalls++;
+                state.shippingFilled = true;
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.log(`  [payment-page shipping llm error] ${msg.slice(0, 100)}`);
+                state.llmCalls++;
+              }
+            }
+            // Click continue if there's a shipping-to-payment transition button
+            await page.waitForTimeout(1000);
+            await scriptedClickButton(page, "continue") ||
+              await scriptedClickButton(page, "continue to payment") ||
+              await scriptedClickButton(page, "next") ||
+              await scriptedClickButton(page, "save and continue");
+            await page.waitForTimeout(2000);
+          }
+
+          if (!state.cardFilled) {
+            // Uncheck billing same as shipping
+            await scriptedUncheckBillingSameAsShipping(page);
+            await page.waitForTimeout(500);
+
+            // Fill card fields
+            const cardResult = await scriptedFillCardFields(page, cdpCreds);
+            state.cardFilled = cardResult.filled > 0;
+            console.log(`  [card] filled ${cardResult.filled} fields via ${cardResult.method}`);
+
+            // Wait longer for form validation after card fill
+            if (state.cardFilled) {
+              await page.waitForTimeout(2000);
+            }
+
+            // Fill billing if available
+            if (billingData.street) {
+              const billingFilled = await scriptedFillBilling(page, billingData);
+              state.billingFilled = billingFilled.length > 0;
+              if (billingFilled.length > 0) {
+                console.log(`  [billing] filled ${billingFilled.length} fields: ${billingFilled.join(", ")}`);
+              }
+            }
+          }
+
+          if (input.dryRun) {
+            // Dry run: extract total and stop
+            const total = await extractVisibleTotal(page);
+            state.confirmationData = { total };
+            console.log(`  [dry-run] total=${total ?? "(not found)"}`);
+            advanced = true; // Signal completion
+            // Return early for dry run — don't place order
+            const durationMs = Date.now() - startMs;
+            // Save domain cache before returning
+            try {
+              const newCache = await extractDomainCache(page, domain);
+              saveDomainCache(newCache);
+            } catch { /* best-effort */ }
+
             return {
-              toolChoice: { type: "tool" as const, toolName: "fillShippingInfo" },
+              success: true,
+              finalTotal: total,
+              sessionId: session.id,
+              replayUrl: session.replayUrl,
+              durationMs,
             };
           }
 
-          // Force fillCardFields a few steps after shipping is done
-          if (
-            formState.shippingFilled &&
-            !formState.cardFilled &&
-            formState.totalSteps >= formState.stepWhenShippingFilled + 3
-          ) {
-            return {
-              toolChoice: { type: "tool" as const, toolName: "fillCardFields" },
-            };
+          // Live: click place order — try multiple common button labels
+          advanced =
+            await scriptedClickButton(page, "place order") ||
+            await scriptedClickButton(page, "complete purchase") ||
+            await scriptedClickButton(page, "submit order") ||
+            await scriptedClickButton(page, "donate") ||
+            await scriptedClickButton(page, "pay now") ||
+            await scriptedClickButton(page, "complete order") ||
+            await scriptedClickButton(page, "confirm order") ||
+            await scriptedClickButton(page, "pay") ||
+            await scriptedClickButton(page, "submit payment");
+          break;
+        }
+
+        case "confirmation": {
+          const data = await extractConfirmationData(page);
+          state.confirmationData = data;
+          state.currentStep = "verify-confirmation";
+          console.log(`  [confirmation] order=${data.orderNumber ?? "?"} total=${data.total ?? "?"}`);
+
+          // Save domain cache
+          try {
+            const newCache = await extractDomainCache(page, domain);
+            saveDomainCache(newCache);
+          } catch { /* best-effort */ }
+
+          return {
+            success: true,
+            orderNumber: data.orderNumber,
+            finalTotal: data.total,
+            sessionId: session.id,
+            replayUrl: session.replayUrl,
+            durationMs: Date.now() - startMs,
+          };
+        }
+
+        default:
+          // unknown — will fall through to LLM fallback
+          break;
+      }
+
+      // 9e. Stall detection — track URL + page type to detect no-progress loops
+      const currentUrl = page.url();
+      if (currentUrl === state.lastUrl && pageType === state.lastPageType) {
+        state.stallCount++;
+        console.log(`  [stall] same url+page type ${state.stallCount} times`);
+      } else {
+        state.stallCount = 0;
+      }
+      state.lastUrl = currentUrl;
+      state.lastPageType = pageType;
+
+      // Break out if completely stuck on same page (5+ stalls = no progress possible)
+      if (state.stallCount >= 5) {
+        console.log(`  [stuck] 5+ stalls on ${pageType} — giving up`);
+        break;
+      }
+
+      // 9f. Check if we reached confirmation after scripted actions
+      if (advanced) {
+        await page.waitForTimeout(2000);
+        const postType = await detectPageType(page);
+        if (postType === "confirmation") {
+          const data = await extractConfirmationData(page);
+          state.confirmationData = data;
+          state.currentStep = "verify-confirmation";
+          console.log(`  [post-action confirmation] order=${data.orderNumber ?? "?"} total=${data.total ?? "?"}`);
+
+          try {
+            const newCache = await extractDomainCache(page, domain);
+            saveDomainCache(newCache);
+          } catch { /* best-effort */ }
+
+          return {
+            success: true,
+            orderNumber: data.orderNumber,
+            finalTotal: data.total,
+            sessionId: session.id,
+            replayUrl: session.replayUrl,
+            durationMs: Date.now() - startMs,
+          };
+        }
+      }
+
+      // 9g. LLM fallback — if scripted handler didn't advance, or stalled ≥2 times
+      const needsLlm = !advanced || state.stallCount >= 2;
+      if (needsLlm && state.llmCalls < MAX_LLM_CALLS) {
+        const isStalled = state.stallCount >= 2;
+        const instruction = buildPageInstruction(pageType, input, state, isStalled);
+
+        // For shipping forms with no scripted fill, pass variables for LLM substitution
+        const actOptions: { variables?: Record<string, string> } = {};
+        if (pageType === "shipping-form" && !state.shippingFilled) {
+          actOptions.variables = stagehandVars;
+        }
+
+        console.log(`  [llm fallback ${state.llmCalls + 1}/${MAX_LLM_CALLS}${isStalled ? " STALLED" : ""}] ${instruction.slice(0, 100)}...`);
+
+        try {
+          await stagehand.act(instruction, actOptions);
+          state.llmCalls++;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.log(`  [llm error] ${msg.slice(0, 100)}`);
+          state.llmCalls++;
+        }
+
+        // After LLM on product page, mark selections as applied and try scripted ATC
+        if (pageType === "product") {
+          // Mark selections as applied after first LLM attempt
+          if (input.selections && Object.keys(input.selections).length > 0) {
+            state.selectionsApplied = true;
           }
 
-          // After both forms filled, guide agent to finish
-          if (formState.shippingFilled && formState.cardFilled) {
-            const hint = input.dryRun
-              ? "Both shipping and payment fields are ALREADY filled. " +
-                "Find the order total on the page and report it. Use the done tool to finish."
-              : "Both shipping and payment fields are ALREADY filled. " +
-                "Click Place Order / Complete Purchase to finalize.";
-            return { system: buildAgentSystemPrompt(!!input.dryRun, input.selections) + "\n\n" + hint };
+          // Only try ATC if not already added
+          if (!state.addedToCart) {
+            await page.waitForTimeout(1000);
+            const postLlmAtc =
+              await scriptedClickButton(page, "buy now") ||
+              await scriptedClickButton(page, "add to cart") ||
+              await scriptedClickButton(page, "add to bag") ||
+              await scriptedClickButton(page, "add to basket");
+            if (postLlmAtc) {
+              state.addedToCart = true;
+              console.log(`  [post-llm] scripted add-to-cart succeeded`);
+              // Wait for navigation (buy now) or cart drawer
+              await page.waitForTimeout(3000);
+              // Try checkout buttons in cart drawer
+              const wentToCheckout =
+                await scriptedClickButton(page, "checkout") ||
+                await scriptedClickButton(page, "proceed to checkout") ||
+                await scriptedClickButton(page, "go to checkout") ||
+                await scriptedClickButton(page, "view bag") ||
+                await scriptedClickButton(page, "view cart");
+              if (wentToCheckout) console.log(`  [post-llm] navigated to checkout via button`);
+            }
           }
+        }
 
-          return undefined;
-        }) as never,
-      },
-    });
+        // Check for navigation / confirmation after LLM action
+        // Wait longer when item is in cart (Shopify checkout redirects can take 5+ seconds)
+        const postLlmWait = state.addedToCart ? 5000 : 2000;
+        await page.waitForTimeout(postLlmWait);
+        const postLlmType = await detectPageType(page);
+        if (postLlmType === "confirmation") {
+          const data = await extractConfirmationData(page);
+          state.confirmationData = data;
+          state.currentStep = "verify-confirmation";
 
-    // 11. Post-execution price verification (defense in depth)
-    const agentOutput = result.output as
-      | { orderNumber?: string; finalTotal?: string; confirmationDetected?: boolean }
-      | undefined;
+          try {
+            const newCache = await extractDomainCache(page, domain);
+            saveDomainCache(newCache);
+          } catch { /* best-effort */ }
 
-    const finalTotal = agentOutput?.finalTotal;
+          return {
+            success: true,
+            orderNumber: data.orderNumber,
+            finalTotal: data.total,
+            sessionId: session.id,
+            replayUrl: session.replayUrl,
+            durationMs: Date.now() - startMs,
+          };
+        }
+
+        // Reset stall counter after LLM attempt if page changed
+        if (page.url() !== currentUrl) {
+          state.stallCount = 0;
+        }
+      } else if (needsLlm && state.llmCalls >= MAX_LLM_CALLS) {
+        console.log(`  [budget exhausted] ${state.llmCalls}/${MAX_LLM_CALLS} LLM calls used`);
+        break;
+      }
+    }
+
+    // 10. Post-loop: check for confirmation via page text
+    let confirmedViaPageText = false;
+    let finalTotal: string | undefined;
+    try {
+      const bodyText = await page.evaluate(() => document.body.textContent || "");
+      const confirmation = verifyConfirmationPage(bodyText);
+      confirmedViaPageText = confirmation.isConfirmed;
+      if (!finalTotal) {
+        finalTotal = await extractVisibleTotal(page);
+      }
+    } catch {
+      // Ignore page read errors
+    }
+
+    // 11. Price verification
     if (finalTotal && order.payment.price) {
       if (!isPriceAcceptable(order.payment.price, finalTotal)) {
         return {
@@ -367,49 +774,27 @@ export async function runCheckout(
       // Cache save is best-effort
     }
 
-    // 13. Map AgentResult → CheckoutResult (backward compat)
+    // 13. Final result
     if (input.dryRun) {
       return {
-        success: result.success,
-        finalTotal: agentOutput?.finalTotal,
+        success: true,
+        finalTotal: finalTotal ?? state.confirmationData?.total,
         sessionId: session.id,
         replayUrl: session.replayUrl,
         durationMs: Date.now() - startMs,
       };
     }
 
-    // Live purchase: verify confirmation
-    const orderNumber = agentOutput?.orderNumber;
-    const confirmationDetected = agentOutput?.confirmationDetected ?? false;
-
-    // Fallback: check page text for confirmation signals
-    let confirmedViaPageText = false;
-    if (!confirmationDetected) {
-      try {
-        const bodyText = await page.evaluate(
-          () => document.body.textContent || "",
-        );
-        const confirmation = verifyConfirmationPage(bodyText);
-        confirmedViaPageText = confirmation.isConfirmed;
-      } catch {
-        // Ignore page read errors
-      }
-    }
-
-    const isConfirmed = confirmationDetected || confirmedViaPageText;
-
     return {
-      success: isConfirmed,
-      orderNumber,
-      finalTotal: agentOutput?.finalTotal,
+      success: confirmedViaPageText,
+      orderNumber: state.confirmationData?.orderNumber,
+      finalTotal: finalTotal ?? state.confirmationData?.total,
       sessionId: session.id,
       replayUrl: session.replayUrl,
-      failedStep: isConfirmed
+      failedStep: confirmedViaPageText ? undefined : state.currentStep,
+      errorMessage: confirmedViaPageText
         ? undefined
-        : (tracker.currentStep as CheckoutStep),
-      errorMessage: isConfirmed
-        ? undefined
-        : result.message || "Checkout did not reach confirmation page",
+        : `Checkout did not reach confirmation page (stopped at ${state.currentStep}, ${state.llmCalls}/${MAX_LLM_CALLS} LLM calls used)`,
       durationMs: Date.now() - startMs,
     };
   } catch (err) {

@@ -10,6 +10,7 @@
   "dependencies": {
     "@bloon/core": "workspace:*",
     "@browserbasehq/stagehand": "^3.0.0",
+    "agentmail": "^1.0.0",
     "zod": "^3.22.0"
   }
 }
