@@ -4,8 +4,10 @@ import {
   generateId,
   createWallet as storeCreateWallet,
   getNetwork,
-} from "@proxo/core";
-import type { Wallet } from "@proxo/core";
+  loadConfig,
+} from "@bloon/core";
+import type { Wallet } from "@bloon/core";
+import { sendGas } from "./gas.js";
 
 export async function createWallet(agentName: string): Promise<Wallet> {
   const privateKey = generatePrivateKey();
@@ -20,6 +22,11 @@ export async function createWallet(agentName: string): Promise<Wallet> {
     agent_name: agentName,
     created_at: new Date().toISOString(),
   };
+
+  // Send gas from master wallet before persisting — if this fails,
+  // no wallet is saved (a wallet without gas is useless).
+  const config = loadConfig();
+  await sendGas(config.master_wallet.private_key, wallet.address);
 
   await storeCreateWallet(wallet);
   return wallet;

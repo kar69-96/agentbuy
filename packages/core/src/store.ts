@@ -6,7 +6,7 @@ import type {
   Wallet,
   Order,
   OrderStatus,
-  ProxoConfig,
+  BloonConfig,
   WalletsStore,
   OrdersStore,
 } from "./types.js";
@@ -14,7 +14,7 @@ import type {
 // ---- Data directory ----
 
 function getDataDir(): string {
-  return process.env.PROXO_DATA_DIR || path.join(os.homedir(), ".proxo");
+  return process.env.BLOON_DATA_DIR || path.join(os.homedir(), ".bloon");
 }
 
 function ensureDataDir(): void {
@@ -74,7 +74,7 @@ export function generateId(prefix: string): string {
     .toString(36)
     .padStart(6, "0")
     .slice(0, 6);
-  return `proxo_${prefix}_${id}`;
+  return `bloon_${prefix}_${id}`;
 }
 
 // ---- Wallet operations ----
@@ -149,11 +149,11 @@ export function updateOrderStatus(
 
 // ---- Config operations ----
 
-export function getConfig(): ProxoConfig | undefined {
-  return readJsonFile<ProxoConfig | undefined>("config.json", undefined);
+export function getConfig(): BloonConfig | undefined {
+  return readJsonFile<BloonConfig | undefined>("config.json", undefined);
 }
 
-export function saveConfig(config: ProxoConfig): Promise<void> {
+export function saveConfig(config: BloonConfig): Promise<void> {
   return enqueueConfig(() => {
     writeJsonFile("config.json", config);
   });

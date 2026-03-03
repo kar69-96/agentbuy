@@ -1,4 +1,4 @@
-# User Flow — Proxo v1
+# User Flow — Bloon v1
 
 ## Personas
 
@@ -14,7 +14,7 @@ Agent:
   POST /api/wallets { "agent_name": "Shopping Agent" }
 
 Returns:
-  wallet_id: "proxo_w_7k2m9x"
+  wallet_id: "bloon_w_7k2m9x"
   funding_url: "http://localhost:3000/fund/a8f3x9k2m7p..."
 
 Agent tells human: "Fund your wallet here: <funding_url>"
@@ -23,7 +23,7 @@ Human opens funding_url → QR code + live balance ($0.00)
 Human scans QR → sends $50 USDC on Base → page updates: $50.00
 
 Agent:
-  GET /api/wallets/proxo_w_7k2m9x → balance: "50.00"
+  GET /api/wallets/bloon_w_7k2m9x → balance: "50.00"
 ```
 
 ---
@@ -34,14 +34,14 @@ Agent:
 Agent:
   POST /api/buy {
     "url": "https://amazon.com/dp/B08...",
-    "wallet_id": "proxo_w_7k2m9x",
+    "wallet_id": "bloon_w_7k2m9x",
     "shipping": { "name": "Karthik", "street": "123 Main St", ... }
   }
 
-Returns: order_id, product (Anker USB-C Hub, $17.99), payment ($18.89, 5% fee)
+Returns: order_id, product (Anker USB-C Hub, $17.99), payment ($18.35, 2% fee)
 
 Agent decides to proceed:
-  POST /api/confirm { "order_id": "proxo_ord_9x2k4m" }
+  POST /api/confirm { "order_id": "bloon_ord_9x2k4m" }
 
 Server: transfers USDC, launches browser checkout, fills forms, submits order
 
@@ -56,12 +56,10 @@ Returns: receipt { order_number: "112-456...", estimated_delivery: "Feb 21" }
 Agent:
   POST /api/buy {
     "url": "https://target.com/p/bluetooth-speaker/...",
-    "wallet_id": "proxo_w_7k2m9x"
+    "wallet_id": "bloon_w_7k2m9x"
   }
 
-IF .env has default shipping -> uses defaults, returns quote normally
-
-IF no defaults -> returns:
+Returns:
   { "error": { "code": "SHIPPING_REQUIRED", "message": "..." } }
 
 Agent asks human for address, then re-calls POST /api/buy with shipping included.
@@ -75,15 +73,15 @@ Agent asks human for address, then re-calls POST /api/buy with shipping included
 Agent:
   POST /api/buy {
     "url": "https://api.weather402.com/forecast?lat=30.27&lon=-97.74",
-    "wallet_id": "proxo_w_7k2m9x"
+    "wallet_id": "bloon_w_7k2m9x"
   }
 
-Server: HEAD request -> 402! -> x402 route. Fee: $0.10 x 0.5% = $0.0005
+Server: HEAD request -> 402! -> x402 route. Fee: $0.10 x 2% = $0.002
 
-Returns: order_id, product (Weather API, $0.10), payment ($0.1005, x402 route)
+Returns: order_id, product (Weather API, $0.10), payment ($0.102, x402 route)
 
 Agent:
-  POST /api/confirm { "order_id": "proxo_ord_3n7p1q" }
+  POST /api/confirm { "order_id": "bloon_ord_3n7p1q" }
 
 Returns: receipt + response: { weather: "sunny", temperature: 72 }
 
@@ -96,11 +94,11 @@ Agent uses the weather data directly from the response field.
 
 ```
 Agent:
-  GET /api/wallets/proxo_w_7k2m9x
+  GET /api/wallets/bloon_w_7k2m9x
 
-Returns: balance ($31.01), transactions: [deposit +$50, purchase -$18.89, purchase -$0.10]
+Returns: balance ($31.53), transactions: [deposit +$50, purchase -$18.35, purchase -$0.12]
 
-Agent: "You have $31.01 remaining. 2 purchases made."
+Agent: "You have $31.53 remaining. 2 purchases made."
 ```
 
 ---

@@ -1,7 +1,7 @@
 import {
   type Order,
   type ShippingInfo,
-  ProxoError,
+  BloonError,
   ErrorCodes,
   getWallet,
   generateId,
@@ -9,16 +9,17 @@ import {
   calculateFee,
   calculateTotal,
   getDefaultShipping,
-  loadOrCreateConfig,
-} from "@proxo/core";
-import { getBalance } from "@proxo/wallet";
-import { discoverPrice } from "@proxo/checkout";
+  loadConfig,
+} from "@bloon/core";
+import { getBalance } from "@bloon/wallet";
+import { discoverPrice } from "@bloon/checkout";
 import { routeOrder } from "./router.js";
 
 export interface BuyInput {
   url: string;
   wallet_id: string;
   shipping?: ShippingInfo;
+  selections?: Record<string, string>;
 }
 
 export async function buy(input: BuyInput): Promise<Order> {
@@ -28,13 +29,13 @@ export async function buy(input: BuyInput): Promise<Order> {
   try {
     new URL(url);
   } catch {
-    throw new ProxoError(ErrorCodes.INVALID_URL, `Invalid URL: ${url}`);
+    throw new BloonError(ErrorCodes.INVALID_URL, `Invalid URL: ${url}`);
   }
 
   // 2. Look up wallet
   const wallet = getWallet(wallet_id);
   if (!wallet) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.WALLET_NOT_FOUND,
       `Wallet not found: ${wallet_id}`,
     );
@@ -52,7 +53,7 @@ export async function buy(input: BuyInput): Promise<Order> {
   if (decision.route === "x402") {
     // 4a. x402: price from requirements
     if (!decision.requirements) {
-      throw new ProxoError(
+      throw new BloonError(
         ErrorCodes.PRICE_EXTRACTION_FAILED,
         "x402 route detected but no payment requirements found",
       );
@@ -65,18 +66,38 @@ export async function buy(input: BuyInput): Promise<Order> {
     // 4b. Browserbase: resolve shipping, discover price
     resolvedShipping = input.shipping || getDefaultShipping();
     if (!resolvedShipping) {
-      throw new ProxoError(
+      throw new BloonError(
         ErrorCodes.SHIPPING_REQUIRED,
         "Shipping address required for browser checkout (no defaults configured)",
       );
+    }
+
+    // Validate all required shipping fields are non-empty
+    const shipping = resolvedShipping;
+    const requiredShippingFields = ['name', 'street', 'city', 'state', 'zip', 'country', 'email', 'phone'] as const;
+    const blankFields = requiredShippingFields.filter(f => !shipping[f]?.trim());
+    if (blankFields.length > 0) {
+      throw new BloonError(
+        ErrorCodes.MISSING_FIELD,
+        `Missing required fields: ${blankFields.map(f => `shipping.${f}`).join(', ')}`,
+      );
+    }
+
+    // Validate selections if provided
+    if (input.selections) {
+      for (const [key, value] of Object.entries(input.selections)) {
+        if (typeof key !== 'string' || typeof value !== 'string' || !key.trim() || !value.trim()) {
+          throw new BloonError(ErrorCodes.INVALID_SELECTION, 'Selections must have non-empty string keys and values');
+        }
+      }
     }
 
     let discovery;
     try {
       discovery = await discoverPrice(url, resolvedShipping);
     } catch (e) {
-      if (e instanceof ProxoError) throw e;
-      throw new ProxoError(
+      if (e instanceof BloonError) throw e;
+      throw new BloonError(
         ErrorCodes.PRICE_EXTRACTION_FAILED,
         `Price discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
       );
@@ -94,14 +115,14 @@ export async function buy(input: BuyInput): Promise<Order> {
   // 6. Balance check
   const balance = await getBalance(wallet.address);
   if (parseFloat(balance) < parseFloat(total)) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.INSUFFICIENT_BALANCE,
       `Insufficient balance: have ${balance} USDC, need ${total} USDC`,
     );
   }
 
   // 7. Build order
-  const config = loadOrCreateConfig();
+  const config = loadConfig();
   const now = new Date();
   const expiresAt = new Date(
     now.getTime() + config.default_order_expiry_seconds * 1000,
@@ -122,10 +143,11 @@ export async function buy(input: BuyInput): Promise<Order> {
       amount_usdc: total,
       price,
       fee,
-      fee_rate: decision.route === "x402" ? "0.5%" : "5%",
+      fee_rate: "2%",
       route: decision.route,
     },
     shipping: resolvedShipping,
+    selections: input.selections,
     created_at: now.toISOString(),
     expires_at: expiresAt.toISOString(),
   };

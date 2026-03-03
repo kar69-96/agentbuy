@@ -1,5 +1,5 @@
 {
-  "name": "@proxo/orchestrator",
+  "name": "@bloon/orchestrator",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -8,9 +8,9 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@proxo/core": "workspace:*",
-    "@proxo/wallet": "workspace:*",
-    "@proxo/x402": "workspace:*",
-    "@proxo/checkout": "workspace:*"
+    "@bloon/core": "workspace:*",
+    "@bloon/wallet": "workspace:*",
+    "@bloon/x402": "workspace:*",
+    "@bloon/checkout": "workspace:*"
   }
 }

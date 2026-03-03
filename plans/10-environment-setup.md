@@ -1,4 +1,4 @@
-# Environment Setup — Proxo v1
+# Environment Setup — Bloon v1
 
 ## Prerequisites
 
@@ -22,20 +22,16 @@ BILLING_STATE=TX
 BILLING_ZIP=78701
 BILLING_COUNTRY=US
 
-# ---- Default Shipping (optional, can pass per-purchase) ----
-SHIPPING_NAME=John Doe
-SHIPPING_STREET=123 Main St
-SHIPPING_CITY=Austin
-SHIPPING_STATE=TX
-SHIPPING_ZIP=78701
-SHIPPING_COUNTRY=US
-SHIPPING_EMAIL=john@example.com
-SHIPPING_PHONE=512-555-0100
+# ---- Shipping ----
+# No default shipping. Shipping must be provided per-purchase in the buy request.
+# Browser route purchases for physical items will fail with SHIPPING_REQUIRED if omitted.
 
 # ---- API Keys ----
 ANTHROPIC_API_KEY=sk-ant-...
 BROWSERBASE_API_KEY=bb_live_...
 BROWSERBASE_PROJECT_ID=proj_...
+FIRECRAWL_API_KEY=fc-...           # Optional. Enables Firecrawl as primary discovery tier.
+GOOGLE_API_KEY=...                 # For Stagehand LLM (Gemini 2.5 Flash)
 
 # ---- Blockchain ----
 BASE_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
@@ -44,8 +40,8 @@ NETWORK=base-sepolia
 # ---- Server ----
 PORT=3000
 
-# ---- Proxo Master Wallet (auto-generated on first run if not set) ----
-PROXO_MASTER_PRIVATE_KEY=0x...
+# ---- Bloon Master Wallet (auto-generated on first run if not set) ----
+BLOON_MASTER_PRIVATE_KEY=0x...
 ```
 
 ## USDC Contracts
@@ -59,7 +55,7 @@ PROXO_MASTER_PRIVATE_KEY=0x...
 
 1. Get Base Sepolia ETH: https://www.alchemy.com/faucets/base-sepolia
 2. Get test USDC: mint from test contract or faucet
-3. Fund both: your personal wallet (for QR scanning) AND the Proxo master wallet
+3. Fund both: your personal wallet (for QR scanning) AND the Bloon master wallet
 
 ## Running the Server
 
@@ -75,13 +71,13 @@ node packages/api/dist/index.js
 # → Server running on http://localhost:3000
 
 # Start (development, with hot reload)
-pnpm --filter @proxo/api dev
+pnpm --filter @bloon/api dev
 ```
 
 ## Data Directory
 
 ```
-~/.proxo/
+~/.bloon/
 ├── config.json       # Master wallet, network, settings
 ├── wallets.json      # Agent wallets (including private keys)
 ├── orders.json       # All orders and receipts

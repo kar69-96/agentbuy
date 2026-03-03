@@ -1,5 +1,5 @@
 {
-  "name": "@proxo/api",
+  "name": "@bloon/api",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -8,6 +8,11 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@proxo/core": "workspace:*"
+    "@hono/node-server": "^1.8.0",
+    "@bloon/core": "workspace:*",
+    "@bloon/orchestrator": "workspace:*",
+    "@bloon/wallet": "workspace:*",
+    "hono": "^4.0.0",
+    "jose": "^6.1.3"
   }
 }

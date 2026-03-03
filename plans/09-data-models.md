@@ -6,7 +6,7 @@ All types live in `packages/core/src/types.ts`.
 
 ```typescript
 interface Wallet {
-  wallet_id: string;              // "proxo_w_7k2m9x"
+  wallet_id: string;              // "bloon_w_7k2m9x"
   address: string;                // "0x..." Base address
   private_key: string;            // "0x..." viem private key (never exposed)
   funding_token: string;          // random token for /fund/:token page
@@ -45,7 +45,7 @@ interface Order {
     amount_usdc: string;
     price: string;
     fee: string;
-    fee_rate: string;             // "0.5%" or "5%"
+    fee_rate: string;             // "2%"
     route: PaymentRoute;
   };
 
@@ -83,6 +83,41 @@ interface Receipt {
 
   // x402
   response?: Record<string, unknown>;
+}
+```
+
+## Query Response
+
+Returned by `POST /api/query` — product discovery before purchasing.
+
+```typescript
+interface QueryResponse {
+  product: RichProductInfo;
+  options: ProductOption[];
+  required_fields: RequiredField[];
+  route: "x402" | "browserbase";
+  discovery_method: "x402" | "firecrawl" | "scrape" | "browserbase";
+}
+
+interface RichProductInfo {
+  name: string;
+  url: string;
+  price: string;                // e.g., "29.99"
+  image_url?: string;
+  original_price?: string;      // before discount
+  currency?: string;            // "USD", "EUR"
+  brand?: string;
+}
+
+interface ProductOption {
+  name: string;                 // "Color", "Size", etc.
+  values: string[];             // ["Red", "Blue", "Green"]
+  prices?: Record<string, string>;  // { "Red": "29.99", "Blue": "34.99" }
+}
+
+interface RequiredField {
+  field: string;                // "shipping.name", "selections"
+  label: string;                // "Full name", "Product options (Color, Size)"
 }
 ```
 
@@ -193,18 +228,18 @@ interface X402Requirements {
 ## Store Schemas
 
 ```typescript
-// ~/.proxo/wallets.json
+// ~/.bloon/wallets.json
 interface WalletsStore {
   wallets: Wallet[];
 }
 
-// ~/.proxo/orders.json
+// ~/.bloon/orders.json
 interface OrdersStore {
   orders: Order[];
 }
 
-// ~/.proxo/config.json
-interface ProxoConfig {
+// ~/.bloon/config.json
+interface BloonConfig {
   master_wallet: {
     address: string;
     private_key: string;

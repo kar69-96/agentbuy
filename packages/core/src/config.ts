@@ -1,10 +1,11 @@
 import dotenv from "dotenv";
+import { privateKeyToAccount } from "viem/accounts";
 import type {
   Network,
   CardInfo,
   BillingInfo,
   ShippingInfo,
-  ProxoConfig,
+  BloonConfig,
 } from "./types.js";
 import { getConfig, saveConfig } from "./store.js";
 
@@ -70,16 +71,39 @@ export function getDefaultShipping(): ShippingInfo | undefined {
   };
 }
 
+// ---- CDP (Coinbase Onramp) accessors ----
+
+export function getCdpProjectId(): string {
+  return process.env.CDP_PROJECT_ID || "";
+}
+
+export function getCdpApiKeyId(): string {
+  return process.env.CDP_API_KEY_ID || "";
+}
+
+export function getCdpApiKeySecret(): string {
+  return process.env.CDP_API_KEY_SECRET || "";
+}
+
 // ---- Config management ----
 
-export function loadOrCreateConfig(): ProxoConfig {
+export function loadConfig(): BloonConfig {
   const existing = getConfig();
   if (existing) return existing;
 
-  const config: ProxoConfig = {
+  const masterKey = process.env.BLOON_MASTER_PRIVATE_KEY;
+  if (!masterKey || masterKey === "0x...") {
+    throw new Error(
+      "BLOON_MASTER_PRIVATE_KEY is not set. " +
+        "Generate a wallet, add the private key to .env, and fund it with ETH on Base Sepolia. " +
+        "See plans/06-human-dependencies.md for details.",
+    );
+  }
+
+  const config: BloonConfig = {
     master_wallet: {
-      address: "",
-      private_key: process.env.PROXO_MASTER_PRIVATE_KEY || "",
+      address: privateKeyToAccount(masterKey as `0x${string}`).address,
+      private_key: masterKey,
     },
     network: getNetwork(),
     usdc_contract: getUsdcContract(),

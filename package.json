@@ -1,16 +1,29 @@
 {
-  "name": "proxo",
+  "name": "bloon",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "pnpm -r build",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:checkout": "tsx tests/browserbase-refinement/test-checkout.ts",
+    "test:checkout:loop": "tsx tests/browserbase-refinement/test-checkout-loop.ts",
+    "firecrawl:start": "bash packages/crawling/scripts/start.sh",
+    "firecrawl:stop": "bash packages/crawling/scripts/stop.sh",
+    "firecrawl:health": "bash packages/crawling/scripts/health.sh"
   },
   "devDependencies": {
+    "@bloon/api": "workspace:*",
+    "@bloon/checkout": "workspace:*",
+    "@bloon/core": "workspace:*",
+    "@bloon/orchestrator": "workspace:*",
+    "@bloon/wallet": "workspace:*",
     "@types/node": "^25.3.0",
+    "dotenv": "^16.4.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.7.0",
+    "viem": "^2.46.2",
     "vitest": "^3.0.0"
   }
 }

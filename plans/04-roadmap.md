@@ -1,4 +1,4 @@
-# Roadmap — Proxo
+# Roadmap — Bloon
 
 ## v1.0 — Core API (Current Build)
 
@@ -6,12 +6,13 @@ REST API on localhost. Any URL → USDC purchase → receipt.
 
 - Hono API server with 4 endpoints + HTML funding page
 - No auth — wallet_id is the credential
-- Two payment routes: x402 (0.5% fee) and browser checkout (5% fee)
+- Two payment routes: x402 and browser checkout (2% flat fee)
 - viem wallets on Base Sepolia
-- Private funding page per wallet with QR code + live balance
+- Private funding page per wallet with Coinbase Onramp + QR code + live balance
+- Coinbase Onramp Guest Checkout — debit card / Apple Pay, 0% USDC fees on Base, no KYC managed by Bloon
 - Placeholder credential system (LLM never sees card numbers)
 - Fresh Browserbase sessions with domain-level page caching
-- JSON file storage (~/.proxo/)
+- JSON file storage (~/.bloon/)
 - $25 per-transaction cap
 - Closed source
 ---
@@ -19,7 +20,7 @@ REST API on localhost. Any URL → USDC purchase → receipt.
 ## v1.5 — Intelligence & Security
 
 - **API key auth** — optional Bearer token for wallets (backwards-compatible)
-- **Wallet key encryption** — encrypt private keys at rest in ~/.proxo/
+- **Wallet key encryption** — encrypt private keys at rest in ~/.bloon/
 - **Rate limiting** — per wallet_id, configurable
 - **Webhook notifications** — POST to a callback URL on order status changes
 - **Multi-item orders** — buy multiple products in one flow
@@ -31,10 +32,10 @@ REST API on localhost. Any URL → USDC purchase → receipt.
 ## v2.0 — Platform
 
 - **Exa.ai product search** — agents can search by description, not just URL
-- **MCP wrapper** — expose the REST API as an MCP server so agents in Claude Desktop / Cursor can use Proxo natively
+- **MCP wrapper** — expose the REST API as an MCP server so agents in Claude Desktop / Cursor can use Bloon natively
 - **Multi-network** — support Ethereum mainnet, Arbitrum, Optimism, Polygon
 - **Multi-currency** — accept ETH, DAI, USDT in addition to USDC
-- **Dashboard UI** — web interface for wallet management, order history, analytics
+- **Spending dashboard & frontend** — React UI with wallet overview, transaction history, spending analytics (by merchant, fee type, time), budget controls, live checkout activity feed, and receipt viewer. Read-only in v2, write ops in v2.5
 - **PostgreSQL** — replace JSON files with a real database
 - **Deploy to cloud** — hosted version with HTTPS, custom domains
 - **Marketplace listing** — publish to x402 Bazaar or equivalent

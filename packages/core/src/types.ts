@@ -48,6 +48,7 @@ export interface Order {
   product: ProductInfo;
   payment: PaymentInfo;
   shipping?: ShippingInfo;
+  selections?: Record<string, string>;
   tx_hash?: string;
   receipt?: Receipt;
   error?: OrderError;
@@ -80,12 +81,44 @@ export interface Receipt {
 export interface ShippingInfo {
   name: string;
   street: string;
+  apartment?: string;
   city: string;
   state: string;
   zip: string;
   country: string;
   email: string;
   phone: string;
+}
+
+// ---- Product Discovery ----
+
+export interface ProductOption {
+  name: string; // e.g. "Color", "Size"
+  values: string[]; // e.g. ["Red", "Blue", "Green"]
+  prices?: Record<string, string>; // value → price, e.g. { "Size 10": "100.00" }
+}
+
+export interface RichProductInfo {
+  name: string;
+  url: string;
+  price: string;
+  original_price?: string;
+  currency?: string;
+  brand?: string;
+  image_url?: string;
+}
+
+export interface RequiredField {
+  field: string; // e.g. "shipping.email", "selections"
+  label: string; // e.g. "Email address"
+}
+
+export interface QueryResponse {
+  product: RichProductInfo;
+  options: ProductOption[];
+  required_fields: RequiredField[];
+  route: PaymentRoute;
+  discovery_method: string;
 }
 
 // ---- Card & Billing ----
@@ -123,6 +156,7 @@ export interface CredentialsMap {
   x_shipping_state: string;
   x_shipping_zip: string;
   x_shipping_country: string;
+  x_shipping_apartment: string;
   x_shipping_email: string;
   x_shipping_phone: string;
 }
@@ -173,7 +207,7 @@ export interface OrdersStore {
   orders: Order[];
 }
 
-export interface ProxoConfig {
+export interface BloonConfig {
   master_wallet: {
     address: string;
     private_key: string;
@@ -183,6 +217,33 @@ export interface ProxoConfig {
   max_transaction_amount: number;
   default_order_expiry_seconds: number;
   port: number;
+}
+
+// ---- Cost Tracking ----
+
+export interface CostEntry {
+  label: string;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  costUsd: number;
+  durationMs: number;
+}
+
+export interface SessionCostEntry {
+  sessionId: string;
+  durationMs: number;
+  costUsd: number;
+}
+
+export interface CostBreakdown {
+  llmCalls: CostEntry[];
+  sessions: SessionCostEntry[];
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  llmCostUsd: number;
+  sessionCostUsd: number;
+  totalCostUsd: number;
 }
 
 // ---- Error Codes ----
@@ -202,16 +263,19 @@ export const ErrorCodes = {
   MISSING_FIELD: "MISSING_FIELD",
   INVALID_URL: "INVALID_URL",
   ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
+  GAS_TRANSFER_FAILED: "GAS_TRANSFER_FAILED",
+  INVALID_SELECTION: "INVALID_SELECTION",
+  QUERY_FAILED: "QUERY_FAILED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
 
-export class ProxoError extends Error {
+export class BloonError extends Error {
   code: ErrorCode;
 
   constructor(code: ErrorCode, message: string) {
     super(message);
-    this.name = "ProxoError";
+    this.name = "BloonError";
     this.code = code;
   }
 }

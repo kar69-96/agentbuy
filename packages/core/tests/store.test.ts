@@ -35,7 +35,7 @@ function makeWallet(overrides: Partial<Wallet> = {}): Wallet {
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
     order_id: generateId("ord"),
-    wallet_id: "proxo_w_test01",
+    wallet_id: "bloon_w_test01",
     status: "awaiting_confirmation",
     product: {
       name: "Test Product",
@@ -44,10 +44,10 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
       source: "example.com",
     },
     payment: {
-      amount_usdc: "18.89",
+      amount_usdc: "18.35",
       price: "17.99",
-      fee: "0.90",
-      fee_rate: "5%",
+      fee: "0.36",
+      fee_rate: "2%",
       route: "browserbase",
     },
     created_at: new Date().toISOString(),
@@ -57,19 +57,19 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-test-"));
-  process.env.PROXO_DATA_DIR = tmpDir;
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-test-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
 });
 
 afterEach(() => {
-  delete process.env.PROXO_DATA_DIR;
+  delete process.env.BLOON_DATA_DIR;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe("generateId", () => {
   it("generates IDs with correct prefix format", () => {
     const id = generateId("w");
-    expect(id).toMatch(/^proxo_w_[a-z0-9]{6}$/);
+    expect(id).toMatch(/^bloon_w_[a-z0-9]{6}$/);
   });
 
   it("generates unique IDs", () => {
@@ -88,7 +88,7 @@ describe("wallet CRUD", () => {
   });
 
   it("returns undefined for non-existent wallet", () => {
-    expect(getWallet("proxo_w_nonexistent")).toBeUndefined();
+    expect(getWallet("bloon_w_nonexistent")).toBeUndefined();
   });
 
   it("lists all wallets", async () => {
@@ -142,14 +142,14 @@ describe("order CRUD", () => {
   });
 
   it("lists orders by wallet", async () => {
-    const o1 = makeOrder({ wallet_id: "proxo_w_aaaaaa" });
-    const o2 = makeOrder({ wallet_id: "proxo_w_aaaaaa" });
-    const o3 = makeOrder({ wallet_id: "proxo_w_bbbbbb" });
+    const o1 = makeOrder({ wallet_id: "bloon_w_aaaaaa" });
+    const o2 = makeOrder({ wallet_id: "bloon_w_aaaaaa" });
+    const o3 = makeOrder({ wallet_id: "bloon_w_bbbbbb" });
     await createOrder(o1);
     await createOrder(o2);
     await createOrder(o3);
 
-    const walletOrders = getOrdersByWallet("proxo_w_aaaaaa");
+    const walletOrders = getOrdersByWallet("bloon_w_aaaaaa");
     expect(walletOrders).toHaveLength(2);
   });
 });

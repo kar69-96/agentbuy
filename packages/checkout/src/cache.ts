@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { DomainCache } from "@proxo/core";
+import type { DomainCache } from "@bloon/core";
 import type { Page } from "@browserbasehq/stagehand";
 
 // ---- CDP cookie response type ----
@@ -51,7 +51,7 @@ export function extractDomain(url: string): string {
 
 function getCacheDir(): string {
   const dataDir =
-    process.env.PROXO_DATA_DIR || path.join(os.homedir(), ".proxo");
+    process.env.BLOON_DATA_DIR || path.join(os.homedir(), ".bloon");
   return path.join(dataDir, "cache");
 }
 
@@ -139,7 +139,15 @@ export async function injectDomainCache(
     });
   }
 
-  // Set localStorage via evaluate
+  // Note: localStorage injection is deferred — it must happen AFTER
+  // navigating to the target domain (localStorage is domain-scoped).
+  // Call injectLocalStorage() after page.goto().
+}
+
+export async function injectLocalStorage(
+  page: Page,
+  cache: DomainCache,
+): Promise<void> {
   if (cache.localStorage && Object.keys(cache.localStorage).length > 0) {
     const items = cache.localStorage;
     await page.evaluate((ls: Record<string, string>) => {

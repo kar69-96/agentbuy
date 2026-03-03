@@ -1,11 +1,11 @@
 ---
-name: proxo
+name: bloon
 version: 1.0.0
 description: Purchase anything on the internet using USDC. Any URL. No API keys. No registration.
 metadata: {"category":"commerce","interface":"rest","auth":"none"}
 ---
 
-# PROXO API QUICK REFERENCE v1.0.0
+# BLOON API QUICK REFERENCE v1.0.0
 
 **Base:** `http://localhost:3000`
 **Auth:** None. wallet_id is the credential.
@@ -15,20 +15,22 @@ metadata: {"category":"commerce","interface":"rest","auth":"none"}
 
 - `POST /api/wallets` — create wallet, get wallet_id + funding_url
 - `GET /api/wallets/:wallet_id` — balance + transaction history
+- `POST /api/query` — discover product options and required fields (no wallet needed)
 - `POST /api/buy` — get purchase quote for any URL
 - `POST /api/confirm` — execute purchase, get receipt
 
 ## Rules:
 
-- Always call buy before confirm (buy = quote, confirm = execute)
+- Recommended flow: query → buy → confirm (query discovers requirements, buy quotes, confirm executes)
 - wallet_id is your spending credential — keep it secret
 - Physical products need a shipping address — pass it in buy or server will ask
+- Use query to discover product options (size, color) and required fields before buying
 - $25 max per transaction, USDC on Base only
-- x402 URLs: 0.5% fee. Everything else: 5% fee (browser checkout)
+- 2% flat fee on all purchases (x402 and browser checkout)
 
 ---
 
-# Proxo API — Agent Skills Guide
+# Bloon API — Agent Skills Guide
 
 No API keys. No registration. No auth headers. Just HTTP requests.
 
@@ -49,7 +51,7 @@ Give the `funding_url` to the human. They open it in a browser, see a QR code, a
 
 ### 3. Check balance
 ```bash
-curl http://localhost:3000/api/wallets/proxo_w_7k2m9x
+curl http://localhost:3000/api/wallets/bloon_w_7k2m9x
 ```
 
 ### 4. Buy something
@@ -58,7 +60,7 @@ curl -X POST http://localhost:3000/api/buy \
   -H "Content-Type: application/json" \
   -d '{
     "url":"https://amazon.com/dp/B08EXAMPLE",
-    "wallet_id":"proxo_w_7k2m9x",
+    "wallet_id":"bloon_w_7k2m9x",
     "shipping":{
       "name":"Jane Doe",
       "street":"123 Main St",
@@ -74,7 +76,7 @@ Returns a quote with price, fee, total. Does NOT spend anything yet.
 ```bash
 curl -X POST http://localhost:3000/api/confirm \
   -H "Content-Type: application/json" \
-  -d '{"order_id":"proxo_ord_9x2k4m"}'
+  -d '{"order_id":"bloon_ord_9x2k4m"}'
 ```
 
 Transfers USDC, executes checkout, returns receipt.
@@ -93,6 +95,20 @@ Returns: `wallet_id`, `address`, `funding_url`, `balance_usdc`
 
 Returns: `wallet_id`, `address`, `balance_usdc`, `transactions[]`
 
+### POST /api/query
+
+| Body Field | Type | Required | Description |
+|------------|------|----------|-------------|
+| `url` | string | yes | Product URL or x402 endpoint |
+
+Returns: `product` (name, url, price, image_url, brand, currency), `options[]` (name, values, prices), `required_fields[]` (field, label), `route`, `discovery_method`
+
+Call this first to discover what a product needs before buying. No wallet required.
+- `options` lists product variants (Color, Size) with available values and per-variant prices if they differ
+- `required_fields` tells you what shipping fields and selections are needed
+- If `selections` appears in required_fields, include matching key-value pairs in your buy request
+- `discovery_method` is one of: `"x402"`, `"firecrawl"`, `"scrape"`, `"browserbase"`
+
 ### POST /api/buy
 
 | Body Field | Type | Required | Description |
@@ -100,6 +116,7 @@ Returns: `wallet_id`, `address`, `balance_usdc`, `transactions[]`
 | `url` | string | yes | Product URL or x402 endpoint |
 | `wallet_id` | string | yes | Wallet to charge |
 | `shipping` | object | no | Shipping address (required for physical products) |
+| `selections` | object | no | Product options e.g. `{"Color":"Red","Size":"10"}` |
 
 Returns: `order_id`, `product`, `payment` (amount, fee, route), `status`
 
@@ -130,13 +147,15 @@ HTML page (not JSON). Shows QR code + live USDC balance. For humans, not agents.
 ```
 1. POST /api/wallets → save wallet_id, give funding_url to human
 2. Wait for human to fund → poll GET /api/wallets/:id until balance > 0
-3. POST /api/buy { url, wallet_id, shipping? }
-   → If SHIPPING_REQUIRED: ask human for address, retry
+3. POST /api/query { url }
+   → Discover product options, required fields, and route
+4. POST /api/buy { url, wallet_id, shipping, selections? }
+   → Include all required_fields from query response
    → If INSUFFICIENT_BALANCE: ask human to fund more
    → If PRICE_EXCEEDS_LIMIT: product > $25, tell human
-4. Present quote to human, get approval
-5. POST /api/confirm { order_id }
-6. Return receipt to human
+5. Present quote to human, get approval
+6. POST /api/confirm { order_id }
+7. Return receipt to human
 ```
 
 ## Error Codes
@@ -151,14 +170,16 @@ HTML page (not JSON). Shows QR code + live USDC balance. For humans, not agents.
 | `ORDER_EXPIRED` | 410 | Quote > 5 min, call buy again |
 | `URL_UNREACHABLE` | 400 | Check URL |
 | `TRANSFER_FAILED` | 500 | Retry safe, no funds moved |
-| `X402_PAYMENT_FAILED` | 502 | Check Proxo wallet funds |
+| `X402_PAYMENT_FAILED` | 502 | Check Bloon wallet funds |
 | `CHECKOUT_FAILED` | 502 | Site issue, see error message |
+| `INVALID_SELECTION` | 400 | Bad selections format, check values |
+| `QUERY_FAILED` | 502 | Product discovery failed, try different URL |
 
 ## What the Agent Never Sees
 
 - Credit card numbers (placeholder system)
 - Wallet private keys (server-side only)
-- Proxo master wallet key (server-side only)
+- Bloon master wallet key (server-side only)
 
 ## What the Agent Always Sees
 

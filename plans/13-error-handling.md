@@ -1,4 +1,4 @@
-# Error Handling — Proxo v1
+# Error Handling — Bloon v1
 
 ## Error Response Format
 
@@ -8,7 +8,7 @@ All API errors return JSON with a consistent structure:
 {
   "error": {
     "code": "INSUFFICIENT_BALANCE",
-    "message": "Wallet has 2.00 USDC, needs 18.89 USDC"
+    "message": "Wallet has 2.00 USDC, needs 18.35 USDC"
   }
 }
 ```
@@ -22,7 +22,7 @@ HTTP status codes follow REST conventions.
 | Code | HTTP | When | Agent Should |
 |------|------|------|-------------|
 | `INSUFFICIENT_BALANCE` | 400 | Wallet balance < total (price + fee) | Tell human to fund wallet |
-| `SHIPPING_REQUIRED` | 400 | Physical product, no shipping provided, no .env defaults | Ask human for address, retry buy |
+| `SHIPPING_REQUIRED` | 400 | Physical product, no shipping provided | Ask human for address, retry buy |
 | `PRICE_EXCEEDS_LIMIT` | 400 | Product price > $25 | Tell human, suggest cheaper alternative |
 | `WALLET_NOT_FOUND` | 404 | Invalid wallet_id | Check wallet_id, create new wallet |
 | `ORDER_NOT_FOUND` | 404 | Invalid order_id | Check order_id, call buy again |
@@ -30,7 +30,7 @@ HTTP status codes follow REST conventions.
 | `URL_UNREACHABLE` | 400 | Cannot fetch the product URL | Check URL, retry |
 | `PRICE_EXTRACTION_FAILED` | 502 | Browser couldn't extract price from page | Try different URL for same product |
 | `TRANSFER_FAILED` | 500 | USDC transfer failed on-chain | Safe to retry, no funds moved |
-| `X402_PAYMENT_FAILED` | 502 | x402 service rejected payment | Check Proxo master wallet funds |
+| `X402_PAYMENT_FAILED` | 502 | x402 service rejected payment | Check Bloon master wallet funds |
 | `CHECKOUT_FAILED` | 502 | Browser checkout failed after payment | Contact human — USDC was sent, tx_hash preserved |
 | `MISSING_FIELD` | 400 | Required field not in request body | Check API docs, add missing field |
 | `INVALID_URL` | 400 | URL is not a valid HTTP(S) URL | Fix URL format |
@@ -71,7 +71,7 @@ When `CHECKOUT_FAILED` occurs:
 
 ```json
 {
-  "order_id": "proxo_ord_9x2k4m",
+  "order_id": "bloon_ord_9x2k4m",
   "status": "failed",
   "tx_hash": "0xabc...",
   "error": {

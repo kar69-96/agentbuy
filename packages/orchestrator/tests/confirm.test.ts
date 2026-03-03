@@ -2,26 +2,26 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { Order } from "@proxo/core";
+import type { Order } from "@bloon/core";
 
 // ---- Mock external packages ----
 
-vi.mock("@proxo/wallet", () => ({
+vi.mock("@bloon/wallet", () => ({
   getBalance: vi.fn(),
   transferUSDC: vi.fn(),
 }));
 
-vi.mock("@proxo/x402", () => ({
+vi.mock("@bloon/x402", () => ({
   payX402: vi.fn(),
 }));
 
-vi.mock("@proxo/checkout", () => ({
+vi.mock("@bloon/checkout", () => ({
   runCheckout: vi.fn(),
 }));
 
-import { getBalance, transferUSDC } from "@proxo/wallet";
-import { payX402 } from "@proxo/x402";
-import { runCheckout } from "@proxo/checkout";
+import { getBalance, transferUSDC } from "@bloon/wallet";
+import { payX402 } from "@bloon/x402";
+import { runCheckout } from "@bloon/checkout";
 import { confirm } from "../src/confirm.js";
 
 const mockedGetBalance = vi.mocked(getBalance);
@@ -33,7 +33,7 @@ const mockedRunCheckout = vi.mocked(runCheckout);
 
 let tmpDir: string;
 
-const WALLET_ID = "proxo_w_test01";
+const WALLET_ID = "bloon_w_test01";
 const WALLET_ADDRESS = "0x" + "a".repeat(40);
 const WALLET_KEY = "0x" + "b".repeat(64);
 const MASTER_ADDRESS = "0x" + "c".repeat(40);
@@ -74,7 +74,7 @@ function setupConfig(): void {
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
-    order_id: "proxo_ord_test01",
+    order_id: "bloon_ord_test01",
     wallet_id: WALLET_ID,
     status: "awaiting_confirmation",
     product: {
@@ -84,10 +84,10 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
       source: "scrape",
     },
     payment: {
-      amount_usdc: "10.50",
+      amount_usdc: "10.20",
       price: "10.00",
-      fee: "0.50",
-      fee_rate: "5%",
+      fee: "0.20",
+      fee_rate: "2%",
       route: "browserbase",
     },
     shipping: {
@@ -111,8 +111,8 @@ function seedOrder(order: Order): void {
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-confirm-test-"));
-  process.env.PROXO_DATA_DIR = tmpDir;
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-confirm-test-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
   setupWallet();
   setupConfig();
   vi.clearAllMocks();
@@ -122,7 +122,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  delete process.env.PROXO_DATA_DIR;
+  delete process.env.BLOON_DATA_DIR;
 });
 
 // ---- Tests ----
@@ -131,10 +131,10 @@ describe("confirm", () => {
   it("confirm x402 order transfers fee and pays service, returns receipt", async () => {
     const order = makeOrder({
       payment: {
-        amount_usdc: "0.1005",
+        amount_usdc: "0.102",
         price: "0.10",
-        fee: "0.0005",
-        fee_rate: "0.5%",
+        fee: "0.002",
+        fee_rate: "2%",
         route: "x402",
       },
       product: {
@@ -151,7 +151,7 @@ describe("confirm", () => {
       tx_hash: "0xfee_hash_123",
       from: WALLET_ADDRESS,
       to: MASTER_ADDRESS,
-      amount: "0.0005",
+      amount: "0.002",
     });
 
     mockedPayX402.mockResolvedValue({
@@ -160,19 +160,19 @@ describe("confirm", () => {
       headers: { "content-type": "application/json" },
     });
 
-    const result = await confirm({ order_id: "proxo_ord_test01" });
+    const result = await confirm({ order_id: "bloon_ord_test01" });
 
     expect(result.receipt.route).toBe("x402");
     expect(result.receipt.tx_hash).toBe("0xfee_hash_123");
     expect(result.receipt.response).toEqual({ echo: "hello" });
     expect(result.receipt.price).toBe("0.10");
-    expect(result.receipt.fee).toBe("0.0005");
+    expect(result.receipt.fee).toBe("0.002");
 
     // Verify fee-only transfer
     expect(mockedTransferUSDC).toHaveBeenCalledWith(
       WALLET_KEY,
       MASTER_ADDRESS,
-      "0.0005",
+      "0.002",
     );
 
     // Verify x402 payment
@@ -190,7 +190,7 @@ describe("confirm", () => {
       tx_hash: "0xfull_hash_456",
       from: WALLET_ADDRESS,
       to: MASTER_ADDRESS,
-      amount: "10.50",
+      amount: "10.20",
     });
 
     mockedRunCheckout.mockResolvedValue({
@@ -200,7 +200,7 @@ describe("confirm", () => {
       replayUrl: "https://browserbase.com/replay/abc",
     });
 
-    const result = await confirm({ order_id: "proxo_ord_test01" });
+    const result = await confirm({ order_id: "bloon_ord_test01" });
 
     expect(result.receipt.route).toBe("browserbase");
     expect(result.receipt.tx_hash).toBe("0xfull_hash_456");
@@ -211,7 +211,7 @@ describe("confirm", () => {
     expect(mockedTransferUSDC).toHaveBeenCalledWith(
       WALLET_KEY,
       MASTER_ADDRESS,
-      "10.50",
+      "10.20",
     );
   });
 
@@ -222,7 +222,7 @@ describe("confirm", () => {
     seedOrder(order);
 
     await expect(
-      confirm({ order_id: "proxo_ord_test01" }),
+      confirm({ order_id: "bloon_ord_test01" }),
     ).rejects.toThrow(expect.objectContaining({ code: "ORDER_EXPIRED" }));
 
     // Verify status updated to expired in store
@@ -238,8 +238,8 @@ describe("confirm", () => {
       merchant: "example.com",
       route: "browserbase" as const,
       price: "10.00",
-      fee: "0.50",
-      total_paid: "10.50",
+      fee: "0.20",
+      total_paid: "10.20",
       tx_hash: "0xexisting_hash",
       timestamp: "2026-01-01T00:00:00.000Z",
       order_number: "ORD-99999",
@@ -251,7 +251,7 @@ describe("confirm", () => {
     });
     seedOrder(order);
 
-    const result = await confirm({ order_id: "proxo_ord_test01" });
+    const result = await confirm({ order_id: "bloon_ord_test01" });
 
     expect(result.receipt).toEqual(existingReceipt);
     // No transfers should have been called
@@ -267,13 +267,13 @@ describe("confirm", () => {
       tx_hash: "0xsent_but_failed",
       from: WALLET_ADDRESS,
       to: MASTER_ADDRESS,
-      amount: "10.50",
+      amount: "10.20",
     });
 
     mockedRunCheckout.mockRejectedValue(new Error("Browser session crashed"));
 
     await expect(
-      confirm({ order_id: "proxo_ord_test01" }),
+      confirm({ order_id: "bloon_ord_test01" }),
     ).rejects.toThrow(expect.objectContaining({ code: "CHECKOUT_FAILED" }));
 
     // Verify order in store has failed status with tx_hash preserved
@@ -294,7 +294,7 @@ describe("confirm", () => {
     mockedTransferUSDC.mockRejectedValue(new Error("Nonce too low"));
 
     await expect(
-      confirm({ order_id: "proxo_ord_test01" }),
+      confirm({ order_id: "bloon_ord_test01" }),
     ).rejects.toThrow(expect.objectContaining({ code: "CHECKOUT_FAILED" }));
 
     // Verify order failed but no tx_hash (no USDC was sent)
@@ -310,10 +310,10 @@ describe("confirm", () => {
   it("confirm x402 where payX402 fails after fee transfer preserves tx_hash", async () => {
     const order = makeOrder({
       payment: {
-        amount_usdc: "1.005",
+        amount_usdc: "1.02",
         price: "1.00",
-        fee: "0.005",
-        fee_rate: "0.5%",
+        fee: "0.02",
+        fee_rate: "2%",
         route: "x402",
       },
       product: {
@@ -330,13 +330,13 @@ describe("confirm", () => {
       tx_hash: "0xfee_sent_ok",
       from: WALLET_ADDRESS,
       to: MASTER_ADDRESS,
-      amount: "0.005",
+      amount: "0.02",
     });
 
     mockedPayX402.mockRejectedValue(new Error("x402 service unavailable"));
 
     await expect(
-      confirm({ order_id: "proxo_ord_test01" }),
+      confirm({ order_id: "bloon_ord_test01" }),
     ).rejects.toThrow(expect.objectContaining({ code: "X402_PAYMENT_FAILED" }));
 
     const stored = JSON.parse(
@@ -348,6 +348,37 @@ describe("confirm", () => {
     expect(failedOrder.error.refund_status).toBe("pending_manual");
   });
 
+  it("confirm browser order passes selections to runCheckout", async () => {
+    const order = makeOrder({
+      selections: { Color: "Charcoal", Size: "10" },
+    });
+    seedOrder(order);
+
+    mockedTransferUSDC.mockResolvedValue({
+      tx_hash: "0xsel_hash",
+      from: WALLET_ADDRESS,
+      to: MASTER_ADDRESS,
+      amount: "10.20",
+    });
+
+    mockedRunCheckout.mockResolvedValue({
+      success: true,
+      orderNumber: "ORD-SEL-001",
+      sessionId: "sess_sel",
+      replayUrl: "https://browserbase.com/replay/sel",
+    });
+
+    const result = await confirm({ order_id: "bloon_ord_test01" });
+
+    expect(result.receipt.order_number).toBe("ORD-SEL-001");
+    // Verify selections were forwarded to runCheckout
+    expect(mockedRunCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selections: { Color: "Charcoal", Size: "10" },
+      }),
+    );
+  });
+
   it("confirm with insufficient balance at confirm time throws INSUFFICIENT_BALANCE", async () => {
     const order = makeOrder();
     seedOrder(order);
@@ -355,7 +386,7 @@ describe("confirm", () => {
     mockedGetBalance.mockResolvedValue("0.50"); // less than 10.50 needed
 
     await expect(
-      confirm({ order_id: "proxo_ord_test01" }),
+      confirm({ order_id: "bloon_ord_test01" }),
     ).rejects.toThrow(
       expect.objectContaining({ code: "INSUFFICIENT_BALANCE" }),
     );

@@ -1,4 +1,4 @@
-# MVP Scope — Proxo v1
+# MVP Scope — Bloon v1
 
 ## One-Liner
 
@@ -20,12 +20,12 @@ REST API that lets AI agents purchase anything on the internet using USDC on Bas
 
 - No API keys. No registration. No auth headers.
 - `wallet_id` is the credential — if you have it, you can spend the wallet.
-- Any agent that can make HTTP requests can use Proxo immediately.
+- Any agent that can make HTTP requests can use Bloon immediately.
 
 ### Payment Routes
 
-- **x402 route** — Auto-detect via HEAD request. If 402 → pay with `@x402/fetch` from Proxo's master wallet. **0.5% fee.**
-- **Browser route** — Everything else. Checkout via Stagehand + Browserbase with Playwright CDP credential fills. **5% fee.**
+- **x402 route** — Auto-detect via HEAD request. If 402 → pay with `@x402/fetch` from Bloon's master wallet. **2% fee.**
+- **Browser route** — Everything else. Checkout via Stagehand + Browserbase with Playwright CDP credential fills. **2% fee.**
 
 ### Wallet Management
 
@@ -33,7 +33,7 @@ REST API that lets AI agents purchase anything on the internet using USDC on Bas
 - USDC on Base (Sepolia for testnet, mainnet for prod)
 - Private funding page per wallet: unique URL with QR code + live balance polling
 - On-chain USDC balance queries via viem
-- Private keys stored server-side in `~/.proxo/wallets.json`
+- Private keys stored server-side in `~/.bloon/wallets.json`
 
 ### Funding Page (`/fund/:token`)
 

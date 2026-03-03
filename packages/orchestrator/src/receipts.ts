@@ -1,6 +1,6 @@
-import type { Order, Receipt } from "@proxo/core";
-import type { X402PaymentResult } from "@proxo/x402";
-import type { CheckoutResult } from "@proxo/checkout";
+import type { Order, Receipt } from "@bloon/core";
+import type { X402PaymentResult } from "@bloon/x402";
+import type { CheckoutResult } from "@bloon/checkout";
 
 export interface ReceiptInput {
   order: Order;
