@@ -33,8 +33,7 @@ fi
 # Export env vars for Firecrawl
 export PORT="${FIRECRAWL_PORT:-3002}"
 export USE_DB_AUTHENTICATION=false
-export OPENAI_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai"
-export OPENAI_API_KEY="$FIRECRAWL_LLM_KEY"
+export GOOGLE_GENERATIVE_AI_API_KEY="$FIRECRAWL_LLM_KEY"
 export MODEL_NAME="${FIRECRAWL_MODEL:-gemini-2.5-flash}"
 
 # Start the API server
