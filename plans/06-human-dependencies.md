@@ -1,4 +1,4 @@
-# Human Dependencies — Proxo v1
+# Human Dependencies — Bloon v1
 
 Things the human operator needs to set up or provide before/during the build.
 
@@ -10,8 +10,9 @@ Things the human operator needs to set up or provide before/during the build.
 |-----------|--------|-------|
 | Node.js 20+ | Required | Runtime |
 | pnpm 9+ | Required | `npm install -g pnpm` |
-| Anthropic API key | Required | For Claude Sonnet 4 (Stagehand LLM) |
-| Browserbase account | Required | API key + project ID for cloud browser sessions |
+| Google API key | Required | For Gemini 2.5 Flash (Stagehand LLM) |
+| Browserbase account | Required | API key + project ID for cloud browser sessions (Tier 3 discovery + checkout) |
+| Firecrawl API key | Optional | Enables Firecrawl as primary discovery tier. Without it, falls back to scrape → Browserbase. |
 | Base Sepolia RPC URL | Required | Alchemy or Infura. Free tier works. |
 | Credit card for testing | Required | Real or test card info in .env |
 | Shipping address for testing | Recommended | Provide in each buy request — no .env default |
@@ -22,7 +23,7 @@ After building, each new agent wallet will automatically receive a small amount 
 
 1. Build the project: `pnpm build`
 2. Start the server once so the master wallet is auto-generated: `node packages/api/dist/index.js` (Ctrl-C after it starts)
-3. Get the master wallet address: `cat ~/.proxo/config.json | grep address`
+3. Get the master wallet address: `cat ~/.bloon/config.json | grep address`
 4. Go to a Base Sepolia ETH faucet (Alchemy, QuickNode, etc.)
 5. Send Base Sepolia ETH to the master wallet address
 6. Verify on a block explorer (e.g., sepolia.basescan.org) that the master wallet has ETH
@@ -34,7 +35,7 @@ After building, each new agent wallet will automatically receive a small amount 
 |-----------|--------|-------|
 | Test USDC on Base Sepolia | Required | Mint from faucet or test contract |
 | Base Sepolia ETH (gas) | Required | From Alchemy faucet |
-| Fund Proxo master wallet | Required | Send test USDC + ETH to the auto-generated master wallet address (ETH for auto-gas, USDC for x402 payments) |
+| Fund Bloon master wallet | Required | Send test USDC + ETH to the auto-generated master wallet address (ETH for auto-gas, USDC for x402 payments) |
 | Mobile wallet app | Required | Coinbase Wallet or MetaMask with Base Sepolia added |
 
 ## Coinbase Onramp (Phase 7)

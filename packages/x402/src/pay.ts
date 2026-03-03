@@ -1,4 +1,4 @@
-import { ProxoError, ErrorCodes } from "@proxo/core";
+import { BloonError, ErrorCodes } from "@bloon/core";
 import { privateKeyToAccount } from "viem/accounts";
 import { x402Client, wrapFetchWithPayment } from "@x402/fetch";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
@@ -39,8 +39,8 @@ export async function payX402(
 
     return { response: body, status: response.status, headers };
   } catch (error) {
-    if (error instanceof ProxoError) throw error;
-    throw new ProxoError(
+    if (error instanceof BloonError) throw error;
+    throw new BloonError(
       ErrorCodes.X402_PAYMENT_FAILED,
       error instanceof Error ? error.message : "x402 payment failed",
     );

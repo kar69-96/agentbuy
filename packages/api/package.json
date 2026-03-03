@@ -1,5 +1,5 @@
 {
-  "name": "@proxo/api",
+  "name": "@bloon/api",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.8.0",
-    "@proxo/core": "workspace:*",
-    "@proxo/orchestrator": "workspace:*",
-    "@proxo/wallet": "workspace:*",
+    "@bloon/core": "workspace:*",
+    "@bloon/orchestrator": "workspace:*",
+    "@bloon/wallet": "workspace:*",
     "hono": "^4.0.0",
     "jose": "^6.1.3"
   }

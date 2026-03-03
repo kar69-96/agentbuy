@@ -2,9 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What is Proxo?
+## What is Bloon?
 
-Proxo is a REST API (TypeScript/Hono) that lets AI agents purchase anything on the internet using USDC stablecoin. No API keys. No registration. The agent's `wallet_id` is its credential. Proxo auto-routes payments — x402-native merchants get paid directly (0.5% fee), everything else goes through Browserbase cloud browser checkout with Stagehand (5% fee). Same interface, same receipt format either way.
+Bloon is a REST API (TypeScript/Hono) that lets AI agents purchase anything on the internet using USDC stablecoin. No API keys. No registration. The agent's `wallet_id` is its credential. Bloon auto-routes payments — x402-native merchants get paid directly, everything else goes through Browserbase cloud browser checkout with Stagehand. 2% flat fee regardless of route. Same interface, same receipt format either way.
 
 ## Project Status
 
@@ -16,7 +16,7 @@ Pre-implementation. Full specification lives in `plans/`. No source code exists 
 
 ### REST API (Hono) — NOT MCP
 
-Proxo is API-first. MCP wrapper is planned for v2. The API has 4 JSON endpoints + 1 HTML page:
+Bloon is API-first. MCP wrapper is planned for v2. The API has 4 JSON endpoints + 1 HTML page:
 
 - `POST /api/wallets` — create wallet, get `wallet_id` + `funding_url`
 - `GET /api/wallets/:wallet_id` — balance + transaction history
@@ -35,8 +35,8 @@ No auth. `wallet_id` is the spending credential. `funding_token` is a separate s
 
 ### Payment Routes
 
-- **x402**: Native crypto payment. Detected via HTTP 402 + payment headers. 0.5% fee. No shipping needed.
-- **Browser checkout**: Browserbase + Stagehand (Claude Sonnet 4). 5% fee. Fresh session per checkout. Domain-level page caching for repeat flows.
+- **x402**: Native crypto payment. Detected via HTTP 402 + payment headers. 2% fee. No shipping needed.
+- **Browser checkout**: Browserbase + Stagehand (Claude Sonnet 4). 2% fee. Fresh session per checkout. Domain-level page caching for repeat flows.
 
 ### Credential Placeholder System
 
@@ -64,7 +64,7 @@ These are independent — knowing one doesn't reveal the other.
 - **Browser LLM:** Claude Sonnet 4 (via Stagehand)
 - **QR Codes:** qrcode (npm)
 - **Chain:** USDC on Base (Sepolia for testnet, mainnet for prod)
-- **Storage:** JSON files in `~/.proxo/` (chmod 600)
+- **Storage:** JSON files in `~/.bloon/` (chmod 600)
 
 ## Package Structure
 
@@ -72,9 +72,10 @@ These are independent — knowing one doesn't reveal the other.
 
 ```
 packages/
-├── core/        # Types, fees, routing logic, store (JSON persistence)
+├── core/        # Types, fees, routing logic, store (JSON persistence), concurrency pool
 ├── wallet/      # viem wallet create, balance, QR, USDC transfer
 ├── x402/        # x402 detection + payment via @x402/fetch
+├── crawling/    # Firecrawl product discovery pipeline (self-hosted or cloud)
 ├── checkout/    # Browserbase sessions, Stagehand, credential fills, domain cache
 └── api/         # Hono server, routes, funding page HTML
 ```
@@ -95,7 +96,7 @@ packages/
 
 ## Constraints (v1)
 
-> **When:** Evaluating whether a feature or behavior is in scope for v1, or when a user asks "can Proxo do X?"
+> **When:** Evaluating whether a feature or behavior is in scope for v1, or when a user asks "can Bloon do X?"
 
 - $25 cap per transaction
 - USDC on Base only
@@ -115,7 +116,7 @@ packages/
 - Agent data (shipping info) MUST be sanitized before passing as Stagehand variables
 - Card fields are filled via Playwright CDP, never through Stagehand's LLM
 - All on-chain verification uses viem — check amount, recipient, token, and chain
-- Wallet keys stored in `~/.proxo/wallets.json` with 600 permissions
+- Wallet keys stored in `~/.bloon/wallets.json` with 600 permissions
 - `wallet_id` and `funding_token` are independent secrets — never derive one from the other
 
 ## Workflows
@@ -197,7 +198,18 @@ All specification docs are in `plans/`:
 | `13-error-handling.md` | Error codes, HTTP statuses, recovery |
 | `14-phased-build-plan.md` | 7 phases with test gates |
 | `15-coinbase-onramp.md` | Coinbase Onramp Guest Checkout integration spec |
+| `16-firecrawl-discovery.md` | Firecrawl product discovery pipeline (3-step: extract → variant extract → crawl) |
+| `17-query-endpoint.md` | Query endpoint deep dive: route detection → 3-tier discovery → response |
 | `skill.md` | Agent-facing API quick reference (lives in `/docs/skill.md`) |
+
+## Documentation Sync
+
+> **When:** Exiting plan mode after a major architectural change has been planned.
+
+Do both:
+
+1. **Update `plans/`** — review all markdown files in `plans/` and update any that are affected by the change (data models, API reference, user flows, roadmap, etc.)
+2. **Update `docs/skill.md`** — if the change is client-facing and adjusts how end-users interact with the platform (API endpoints, request/response shapes, error codes, workflows), update `docs/skill.md` to match the current implementation
 
 ## Preferences
 - Internal docs should be in /plans and user-facing docs should be in /docs

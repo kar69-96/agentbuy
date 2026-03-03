@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { privateKeyToAccount } from "viem/accounts";
-import { createApp } from "@proxo/api/src/server.js";
+import { createApp } from "@bloon/api/src/server.js";
 
 // ---- Skip unless all credentials are available ----
 
@@ -56,7 +56,7 @@ function setupTestWallet(): void {
   );
 
   const walletsPath = path.join(tmpDir, "wallets.json");
-  testWalletId = "proxo_w_browsertest";
+  testWalletId = "bloon_w_browsertest";
   fs.writeFileSync(
     walletsPath,
     JSON.stringify({
@@ -91,15 +91,15 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
   "E2E — Scenarios B, C, D: Browser checkout flows",
   () => {
     beforeEach(() => {
-      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-e2e-browser-"));
-      process.env.PROXO_DATA_DIR = tmpDir;
+      tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-e2e-browser-"));
+      process.env.BLOON_DATA_DIR = tmpDir;
       setupConfig();
       setupTestWallet();
 
       // Clear domain cache (both tmp and default) so each run starts fresh
       const tmpCacheDir = path.join(tmpDir, "cache");
       fs.rmSync(tmpCacheDir, { recursive: true, force: true });
-      const defaultCacheDir = path.join(os.homedir(), ".proxo", "cache");
+      const defaultCacheDir = path.join(os.homedir(), ".bloon", "cache");
       fs.rmSync(defaultCacheDir, { recursive: true, force: true });
 
       app = createApp();
@@ -107,7 +107,7 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
 
     afterEach(() => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
-      delete process.env.PROXO_DATA_DIR;
+      delete process.env.BLOON_DATA_DIR;
     });
 
     // Scenario C: Missing shipping
@@ -136,7 +136,7 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
 
     // Scenario C: Retry with shipping
     it(
-      "buy Shopify product with shipping → 200 quote with 5% fee",
+      "buy Shopify product with shipping → 200 quote with 2% fee",
       async () => {
         const res = await req("POST", "/api/buy", {
           url: "https://i-like-you-minneapolis.myshopify.com/products/bekah-worley-stickers",
@@ -146,7 +146,7 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
         expect(res.status).toBe(200);
         const json = await res.json();
         expect(json.payment.route).toBe("browserbase");
-        expect(json.payment.fee_rate).toBe("5%");
+        expect(json.payment.fee_rate).toBe("2%");
         expect(json.status).toBe("awaiting_confirmation");
       },
       60_000,
@@ -179,7 +179,7 @@ describe.skipIf(!hasRpc || !hasBrowserbase || !hasAnthropic || !hasTestWallet)(
     );
 
     // Scenario B: Balance reduced after purchase
-    // Skipped: when TEST_WALLET_PRIVATE_KEY == PROXO_MASTER_PRIVATE_KEY (single wallet),
+    // Skipped: when TEST_WALLET_PRIVATE_KEY == BLOON_MASTER_PRIVATE_KEY (single wallet),
     // the USDC transfer is a self-transfer so balance doesn't change.
     // This test requires separate agent and master wallets to be meaningful.
     it.skip(

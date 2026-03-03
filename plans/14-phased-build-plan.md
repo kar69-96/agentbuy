@@ -1,4 +1,4 @@
-# Phased Build Plan — Proxo v1
+# Phased Build Plan — Bloon v1
 
 Each phase has test gates. Don't proceed until all pass. All on Base Sepolia.
 
@@ -19,9 +19,9 @@ Scaffolded monorepo with packages: core, wallet, x402, checkout, api (stubs). Al
 [ ] store: create wallet record → read → matches
 [ ] store: create order → update status → read → correct
 [ ] store: persists to disk, reload returns same data
-[ ] fees: calculateFee("17.99", "browserbase") === "0.90"
-[ ] fees: calculateFee("0.10", "x402") === "0.0005"
-[ ] fees: calculateTotal("17.99", "browserbase") === "18.89"
+[ ] fees: calculateFee("17.99", "browserbase") === "0.36"
+[ ] fees: calculateFee("0.10", "x402") === "0.002"
+[ ] fees: calculateTotal("17.99", "browserbase") === "18.35"
 [ ] fees: price > 25 throws PRICE_EXCEEDS_LIMIT
 ```
 
@@ -53,7 +53,7 @@ wallet/create.ts, wallet/balance.ts, wallet/transfer.ts, wallet/qr.ts
 
 ## Phase 3: x402 Detection & Payment (45 min)
 
-Detect x402 endpoints, pay from Proxo wallet, get response.
+Detect x402 endpoints, pay from Bloon wallet, get response.
 
 ### Deliverables
 
@@ -67,7 +67,7 @@ x402/detect.ts, x402/pay.ts
 [ ] detectRoute(unreachable_url) → URL_UNREACHABLE
 [ ] detectRoute(402_bad_headers) → fallback to browserbase
 [ ] payX402(test_endpoint) returns service response
-[ ] Quote: $0.10 → total $0.1005 (0.5% fee)
+[ ] Quote: $0.10 → total $0.102 (2% fee)
 ```
 
 ---
@@ -112,7 +112,7 @@ checkout/session.ts, checkout/placeholders.ts, checkout/discover.ts, checkout/co
 
 **Domain cache:**
 ```
-[ ] First visit creates ~/.proxo/cache/{domain}.json
+[ ] First visit creates ~/.bloon/cache/{domain}.json
 [ ] Second visit injects cached cookies
 [ ] No auth tokens in cache
 ```
@@ -231,14 +231,14 @@ Run existing scenarios on testnet first to confirm nothing broke.
 [ ] POST /api/wallets → wallet created
 [ ] Human opens funding_url, sends test USDC
 [ ] GET /api/wallets/:id → balance updated
-[ ] POST /api/buy { x402 url } → quote with 0.5% fee
+[ ] POST /api/buy { x402 url } → quote with 2% fee
 [ ] POST /api/confirm → receipt with service response
 [ ] GET /api/wallets/:id → deposit + purchase in history
 ```
 
 **Scenario B: Browser Purchase (Shopify)**
 ```
-[ ] POST /api/buy { shopify url, shipping } → quote with 5% fee
+[ ] POST /api/buy { shopify url, shipping } → quote with 2% fee
 [ ] POST /api/confirm → browser checkout, receipt with order number
 [ ] GET /api/wallets/:id → balance reduced
 ```
@@ -278,14 +278,14 @@ Switch to `NETWORK=base` and run with real USDC. Use small amounts ($5-10).
 
 **Scenario G: x402 Purchase (mainnet)**
 ```
-[ ] POST /api/buy { x402 url } → quote with 0.5% fee (mainnet pricing)
+[ ] POST /api/buy { x402 url } → quote with 2% fee (mainnet pricing)
 [ ] POST /api/confirm → USDC transfer on Base mainnet → receipt
 [ ] Verify tx_hash on basescan.org
 ```
 
 **Scenario H: Browser Purchase (mainnet, small item)**
 ```
-[ ] POST /api/buy { shopify url, shipping } → quote with 5% fee
+[ ] POST /api/buy { shopify url, shipping } → quote with 2% fee
 [ ] POST /api/confirm → real browser checkout, real order placed
 [ ] Verify receipt has real order number
 [ ] Verify USDC balance decreased by correct amount on basescan.org
@@ -299,7 +299,7 @@ Switch to `NETWORK=base` and run with real USDC. Use small amounts ($5-10).
 [ ] Coinbase Onramp live flow completes (mainnet)
 [ ] NETWORK env var switches testnet/mainnet cleanly
 [ ] USDC contract selected by network
-[ ] ~/.proxo/ has 600 permissions
+[ ] ~/.bloon/ has 600 permissions
 [ ] .env.example is complete (includes CDP keys)
 [ ] Funding page works in mobile browser
 [ ] Funding page shows both Onramp + QR code paths

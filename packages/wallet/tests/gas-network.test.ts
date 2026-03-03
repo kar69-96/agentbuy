@@ -12,7 +12,7 @@ import { createWallet } from "../src/create.js";
 // Skipped when env vars are missing (CI without secrets, local dev without keys).
 
 const hasNetworkEnv =
-  !!process.env.BASE_RPC_URL && !!process.env.PROXO_MASTER_PRIVATE_KEY;
+  !!process.env.BASE_RPC_URL && !!process.env.BLOON_MASTER_PRIVATE_KEY;
 
 /** RPC balance can lag a couple seconds after receipt confirmation. */
 async function waitForBalance(
@@ -42,7 +42,7 @@ describe.skipIf(!hasNetworkEnv)("sendGas — network integration", () => {
       const freshAccount = privateKeyToAccount(freshKey);
 
       await sendGas(
-        process.env.PROXO_MASTER_PRIVATE_KEY!,
+        process.env.BLOON_MASTER_PRIVATE_KEY!,
         freshAccount.address,
       );
 
@@ -56,10 +56,10 @@ describe.skipIf(!hasNetworkEnv)("sendGas — network integration", () => {
     "createWallet produces a wallet with ETH balance",
     async () => {
       const tmpDir = fs.mkdtempSync(
-        path.join(os.tmpdir(), "proxo-gas-test-"),
+        path.join(os.tmpdir(), "bloon-gas-test-"),
       );
-      const origDataDir = process.env.PROXO_DATA_DIR;
-      process.env.PROXO_DATA_DIR = tmpDir;
+      const origDataDir = process.env.BLOON_DATA_DIR;
+      process.env.BLOON_DATA_DIR = tmpDir;
 
       try {
         const wallet = await createWallet("GasTestAgent");
@@ -71,9 +71,9 @@ describe.skipIf(!hasNetworkEnv)("sendGas — network integration", () => {
         expect(balance).toBeGreaterThan(0n);
       } finally {
         if (origDataDir === undefined) {
-          delete process.env.PROXO_DATA_DIR;
+          delete process.env.BLOON_DATA_DIR;
         } else {
-          process.env.PROXO_DATA_DIR = origDataDir;
+          process.env.BLOON_DATA_DIR = origDataDir;
         }
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }

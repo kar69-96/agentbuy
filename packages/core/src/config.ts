@@ -5,7 +5,7 @@ import type {
   CardInfo,
   BillingInfo,
   ShippingInfo,
-  ProxoConfig,
+  BloonConfig,
 } from "./types.js";
 import { getConfig, saveConfig } from "./store.js";
 
@@ -87,20 +87,20 @@ export function getCdpApiKeySecret(): string {
 
 // ---- Config management ----
 
-export function loadConfig(): ProxoConfig {
+export function loadConfig(): BloonConfig {
   const existing = getConfig();
   if (existing) return existing;
 
-  const masterKey = process.env.PROXO_MASTER_PRIVATE_KEY;
+  const masterKey = process.env.BLOON_MASTER_PRIVATE_KEY;
   if (!masterKey || masterKey === "0x...") {
     throw new Error(
-      "PROXO_MASTER_PRIVATE_KEY is not set. " +
+      "BLOON_MASTER_PRIVATE_KEY is not set. " +
         "Generate a wallet, add the private key to .env, and fund it with ETH on Base Sepolia. " +
         "See plans/06-human-dependencies.md for details.",
     );
   }
 
-  const config: ProxoConfig = {
+  const config: BloonConfig = {
     master_wallet: {
       address: privateKeyToAccount(masterKey as `0x${string}`).address,
       private_key: masterKey,

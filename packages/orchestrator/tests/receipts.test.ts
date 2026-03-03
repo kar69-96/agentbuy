@@ -1,11 +1,11 @@
 import { describe, it, expect } from "vitest";
-import type { Order } from "@proxo/core";
+import type { Order } from "@bloon/core";
 import { buildReceipt } from "../src/receipts.js";
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
-    order_id: "proxo_ord_test01",
-    wallet_id: "proxo_w_test01",
+    order_id: "bloon_ord_test01",
+    wallet_id: "bloon_w_test01",
     status: "processing",
     product: {
       name: "Test Product",
@@ -14,10 +14,10 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
       source: "scrape",
     },
     payment: {
-      amount_usdc: "10.50",
+      amount_usdc: "10.20",
       price: "10.00",
-      fee: "0.50",
-      fee_rate: "5%",
+      fee: "0.20",
+      fee_rate: "2%",
       route: "browserbase",
     },
     created_at: new Date().toISOString(),
@@ -44,8 +44,8 @@ describe("buildReceipt", () => {
     expect(receipt.merchant).toBe("shop.example.com");
     expect(receipt.route).toBe("browserbase");
     expect(receipt.price).toBe("10.00");
-    expect(receipt.fee).toBe("0.50");
-    expect(receipt.total_paid).toBe("10.50");
+    expect(receipt.fee).toBe("0.20");
+    expect(receipt.total_paid).toBe("10.20");
     expect(receipt.tx_hash).toBe("0xabc123");
     expect(receipt.order_number).toBe("ORD-999");
     expect(receipt.browserbase_session_id).toBe("sess_xyz");
@@ -55,10 +55,10 @@ describe("buildReceipt", () => {
   it("builds receipt for x402 payment", () => {
     const order = makeOrder({
       payment: {
-        amount_usdc: "0.1005",
+        amount_usdc: "0.102",
         price: "0.10",
-        fee: "0.0005",
-        fee_rate: "0.5%",
+        fee: "0.002",
+        fee_rate: "2%",
         route: "x402",
       },
       product: {
@@ -81,8 +81,8 @@ describe("buildReceipt", () => {
 
     expect(receipt.route).toBe("x402");
     expect(receipt.price).toBe("0.10");
-    expect(receipt.fee).toBe("0.0005");
-    expect(receipt.total_paid).toBe("0.1005");
+    expect(receipt.fee).toBe("0.002");
+    expect(receipt.total_paid).toBe("0.102");
     expect(receipt.tx_hash).toBe("0xdef456");
     expect(receipt.response).toEqual({ echo: "hello" });
     expect(receipt.order_number).toBeUndefined();

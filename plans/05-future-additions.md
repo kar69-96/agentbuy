@@ -1,4 +1,4 @@
-# Future Additions — Proxo
+# Future Additions — Bloon
 
 Features explicitly deferred from v1 to keep scope tight.
 
@@ -8,7 +8,7 @@ Features explicitly deferred from v1 to keep scope tight.
 
 ### Exa.ai Product Search
 - Agents describe what they want ("wireless mouse under $20") instead of providing a URL
-- Exa.ai returns product URLs → Proxo handles the purchase
+- Exa.ai returns product URLs → Bloon handles the purchase
 - New endpoint: `POST /api/search` with `query` and `wallet_id`
 - Requires `EXA_API_KEY` in .env
 
@@ -19,7 +19,7 @@ Features explicitly deferred from v1 to keep scope tight.
 - Needed before any public deployment
 
 ### Wallet Key Encryption
-- Encrypt private keys in `~/.proxo/wallets.json` at rest
+- Encrypt private keys in `~/.bloon/wallets.json` at rest
 - Decrypt on demand using a master passphrase or env var
 - Currently keys are plaintext with filesystem permissions only
 
@@ -30,7 +30,7 @@ Features explicitly deferred from v1 to keep scope tight.
 
 ### Rate Limiting
 - Per wallet_id rate limits on buy/confirm
-- Configurable in `~/.proxo/config.json`
+- Configurable in `~/.bloon/config.json`
 - Prevents runaway spending even if wallet_id leaks
 
 ### Confirm Idempotency
@@ -40,7 +40,7 @@ Features explicitly deferred from v1 to keep scope tight.
 
 ### Webhook Notifications
 - `POST /api/wallets` accepts optional `webhook_url`
-- Proxo POSTs to the URL on: order confirmed, order completed, order failed
+- Bloon POSTs to the URL on: order confirmed, order completed, order failed
 - Enables async workflows — agent doesn't need to poll
 
 ---
@@ -49,7 +49,7 @@ Features explicitly deferred from v1 to keep scope tight.
 
 ### MCP Wrapper
 - Thin MCP server that calls the REST API internally
-- Exposes Proxo tools natively in Claude Desktop, Cursor, etc.
+- Exposes Bloon tools natively in Claude Desktop, Cursor, etc.
 - Same 4 operations: create_wallet, check_balance, buy, confirm
 - REST API remains the source of truth
 

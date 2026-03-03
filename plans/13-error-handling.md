@@ -1,4 +1,4 @@
-# Error Handling — Proxo v1
+# Error Handling — Bloon v1
 
 ## Error Response Format
 
@@ -8,7 +8,7 @@ All API errors return JSON with a consistent structure:
 {
   "error": {
     "code": "INSUFFICIENT_BALANCE",
-    "message": "Wallet has 2.00 USDC, needs 18.89 USDC"
+    "message": "Wallet has 2.00 USDC, needs 18.35 USDC"
   }
 }
 ```
@@ -30,7 +30,7 @@ HTTP status codes follow REST conventions.
 | `URL_UNREACHABLE` | 400 | Cannot fetch the product URL | Check URL, retry |
 | `PRICE_EXTRACTION_FAILED` | 502 | Browser couldn't extract price from page | Try different URL for same product |
 | `TRANSFER_FAILED` | 500 | USDC transfer failed on-chain | Safe to retry, no funds moved |
-| `X402_PAYMENT_FAILED` | 502 | x402 service rejected payment | Check Proxo master wallet funds |
+| `X402_PAYMENT_FAILED` | 502 | x402 service rejected payment | Check Bloon master wallet funds |
 | `CHECKOUT_FAILED` | 502 | Browser checkout failed after payment | Contact human — USDC was sent, tx_hash preserved |
 | `MISSING_FIELD` | 400 | Required field not in request body | Check API docs, add missing field |
 | `INVALID_URL` | 400 | URL is not a valid HTTP(S) URL | Fix URL format |
@@ -71,7 +71,7 @@ When `CHECKOUT_FAILED` occurs:
 
 ```json
 {
-  "order_id": "proxo_ord_9x2k4m",
+  "order_id": "bloon_ord_9x2k4m",
   "status": "failed",
   "tx_hash": "0xabc...",
   "error": {

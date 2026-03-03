@@ -8,19 +8,19 @@ importers:
 
   .:
     devDependencies:
-      '@proxo/api':
+      '@bloon/api':
         specifier: workspace:*
         version: link:packages/api
-      '@proxo/checkout':
+      '@bloon/checkout':
         specifier: workspace:*
         version: link:packages/checkout
-      '@proxo/core':
+      '@bloon/core':
         specifier: workspace:*
         version: link:packages/core
-      '@proxo/orchestrator':
+      '@bloon/orchestrator':
         specifier: workspace:*
         version: link:packages/orchestrator
-      '@proxo/wallet':
+      '@bloon/wallet':
         specifier: workspace:*
         version: link:packages/wallet
       '@types/node':
@@ -44,18 +44,18 @@ importers:
 
   packages/api:
     dependencies:
+      '@bloon/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bloon/orchestrator':
+        specifier: workspace:*
+        version: link:../orchestrator
+      '@bloon/wallet':
+        specifier: workspace:*
+        version: link:../wallet
       '@hono/node-server':
         specifier: ^1.8.0
         version: 1.19.9(hono@4.12.0)
-      '@proxo/core':
-        specifier: workspace:*
-        version: link:../core
-      '@proxo/orchestrator':
-        specifier: workspace:*
-        version: link:../orchestrator
-      '@proxo/wallet':
-        specifier: workspace:*
-        version: link:../wallet
       hono:
         specifier: ^4.0.0
         version: 4.12.0
@@ -65,12 +65,15 @@ importers:
 
   packages/checkout:
     dependencies:
+      '@bloon/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bloon/crawling':
+        specifier: workspace:*
+        version: link:../crawling
       '@browserbasehq/stagehand':
         specifier: ^3.0.0
         version: 3.0.8(@cfworker/json-schema@4.1.1)(@opentelemetry/api@1.9.0)(deepmerge@4.3.1)(dotenv@16.6.1)(zod@3.25.76)
-      '@proxo/core':
-        specifier: workspace:*
-        version: link:../core
       zod:
         specifier: ^3.22.0
         version: 3.25.76
@@ -81,24 +84,30 @@ importers:
         specifier: ^16.4.0
         version: 16.6.1
 
-  packages/orchestrator:
+  packages/crawling:
     dependencies:
-      '@proxo/checkout':
-        specifier: workspace:*
-        version: link:../checkout
-      '@proxo/core':
+      '@bloon/core':
         specifier: workspace:*
         version: link:../core
-      '@proxo/wallet':
+
+  packages/orchestrator:
+    dependencies:
+      '@bloon/checkout':
+        specifier: workspace:*
+        version: link:../checkout
+      '@bloon/core':
+        specifier: workspace:*
+        version: link:../core
+      '@bloon/wallet':
         specifier: workspace:*
         version: link:../wallet
-      '@proxo/x402':
+      '@bloon/x402':
         specifier: workspace:*
         version: link:../x402
 
   packages/wallet:
     dependencies:
-      '@proxo/core':
+      '@bloon/core':
         specifier: workspace:*
         version: link:../core
       qrcode:
@@ -123,7 +132,7 @@ importers:
 
   packages/x402:
     dependencies:
-      '@proxo/core':
+      '@bloon/core':
         specifier: workspace:*
         version: link:../core
       '@x402/evm':

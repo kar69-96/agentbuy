@@ -2,23 +2,24 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { Order, Receipt } from "@proxo/core";
+import type { Order, Receipt } from "@bloon/core";
 
 // ---- Mock external packages ----
 
-vi.mock("@proxo/wallet", () => ({
+vi.mock("@bloon/wallet", () => ({
   createWallet: vi.fn(),
   getBalance: vi.fn(),
   generateQR: vi.fn(),
 }));
 
-vi.mock("@proxo/orchestrator", () => ({
+vi.mock("@bloon/orchestrator", () => ({
   buy: vi.fn(),
   confirm: vi.fn(),
+  query: vi.fn(),
 }));
 
-import { createWallet, getBalance, generateQR } from "@proxo/wallet";
-import { buy, confirm } from "@proxo/orchestrator";
+import { createWallet, getBalance, generateQR } from "@bloon/wallet";
+import { buy, confirm, query } from "@bloon/orchestrator";
 import { createApp } from "../src/server.js";
 
 const mockedCreateWallet = vi.mocked(createWallet);
@@ -26,13 +27,14 @@ const mockedGetBalance = vi.mocked(getBalance);
 const mockedGenerateQR = vi.mocked(generateQR);
 const mockedBuy = vi.mocked(buy);
 const mockedConfirm = vi.mocked(confirm);
+const mockedQuery = vi.mocked(query);
 
 // ---- Test helpers ----
 
 let tmpDir: string;
 let app: ReturnType<typeof createApp>;
 
-const TEST_WALLET_ID = "proxo_w_test01";
+const TEST_WALLET_ID = "bloon_w_test01";
 const TEST_ADDRESS = "0x" + "a".repeat(40);
 const TEST_FUNDING_TOKEN = "tok_test_fund_abc";
 
@@ -76,7 +78,7 @@ function setupConfig(): void {
 
 function setupOrder(overrides: Partial<Order> = {}): Order {
   const order: Order = {
-    order_id: "proxo_ord_test01",
+    order_id: "bloon_ord_test01",
     wallet_id: TEST_WALLET_ID,
     status: "awaiting_confirmation",
     product: {
@@ -86,10 +88,10 @@ function setupOrder(overrides: Partial<Order> = {}): Order {
       source: "scrape",
     },
     payment: {
-      amount_usdc: "18.89",
+      amount_usdc: "18.35",
       price: "17.99",
-      fee: "0.90",
-      fee_rate: "5%",
+      fee: "0.36",
+      fee_rate: "2%",
       route: "browserbase",
     },
     created_at: new Date().toISOString(),
@@ -120,8 +122,8 @@ async function req(method: string, pathStr: string, body?: unknown) {
 }
 
 beforeEach(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "proxo-api-test-"));
-  process.env.PROXO_DATA_DIR = tmpDir;
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-api-test-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
   setupWallet();
   setupConfig();
   vi.clearAllMocks();
@@ -132,7 +134,7 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  delete process.env.PROXO_DATA_DIR;
+  delete process.env.BLOON_DATA_DIR;
 });
 
 // ---- POST /api/wallets ----
@@ -140,7 +142,7 @@ afterEach(() => {
 describe("POST /api/wallets", () => {
   it("creates wallet and returns 201", async () => {
     mockedCreateWallet.mockResolvedValue({
-      wallet_id: "proxo_w_new01",
+      wallet_id: "bloon_w_new01",
       address: "0x" + "f".repeat(40),
       private_key: "0x" + "1".repeat(64),
       funding_token: "tok_new",
@@ -153,7 +155,7 @@ describe("POST /api/wallets", () => {
     expect(res.status).toBe(201);
 
     const json = await res.json();
-    expect(json.wallet_id).toBe("proxo_w_new01");
+    expect(json.wallet_id).toBe("bloon_w_new01");
     expect(json.address).toBe("0x" + "f".repeat(40));
     expect(json.balance_usdc).toBe("50.00");
     expect(json.funding_url).toContain("/fund/tok_new");
@@ -177,7 +179,7 @@ describe("POST /api/wallets", () => {
 
   it("funding_url contains funding_token, not wallet_id", async () => {
     mockedCreateWallet.mockResolvedValue({
-      wallet_id: "proxo_w_secret",
+      wallet_id: "bloon_w_secret",
       address: "0x" + "f".repeat(40),
       private_key: "0x" + "1".repeat(64),
       funding_token: "tok_public_safe",
@@ -189,7 +191,7 @@ describe("POST /api/wallets", () => {
     const res = await req("POST", "/api/wallets", { agent_name: "Agent" });
     const json = await res.json();
     expect(json.funding_url).toContain("tok_public_safe");
-    expect(json.funding_url).not.toContain("proxo_w_secret");
+    expect(json.funding_url).not.toContain("bloon_w_secret");
   });
 });
 
@@ -207,7 +209,7 @@ describe("GET /api/wallets/:wallet_id", () => {
   });
 
   it("returns 404 for invalid wallet_id", async () => {
-    const res = await req("GET", "/api/wallets/proxo_w_nonexistent");
+    const res = await req("GET", "/api/wallets/bloon_w_nonexistent");
     expect(res.status).toBe(404);
     const json = await res.json();
     expect(json.error.code).toBe("WALLET_NOT_FOUND");
@@ -215,7 +217,7 @@ describe("GET /api/wallets/:wallet_id", () => {
 
   it("includes transactions from completed orders", async () => {
     setupOrder({
-      order_id: "proxo_ord_done",
+      order_id: "bloon_ord_done",
       status: "completed",
       completed_at: "2026-02-20T02:00:00.000Z",
     });
@@ -223,7 +225,7 @@ describe("GET /api/wallets/:wallet_id", () => {
     const res = await req("GET", `/api/wallets/${TEST_WALLET_ID}`);
     const json = await res.json();
     expect(json.transactions.length).toBe(1);
-    expect(json.transactions[0].order_id).toBe("proxo_ord_done");
+    expect(json.transactions[0].order_id).toBe("bloon_ord_done");
     expect(json.transactions[0].product).toBe("Test Product");
   });
 
@@ -240,7 +242,7 @@ describe("GET /api/wallets/:wallet_id", () => {
 describe("POST /api/buy", () => {
   it("returns buy quote with 200", async () => {
     const fakeOrder: Order = {
-      order_id: "proxo_ord_buy01",
+      order_id: "bloon_ord_buy01",
       wallet_id: TEST_WALLET_ID,
       status: "awaiting_confirmation",
       product: {
@@ -250,10 +252,10 @@ describe("POST /api/buy", () => {
         source: "scrape",
       },
       payment: {
-        amount_usdc: "10.50",
+        amount_usdc: "10.20",
         price: "10.00",
-        fee: "0.50",
-        fee_rate: "5%",
+        fee: "0.20",
+        fee_rate: "2%",
         route: "browserbase",
       },
       created_at: new Date().toISOString(),
@@ -268,12 +270,12 @@ describe("POST /api/buy", () => {
     expect(res.status).toBe(200);
 
     const json = await res.json();
-    expect(json.order_id).toBe("proxo_ord_buy01");
+    expect(json.order_id).toBe("bloon_ord_buy01");
     expect(json.product.name).toBe("Widget");
     expect(json.product.source).toBe("shop.example.com");
     expect(json.payment.item_price).toBe("10.00");
-    expect(json.payment.fee).toBe("0.50");
-    expect(json.payment.total).toBe("10.50");
+    expect(json.payment.fee).toBe("0.20");
+    expect(json.payment.total).toBe("10.20");
     expect(json.payment.route).toBe("browserbase");
     expect(json.payment.wallet_balance).toBe("50.00");
     expect(json.status).toBe("awaiting_confirmation");
@@ -297,9 +299,9 @@ describe("POST /api/buy", () => {
   });
 
   it("propagates INVALID_URL from orchestrator", async () => {
-    const { ProxoError, ErrorCodes } = await import("@proxo/core");
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
     mockedBuy.mockRejectedValue(
-      new ProxoError(ErrorCodes.INVALID_URL, "Invalid URL"),
+      new BloonError(ErrorCodes.INVALID_URL, "Invalid URL"),
     );
 
     const res = await req("POST", "/api/buy", {
@@ -312,14 +314,14 @@ describe("POST /api/buy", () => {
   });
 
   it("propagates WALLET_NOT_FOUND from orchestrator", async () => {
-    const { ProxoError, ErrorCodes } = await import("@proxo/core");
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
     mockedBuy.mockRejectedValue(
-      new ProxoError(ErrorCodes.WALLET_NOT_FOUND, "Not found"),
+      new BloonError(ErrorCodes.WALLET_NOT_FOUND, "Not found"),
     );
 
     const res = await req("POST", "/api/buy", {
       url: "https://example.com",
-      wallet_id: "proxo_w_bad",
+      wallet_id: "bloon_w_bad",
     });
     expect(res.status).toBe(404);
     const json = await res.json();
@@ -327,9 +329,9 @@ describe("POST /api/buy", () => {
   });
 
   it("propagates INSUFFICIENT_BALANCE from orchestrator", async () => {
-    const { ProxoError, ErrorCodes } = await import("@proxo/core");
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
     mockedBuy.mockRejectedValue(
-      new ProxoError(ErrorCodes.INSUFFICIENT_BALANCE, "Not enough"),
+      new BloonError(ErrorCodes.INSUFFICIENT_BALANCE, "Not enough"),
     );
 
     const res = await req("POST", "/api/buy", {
@@ -351,15 +353,15 @@ describe("POST /api/confirm", () => {
       merchant: "shop.example.com",
       route: "browserbase",
       price: "10.00",
-      fee: "0.50",
-      total_paid: "10.50",
+      fee: "0.20",
+      total_paid: "10.20",
       tx_hash: "0xabc123",
       timestamp: "2026-02-20T03:00:00.000Z",
       order_number: "ORD-123",
     };
 
     const completedOrder: Order = {
-      order_id: "proxo_ord_conf01",
+      order_id: "bloon_ord_conf01",
       wallet_id: TEST_WALLET_ID,
       status: "completed",
       product: {
@@ -369,10 +371,10 @@ describe("POST /api/confirm", () => {
         source: "scrape",
       },
       payment: {
-        amount_usdc: "10.50",
+        amount_usdc: "10.20",
         price: "10.00",
-        fee: "0.50",
-        fee_rate: "5%",
+        fee: "0.20",
+        fee_rate: "2%",
         route: "browserbase",
       },
       receipt,
@@ -385,12 +387,12 @@ describe("POST /api/confirm", () => {
     mockedConfirm.mockResolvedValue({ order: completedOrder, receipt });
 
     const res = await req("POST", "/api/confirm", {
-      order_id: "proxo_ord_conf01",
+      order_id: "bloon_ord_conf01",
     });
     expect(res.status).toBe(200);
 
     const json = await res.json();
-    expect(json.order_id).toBe("proxo_ord_conf01");
+    expect(json.order_id).toBe("bloon_ord_conf01");
     expect(json.status).toBe("completed");
     expect(json.receipt.product).toBe("Widget");
     expect(json.receipt.tx_hash).toBe("0xabc123");
@@ -405,13 +407,13 @@ describe("POST /api/confirm", () => {
   });
 
   it("propagates ORDER_NOT_FOUND from orchestrator", async () => {
-    const { ProxoError, ErrorCodes } = await import("@proxo/core");
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
     mockedConfirm.mockRejectedValue(
-      new ProxoError(ErrorCodes.ORDER_NOT_FOUND, "Not found"),
+      new BloonError(ErrorCodes.ORDER_NOT_FOUND, "Not found"),
     );
 
     const res = await req("POST", "/api/confirm", {
-      order_id: "proxo_ord_bad",
+      order_id: "bloon_ord_bad",
     });
     expect(res.status).toBe(404);
     const json = await res.json();
@@ -419,13 +421,13 @@ describe("POST /api/confirm", () => {
   });
 
   it("propagates ORDER_EXPIRED from orchestrator", async () => {
-    const { ProxoError, ErrorCodes } = await import("@proxo/core");
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
     mockedConfirm.mockRejectedValue(
-      new ProxoError(ErrorCodes.ORDER_EXPIRED, "Expired"),
+      new BloonError(ErrorCodes.ORDER_EXPIRED, "Expired"),
     );
 
     const res = await req("POST", "/api/confirm", {
-      order_id: "proxo_ord_expired",
+      order_id: "bloon_ord_expired",
     });
     expect(res.status).toBe(410);
     const json = await res.json();
@@ -433,11 +435,11 @@ describe("POST /api/confirm", () => {
   });
 
   it("returns 200 with failed status when checkout failed with tx_hash", async () => {
-    const { ProxoError, ErrorCodes } = await import("@proxo/core");
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
 
     // Set up a failed order in the store with tx_hash
     setupOrder({
-      order_id: "proxo_ord_fail01",
+      order_id: "bloon_ord_fail01",
       status: "failed",
       error: {
         code: "CHECKOUT_FAILED",
@@ -448,16 +450,16 @@ describe("POST /api/confirm", () => {
     });
 
     mockedConfirm.mockRejectedValue(
-      new ProxoError(ErrorCodes.CHECKOUT_FAILED, "Checkout timed out"),
+      new BloonError(ErrorCodes.CHECKOUT_FAILED, "Checkout timed out"),
     );
 
     const res = await req("POST", "/api/confirm", {
-      order_id: "proxo_ord_fail01",
+      order_id: "bloon_ord_fail01",
     });
     expect(res.status).toBe(200);
 
     const json = await res.json();
-    expect(json.order_id).toBe("proxo_ord_fail01");
+    expect(json.order_id).toBe("bloon_ord_fail01");
     expect(json.status).toBe("failed");
     expect(json.error.code).toBe("CHECKOUT_FAILED");
     expect(json.error.tx_hash).toBe("0xfailed123");
@@ -470,14 +472,14 @@ describe("POST /api/confirm", () => {
       merchant: "shop.example.com",
       route: "browserbase",
       price: "5.00",
-      fee: "0.25",
-      total_paid: "5.25",
+      fee: "0.10",
+      total_paid: "5.10",
       tx_hash: "0xalready",
       timestamp: "2026-02-20T00:00:00.000Z",
     };
 
     const order: Order = {
-      order_id: "proxo_ord_already",
+      order_id: "bloon_ord_already",
       wallet_id: TEST_WALLET_ID,
       status: "completed",
       product: {
@@ -487,10 +489,10 @@ describe("POST /api/confirm", () => {
         source: "scrape",
       },
       payment: {
-        amount_usdc: "5.25",
+        amount_usdc: "5.10",
         price: "5.00",
-        fee: "0.25",
-        fee_rate: "5%",
+        fee: "0.10",
+        fee_rate: "2%",
         route: "browserbase",
       },
       receipt,
@@ -501,7 +503,7 @@ describe("POST /api/confirm", () => {
     mockedConfirm.mockResolvedValue({ order, receipt });
 
     const res = await req("POST", "/api/confirm", {
-      order_id: "proxo_ord_already",
+      order_id: "bloon_ord_already",
     });
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -566,6 +568,122 @@ describe("GET /fund/:token/balance", () => {
     const res = await req("GET", `/fund/${TEST_FUNDING_TOKEN}/balance`);
     const text = await res.text();
     expect(text).not.toContain(TEST_WALLET_ID);
+  });
+});
+
+// ---- POST /api/query ----
+
+describe("POST /api/query", () => {
+  it("returns 200 with product, options, required_fields", async () => {
+    mockedQuery.mockResolvedValue({
+      product: {
+        name: "Cool Shoes",
+        url: "https://shop.example.com/shoes",
+        price: "89.99",
+        image_url: "https://shop.example.com/shoes.jpg",
+      },
+      options: [{ name: "Size", values: ["9", "10", "11"] }],
+      required_fields: [
+        { field: "shipping.email", label: "Email" },
+        { field: "selections", label: "Product options (Size)" },
+      ],
+      route: "browserbase",
+      discovery_method: "scrape",
+    });
+
+    const res = await req("POST", "/api/query", {
+      url: "https://shop.example.com/shoes",
+    });
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.product.name).toBe("Cool Shoes");
+    expect(json.product.source).toBe("shop.example.com");
+    expect(json.options).toHaveLength(1);
+    expect(json.options[0].name).toBe("Size");
+    expect(json.required_fields).toHaveLength(2);
+    expect(json.route).toBe("browserbase");
+    expect(json.discovery_method).toBe("scrape");
+  });
+
+  it("returns 400 MISSING_FIELD when url is missing", async () => {
+    const res = await req("POST", "/api/query", {});
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error.code).toBe("MISSING_FIELD");
+  });
+
+  it("propagates QUERY_FAILED from orchestrator", async () => {
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
+    mockedQuery.mockRejectedValue(
+      new BloonError(ErrorCodes.QUERY_FAILED, "Discovery failed"),
+    );
+
+    const res = await req("POST", "/api/query", {
+      url: "https://shop.example.com/broken",
+    });
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error.code).toBe("QUERY_FAILED");
+  });
+});
+
+// ---- POST /api/buy with selections ----
+
+describe("POST /api/buy (selections)", () => {
+  it("passes selections through to orchestrator", async () => {
+    const fakeOrder: Order = {
+      order_id: "bloon_ord_sel01",
+      wallet_id: TEST_WALLET_ID,
+      status: "awaiting_confirmation",
+      product: {
+        name: "Sneaker",
+        url: "https://shop.example.com/sneaker",
+        price: "89.99",
+        source: "scrape",
+      },
+      payment: {
+        amount_usdc: "91.79",
+        price: "89.99",
+        fee: "1.80",
+        fee_rate: "2%",
+        route: "browserbase",
+      },
+      selections: { Color: "Charcoal", Size: "10" },
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
+    };
+    mockedBuy.mockResolvedValue(fakeOrder);
+
+    const res = await req("POST", "/api/buy", {
+      url: "https://shop.example.com/sneaker",
+      wallet_id: TEST_WALLET_ID,
+      selections: { Color: "Charcoal", Size: "10" },
+    });
+    expect(res.status).toBe(200);
+
+    // Verify selections were passed to buy()
+    expect(mockedBuy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selections: { Color: "Charcoal", Size: "10" },
+      }),
+    );
+  });
+
+  it("propagates INVALID_SELECTION from orchestrator", async () => {
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
+    mockedBuy.mockRejectedValue(
+      new BloonError(ErrorCodes.INVALID_SELECTION, "Bad selection"),
+    );
+
+    const res = await req("POST", "/api/buy", {
+      url: "https://shop.example.com/widget",
+      wallet_id: TEST_WALLET_ID,
+      selections: { Color: "" },
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error.code).toBe("INVALID_SELECTION");
   });
 });
 

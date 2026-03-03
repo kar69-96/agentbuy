@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { extractJsonLd, extractMetaTag, scrapePrice } from "../src/discover.js";
+import {
+  extractJsonLd,
+  extractMetaTag,
+  scrapePrice,
+  extractVariantsFromJsonLd,
+} from "../src/discover.js";
 
 describe("extractJsonLd", () => {
   it("extracts Product from JSON-LD", () => {
@@ -86,5 +91,180 @@ describe("scrapePrice", () => {
       "https://this-domain-should-not-exist-12345.com/product",
     );
     expect(result).toBeNull();
+  });
+});
+
+describe("extractVariantsFromJsonLd", () => {
+  it("extracts options from hasVariant array", () => {
+    const jsonLd = {
+      "@type": "Product",
+      name: "Sneaker",
+      hasVariant: [
+        {
+          additionalProperty: [
+            { name: "Color", value: "Red" },
+            { name: "Size", value: "10" },
+          ],
+        },
+        {
+          additionalProperty: [
+            { name: "Color", value: "Blue" },
+            { name: "Size", value: "11" },
+          ],
+        },
+      ],
+    };
+
+    const options = extractVariantsFromJsonLd(jsonLd);
+    expect(options).toHaveLength(2);
+
+    const colorOpt = options.find((o) => o.name === "Color");
+    expect(colorOpt).toBeDefined();
+    expect(colorOpt!.values).toContain("Red");
+    expect(colorOpt!.values).toContain("Blue");
+
+    const sizeOpt = options.find((o) => o.name === "Size");
+    expect(sizeOpt).toBeDefined();
+    expect(sizeOpt!.values).toContain("10");
+    expect(sizeOpt!.values).toContain("11");
+  });
+
+  it("extracts options from offers.additionalProperty (Shopify-style)", () => {
+    const jsonLd = {
+      "@type": "Product",
+      name: "T-Shirt",
+      offers: [
+        {
+          price: "29.99",
+          additionalProperty: [
+            { name: "Color", value: "Black" },
+            { name: "Size", value: "M" },
+          ],
+        },
+        {
+          price: "29.99",
+          additionalProperty: [
+            { name: "Color", value: "White" },
+            { name: "Size", value: "L" },
+          ],
+        },
+      ],
+    };
+
+    const options = extractVariantsFromJsonLd(jsonLd);
+    expect(options).toHaveLength(2);
+
+    const colorOpt = options.find((o) => o.name === "Color");
+    expect(colorOpt!.values).toEqual(
+      expect.arrayContaining(["Black", "White"]),
+    );
+    // Same price for all variants → no prices map
+    expect(colorOpt!.prices).toBeUndefined();
+  });
+
+  it("extracts from single offers object (not array)", () => {
+    const jsonLd = {
+      "@type": "Product",
+      name: "Hat",
+      offers: {
+        price: "15.00",
+        additionalProperty: [{ name: "Size", value: "One Size" }],
+      },
+    };
+
+    const options = extractVariantsFromJsonLd(jsonLd);
+    expect(options).toHaveLength(1);
+    expect(options[0].name).toBe("Size");
+    expect(options[0].values).toEqual(["One Size"]);
+  });
+
+  it("returns empty array when no variants found", () => {
+    const jsonLd = {
+      "@type": "Product",
+      name: "Simple Product",
+      offers: { price: "10.00" },
+    };
+
+    const options = extractVariantsFromJsonLd(jsonLd);
+    expect(options).toEqual([]);
+  });
+
+  it("deduplicates variant values", () => {
+    const jsonLd = {
+      "@type": "Product",
+      name: "Widget",
+      hasVariant: [
+        { additionalProperty: [{ name: "Color", value: "Red" }] },
+        { additionalProperty: [{ name: "Color", value: "Red" }] },
+        { additionalProperty: [{ name: "Color", value: "Blue" }] },
+      ],
+    };
+
+    const options = extractVariantsFromJsonLd(jsonLd);
+    expect(options).toHaveLength(1);
+    expect(options[0].values).toHaveLength(2);
+  });
+
+  it("extracts per-variant pricing from offers with different prices", () => {
+    const jsonLd = {
+      "@type": "Product",
+      name: "Running Shoe",
+      offers: [
+        {
+          price: "89.99",
+          additionalProperty: [
+            { name: "Size", value: "9" },
+            { name: "Color", value: "Red" },
+          ],
+        },
+        {
+          price: "99.99",
+          additionalProperty: [
+            { name: "Size", value: "12" },
+            { name: "Color", value: "Red" },
+          ],
+        },
+        {
+          price: "89.99",
+          additionalProperty: [
+            { name: "Size", value: "9" },
+            { name: "Color", value: "Blue" },
+          ],
+        },
+      ],
+    };
+
+    const options = extractVariantsFromJsonLd(jsonLd);
+    const sizeOpt = options.find((o) => o.name === "Size");
+    expect(sizeOpt).toBeDefined();
+    expect(sizeOpt!.prices).toBeDefined();
+    expect(sizeOpt!.prices!["9"]).toBe("89.99");
+    expect(sizeOpt!.prices!["12"]).toBe("99.99");
+
+    // Color has same price for all variants → no prices map
+    const colorOpt = options.find((o) => o.name === "Color");
+    expect(colorOpt).toBeDefined();
+    expect(colorOpt!.prices).toBeUndefined();
+  });
+
+  it("omits prices when all variants have the same price", () => {
+    const jsonLd = {
+      "@type": "Product",
+      name: "Hat",
+      offers: [
+        {
+          price: "25.00",
+          additionalProperty: [{ name: "Color", value: "Red" }],
+        },
+        {
+          price: "25.00",
+          additionalProperty: [{ name: "Color", value: "Blue" }],
+        },
+      ],
+    };
+
+    const options = extractVariantsFromJsonLd(jsonLd);
+    expect(options).toHaveLength(1);
+    expect(options[0].prices).toBeUndefined();
   });
 });

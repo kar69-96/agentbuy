@@ -3,6 +3,7 @@ import type { Stagehand, Page } from "@browserbasehq/stagehand";
 import { z } from "zod";
 import { fillAllCardFields } from "./fill.js";
 import type { ObservedField } from "./fill.js";
+import type { CostTracker } from "./cost-tracker.js";
 
 // ---- Retry wrapper for Stagehand schema bugs ----
 
@@ -12,10 +13,20 @@ export async function actWithRetry(
   stagehand: InstanceType<typeof Stagehand>,
   instruction: string,
   options?: { variables?: Record<string, string> },
+  tracker?: CostTracker,
 ): Promise<void> {
   for (let attempt = 0; attempt <= MAX_ACT_RETRIES; attempt++) {
     try {
+      const actStart = Date.now();
       await stagehand.act(instruction, options);
+      if (tracker) {
+        tracker.addLLMCall(
+          `act/${instruction.slice(0, 30)}`,
+          0, 0,
+          "google/gemini-2.5-flash",
+          Date.now() - actStart,
+        );
+      }
       return;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -80,6 +91,7 @@ export function createCheckoutTools(
   page: Page,
   stagehandVars: Record<string, string>,
   cdpCreds: Record<string, string>,
+  costTracker?: CostTracker,
 ) {
   const fillShippingInfo = tool({
     description:
@@ -95,6 +107,7 @@ export function createCheckoutTools(
           firstName: nameParts[0] ?? "",
           lastName: nameParts.slice(1).join(" ") || "",
           street: stagehandVars.x_shipping_street ?? "",
+          apartment: stagehandVars.x_shipping_apartment ?? "",
           city: stagehandVars.x_shipping_city ?? "",
           state: stagehandVars.x_shipping_state ?? "",
           zip: stagehandVars.x_shipping_zip ?? "",
@@ -189,6 +202,19 @@ export function createCheckoutTools(
             results.push("address");
           }
 
+          // Apartment / Suite
+          const apt = find([
+            'input[autocomplete="address-line2"]',
+            'input[name*="address2" i]',
+            'input[name*="apartment" i]',
+            'input[id*="address2" i]',
+            'input[id*="apartment" i]',
+          ]);
+          if (apt && data.apartment) {
+            fillInput(apt as HTMLInputElement, data.apartment);
+            results.push("apartment");
+          }
+
           // City
           const city = find([
             'input[autocomplete="address-level2"]',
@@ -278,9 +304,13 @@ export function createCheckoutTools(
     execute: async () => {
       try {
         // 1. Observe card fields via Stagehand (main page)
+        const observeStart = Date.now();
         const observeResult = await stagehand.observe(
           "Find all credit card input fields on this page: card number, expiration date, CVV/security code, and cardholder name.",
         );
+        if (costTracker) {
+          costTracker.addLLMCall("observe/card-fields", 0, 0, "google/gemini-2.5-flash", Date.now() - observeStart);
+        }
 
         let observedFields: ObservedField[] = observeResult.map((obs) => ({
           selector: obs.selector,
@@ -310,19 +340,44 @@ export function createCheckoutTools(
 
   const fillBillingAddress = tool({
     description:
-      "Fill separate billing address fields or check 'same as shipping' box. " +
-      "Call this ONLY if there is a separate billing address form visible.",
+      "Uncheck 'billing same as shipping' and fill separate billing address fields. " +
+      "Call this when you need to fill billing address — it will uncheck any 'same as shipping' checkbox first.",
     inputSchema: z.object({}),
     execute: async () => {
       try {
+        // ALWAYS uncheck "billing same as shipping" first
+        await page.evaluate(() => {
+          const checkboxes = document.querySelectorAll<HTMLInputElement>(
+            'input[type="checkbox"]'
+          );
+          for (const cb of checkboxes) {
+            const label = cb.labels?.[0]?.textContent?.toLowerCase() ?? '';
+            const name = (cb.name + cb.id).toLowerCase();
+            if (
+              label.includes('same as shipping') ||
+              label.includes('billing') ||
+              name.includes('billing_same') ||
+              name.includes('same_as_shipping')
+            ) {
+              if (cb.checked) {
+                cb.click();
+                cb.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+            }
+          }
+        });
+        await page.waitForTimeout(500);
+
+        // Then fill billing address fields
         await actWithRetry(
           stagehand,
-          "If there is a separate billing address form, fill it: street=%x_billing_street%, city=%x_billing_city%, state=%x_billing_state%, zip=%x_billing_zip%, country=%x_billing_country%. If billing is same as shipping, check that box instead.",
+          "Fill billing address: street=%x_billing_street%, city=%x_billing_city%, state=%x_billing_state%, zip=%x_billing_zip%, country=%x_billing_country%",
           { variables: stagehandVars },
+          costTracker,
         );
-        return "Successfully filled billing address fields.";
+        return "Unchecked billing=shipping and filled billing address fields.";
       } catch {
-        return "No separate billing address form found, or same-as-shipping already set.";
+        return "Could not find or fill billing address fields.";
       }
     },
   });
@@ -379,7 +434,11 @@ export function createCheckoutTools(
         }
 
         // Slow path: use observe (LLM-based, handles complex selectors)
+        const observeBtnStart = Date.now();
         const matches = await stagehand.observe(`Find the clickable element: ${target}`);
+        if (costTracker) {
+          costTracker.addLLMCall(`observe/click-${target.slice(0, 20)}`, 0, 0, "google/gemini-2.5-flash", Date.now() - observeBtnStart);
+        }
         if (matches.length === 0) return `Could not find "${target}" on the page.`;
         await page.locator(matches[0].selector).click();
         await page.waitForTimeout(1500);

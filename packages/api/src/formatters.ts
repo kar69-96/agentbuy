@@ -1,5 +1,5 @@
-import type { Wallet, Order, Receipt } from "@proxo/core";
-import { getOrdersByWallet } from "@proxo/core";
+import type { Wallet, Order, Receipt, QueryResponse } from "@bloon/core";
+import { getOrdersByWallet } from "@bloon/core";
 
 export function formatWalletCreateResponse(
   wallet: Wallet,
@@ -44,6 +44,19 @@ export function formatWalletGetResponse(
     balance_usdc: balance,
     created_at: wallet.created_at,
     transactions,
+  };
+}
+
+export function formatQueryResponse(result: QueryResponse) {
+  return {
+    product: {
+      ...result.product,
+      source: new URL(result.product.url).hostname,
+    },
+    options: result.options,
+    required_fields: result.required_fields,
+    route: result.route,
+    discovery_method: result.discovery_method,
   };
 }
 

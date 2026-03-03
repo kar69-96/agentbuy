@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { walletsRoutes } from "./routes/wallets.js";
 import { buyRoutes } from "./routes/buy.js";
 import { confirmRoutes } from "./routes/confirm.js";
+import { queryRoutes } from "./routes/query.js";
 import { fundRoutes } from "./routes/fund.js";
 import { errorHandler } from "./error-handler.js";
 
@@ -11,6 +12,7 @@ export function createApp(): Hono {
   app.route("/api/wallets", walletsRoutes);
   app.route("/api", buyRoutes);
   app.route("/api", confirmRoutes);
+  app.route("/api", queryRoutes);
   app.route("/fund", fundRoutes);
 
   app.onError(errorHandler);

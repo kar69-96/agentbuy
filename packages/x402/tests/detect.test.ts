@@ -13,17 +13,17 @@ describe("detectRoute (offline)", () => {
 
   it("throws URL_UNREACHABLE for an unreachable domain", async () => {
     const { detectRoute } = await import("../src/detect.js");
-    const { ProxoError, ErrorCodes } = await import("@proxo/core");
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
 
     await expect(
       detectRoute("https://nonexistent.invalid"),
-    ).rejects.toThrow(ProxoError);
+    ).rejects.toThrow(BloonError);
 
     try {
       await detectRoute("https://nonexistent.invalid");
     } catch (error) {
-      expect(error).toBeInstanceOf(ProxoError);
-      expect((error as InstanceType<typeof ProxoError>).code).toBe(
+      expect(error).toBeInstanceOf(BloonError);
+      expect((error as InstanceType<typeof BloonError>).code).toBe(
         ErrorCodes.URL_UNREACHABLE,
       );
     }

@@ -1,4 +1,4 @@
-import { ProxoError } from "@proxo/core";
+import { BloonError } from "@bloon/core";
 import type { ErrorHandler } from "hono";
 
 const STATUS_MAP: Record<string, number> = {
@@ -12,14 +12,16 @@ const STATUS_MAP: Record<string, number> = {
   ORDER_NOT_FOUND: 404,
   ORDER_INVALID_STATUS: 409,
   ORDER_EXPIRED: 410,
+  INVALID_SELECTION: 400,
   TRANSFER_FAILED: 500,
   X402_PAYMENT_FAILED: 502,
   CHECKOUT_FAILED: 502,
   PRICE_EXTRACTION_FAILED: 502,
+  QUERY_FAILED: 502,
 };
 
 export const errorHandler: ErrorHandler = (err, c) => {
-  if (err instanceof ProxoError) {
+  if (err instanceof BloonError) {
     const status = STATUS_MAP[err.code] ?? 500;
     return c.json({ error: { code: err.code, message: err.message } }, status as 400);
   }

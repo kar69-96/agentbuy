@@ -4,8 +4,8 @@ import {
   getNetwork,
   getCdpApiKeyId,
   getCdpApiKeySecret,
-} from "@proxo/core";
-import { getBalance, generateQR } from "@proxo/wallet";
+} from "@bloon/core";
+import { getBalance, generateQR } from "@bloon/wallet";
 import * as jose from "jose";
 
 export const fundRoutes = new Hono();
@@ -30,7 +30,7 @@ fundRoutes.get("/:token", async (c) => {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fund Wallet — Proxo</title>
+  <title>Fund Wallet — Bloon</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }

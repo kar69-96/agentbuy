@@ -1,5 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { scrapePrice, discoverViaCart, discoverPrice } from "../src/discover.js";
+import {
+  scrapePrice,
+  discoverViaCart,
+  discoverPrice,
+  scrapePriceWithOptions,
+  discoverViaBrowser,
+  discoverProduct,
+  resolveVariantPricesViaBrowser,
+} from "../src/discover.js";
 
 const HAS_KEYS =
   !!process.env.BROWSERBASE_API_KEY && !!process.env.GOOGLE_API_KEY;
@@ -105,4 +113,176 @@ describe.skipIf(!HAS_KEYS)("discoverPrice fallback (real sites)", () => {
     expect(result.method).toBe("scrape"); // Should be fast Tier 1
     expect(result.price).toBeTruthy();
   }, 30000);
+});
+
+// ---- scrapePriceWithOptions: Tier 1 with variants (no API key needed) ----
+
+describe("scrapePriceWithOptions (real sites)", () => {
+  it("extracts name + price + options from Allbirds", async () => {
+    const result = await scrapePriceWithOptions(
+      "https://www.allbirds.com/products/mens-tree-runners",
+    );
+    console.log(
+      "scrapePriceWithOptions Allbirds:",
+      JSON.stringify(result, null, 2),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.name).toBeTruthy();
+    expect(result!.price).toBeTruthy();
+    expect(parseFloat(result!.price)).toBeGreaterThan(0);
+    expect(parseFloat(result!.price)).toBeLessThan(1000);
+    expect(Array.isArray(result!.options)).toBe(true);
+  }, 30000);
+
+  it("extracts name + price from Hydrogen demo store", async () => {
+    const result = await scrapePriceWithOptions(
+      "https://hydrogen-preview.myshopify.com/products/the-full-stack",
+    );
+    console.log(
+      "scrapePriceWithOptions Hydrogen:",
+      JSON.stringify(result, null, 2),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.name).toBeTruthy();
+    expect(result!.price).toBeTruthy();
+    expect(parseFloat(result!.price)).toBeGreaterThan(0);
+  }, 30000);
+});
+
+// ---- Tier 3: Browserbase product discovery (requires API keys) ----
+
+describe.skipIf(!HAS_KEYS)("Tier 3 Browserbase discovery (real sites)", () => {
+  it("extracts product data from Amazon bed sheets", async () => {
+    const result = await discoverViaBrowser(
+      "https://www.amazon.com/Amazon-Basics-Lightweight-Wrinkle-Free-Breathable/dp/B00Q7OAKV2",
+    );
+    console.log("Tier 3 Amazon:", JSON.stringify(result, null, 2));
+    expect(result).not.toBeNull();
+    expect(result!.name).toBeTruthy();
+    expect(result!.method).toBe("browserbase");
+
+    const price = parseFloat(result!.price);
+    expect(price).toBeGreaterThan(0);
+    expect(price).toBeLessThan(200);
+
+    // Amazon bed sheets should have Size and Color options
+    if (result!.options.length > 0) {
+      const optionNames = result!.options.map((o) => o.name.toLowerCase());
+      console.log("Extracted option groups:", optionNames);
+    }
+  }, 120000);
+
+  it("extracts product data from Best Buy AirPods", async () => {
+    const result = await discoverViaBrowser(
+      "https://www.bestbuy.com/site/apple-airpods-4-white/6447382.p",
+    );
+    console.log("Tier 3 Best Buy:", JSON.stringify(result, null, 2));
+
+    // Best Buy may block headless browsers with captchas — null is acceptable
+    if (!result) {
+      console.warn(
+        "Best Buy returned null — likely blocked by captcha/bot detection",
+      );
+      return;
+    }
+
+    expect(result.name).toBeTruthy();
+    expect(result.method).toBe("browserbase");
+
+    const price = parseFloat(result.price);
+    expect(price).toBeGreaterThan(0);
+    expect(price).toBeLessThan(500);
+  }, 120000);
+});
+
+// ---- discoverProduct 3-tier pipeline ----
+
+describe("discoverProduct pipeline (real sites)", () => {
+  it("returns result from Firecrawl, scrape, or browserbase", async () => {
+    const result = await discoverProduct(
+      "https://www.allbirds.com/products/mens-tree-runners",
+    );
+    console.log("discoverProduct Allbirds:", JSON.stringify(result, null, 2));
+    expect(result.name).toBeTruthy();
+    expect(result.price).toBeTruthy();
+    expect(["firecrawl", "scrape", "browserbase"]).toContain(result.method);
+
+    if (result.method === "firecrawl") {
+      console.log("Firecrawl primary tier succeeded");
+    } else if (result.method === "scrape") {
+      console.log(
+        "Fell back to scrape — Firecrawl key may be invalid or service unavailable",
+      );
+    } else {
+      console.log("Fell back to browserbase Tier 3");
+    }
+  }, 30000);
+});
+
+// ---- Tier 3 variant price resolution (real sites) ----
+
+describe.skipIf(!HAS_KEYS)(
+  "Tier 3 variant price resolution (real sites)",
+  () => {
+    it("resolves per-variant prices for Amazon bed sheets", async () => {
+      const result = await discoverViaBrowser(
+        "https://www.amazon.com/Amazon-Basics-Lightweight-Wrinkle-Free-Breathable/dp/B00Q7OAKV2",
+      );
+      console.log(
+        "Variant resolution Amazon:",
+        JSON.stringify(result, null, 2),
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.name).toBeTruthy();
+
+      // Check that options with prices exist
+      if (result!.options.length > 0) {
+        const withPrices = result!.options.filter(
+          (o) => o.prices && Object.keys(o.prices).length > 0,
+        );
+        console.log(
+          "Option groups with per-variant prices:",
+          withPrices.length,
+        );
+        for (const opt of withPrices) {
+          console.log(`  ${opt.name}:`, JSON.stringify(opt.prices));
+        }
+      }
+    }, 300000);
+
+    it("resolves variant prices for Allbirds sizes", async () => {
+      const options = [{ name: "Size", values: ["8", "9", "10"] }];
+
+      const result = await resolveVariantPricesViaBrowser(
+        "https://www.allbirds.com/products/mens-tree-runners",
+        options,
+        2,
+      );
+
+      console.log("Allbirds size resolution:", JSON.stringify(result, null, 2));
+      expect(result).toHaveLength(1);
+      expect(result[0]!.name).toBe("Size");
+    }, 180000);
+  },
+);
+
+describe.skipIf(!HAS_KEYS)("discoverProduct Amazon (real sites)", () => {
+  it("discovers Amazon product via pipeline fallback to browserbase", async () => {
+    const result = await discoverProduct(
+      "https://www.amazon.com/Amazon-Basics-Lightweight-Wrinkle-Free-Breathable/dp/B00Q7OAKV2",
+    );
+    console.log("discoverProduct Amazon:", JSON.stringify(result, null, 2));
+    expect(result.name).toBeTruthy();
+    expect(result.price).toBeTruthy();
+
+    const price = parseFloat(result.price);
+    expect(price).toBeGreaterThan(0);
+    expect(price).toBeLessThan(200);
+
+    // Amazon blocks Firecrawl and scrape, so should fall through to browserbase
+    // (unless Firecrawl improves its Amazon support)
+    expect(["firecrawl", "scrape", "browserbase"]).toContain(result.method);
+    console.log(`discoverProduct Amazon used method: ${result.method}`);
+  }, 150000);
 });
