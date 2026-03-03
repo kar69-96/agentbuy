@@ -1,16 +1,16 @@
 import {
   type Order,
   type Receipt,
-  ProxoError,
+  BloonError,
   ErrorCodes,
   getOrder,
   getWallet,
   updateOrder,
   loadConfig,
-} from "@proxo/core";
-import { getBalance, transferUSDC } from "@proxo/wallet";
-import { payX402 } from "@proxo/x402";
-import { runCheckout } from "@proxo/checkout";
+} from "@bloon/core";
+import { getBalance, transferUSDC } from "@bloon/wallet";
+import { payX402 } from "@bloon/x402";
+import { runCheckout } from "@bloon/checkout";
 import { buildReceipt } from "./receipts.js";
 
 export interface ConfirmInput {
@@ -28,7 +28,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   // 1. Look up order
   const order = getOrder(order_id);
   if (!order) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.ORDER_NOT_FOUND,
       `Order not found: ${order_id}`,
     );
@@ -41,7 +41,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
 
   // 3. Must be awaiting confirmation
   if (order.status !== "awaiting_confirmation") {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.ORDER_INVALID_STATUS,
       `Order ${order_id} cannot be confirmed (status: "${order.status}")`,
     );
@@ -50,7 +50,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   // 4. Expiry check
   if (new Date(order.expires_at) < new Date()) {
     await updateOrder(order_id, { status: "expired" });
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.ORDER_EXPIRED,
       `Order ${order_id} has expired`,
     );
@@ -63,7 +63,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   // 6. Load wallet and config
   const wallet = getWallet(order.wallet_id);
   if (!wallet) {
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.WALLET_NOT_FOUND,
       `Wallet not found: ${order.wallet_id}`,
     );
@@ -80,7 +80,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   const balance = await getBalance(wallet.address);
   if (parseFloat(balance) < parseFloat(transferAmount)) {
     await updateOrder(order_id, { status: "failed" });
-    throw new ProxoError(
+    throw new BloonError(
       ErrorCodes.INSUFFICIENT_BALANCE,
       `Insufficient balance at confirm time: have ${balance} USDC, need ${transferAmount} USDC`,
     );
@@ -132,7 +132,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
 
       // Run browser checkout
       if (!order.shipping) {
-        throw new ProxoError(
+        throw new BloonError(
           ErrorCodes.SHIPPING_REQUIRED,
           "Shipping info missing on order for browser checkout",
         );
@@ -183,7 +183,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       },
     });
 
-    if (error instanceof ProxoError) throw error;
-    throw new ProxoError(errorCode, errorMessage);
+    if (error instanceof BloonError) throw error;
+    throw new BloonError(errorCode, errorMessage);
   }
 }

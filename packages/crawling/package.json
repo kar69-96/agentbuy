@@ -1,5 +1,5 @@
 {
-  "name": "@bloon/checkout",
+  "name": "@bloon/crawling",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -8,9 +8,6 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@bloon/core": "workspace:*",
-    "@bloon/crawling": "workspace:*",
-    "@browserbasehq/stagehand": "^3.0.0",
-    "zod": "^3.22.0"
+    "@bloon/core": "workspace:*"
   }
 }

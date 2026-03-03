@@ -72,9 +72,10 @@ These are independent — knowing one doesn't reveal the other.
 
 ```
 packages/
-├── core/        # Types, fees, routing logic, store (JSON persistence)
+├── core/        # Types, fees, routing logic, store (JSON persistence), concurrency pool
 ├── wallet/      # viem wallet create, balance, QR, USDC transfer
 ├── x402/        # x402 detection + payment via @x402/fetch
+├── crawling/    # Firecrawl product discovery pipeline (self-hosted or cloud)
 ├── checkout/    # Browserbase sessions, Stagehand, credential fills, domain cache
 └── api/         # Hono server, routes, funding page HTML
 ```

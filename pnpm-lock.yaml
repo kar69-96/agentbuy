@@ -68,6 +68,9 @@ importers:
       '@bloon/core':
         specifier: workspace:*
         version: link:../core
+      '@bloon/crawling':
+        specifier: workspace:*
+        version: link:../crawling
       '@browserbasehq/stagehand':
         specifier: ^3.0.0
         version: 3.0.8(@cfworker/json-schema@4.1.1)(@opentelemetry/api@1.9.0)(deepmerge@4.3.1)(dotenv@16.6.1)(zod@3.25.76)
@@ -80,6 +83,12 @@ importers:
       dotenv:
         specifier: ^16.4.0
         version: 16.6.1
+
+  packages/crawling:
+    dependencies:
+      '@bloon/core':
+        specifier: workspace:*
+        version: link:../core
 
   packages/orchestrator:
     dependencies:

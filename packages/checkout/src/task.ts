@@ -1,6 +1,6 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import type { Page } from "@browserbasehq/stagehand";
-import type { Order, ShippingInfo } from "@proxo/core";
+import type { Order, ShippingInfo } from "@bloon/core";
 import { z } from "zod";
 import {
   buildCredentials,
@@ -16,7 +16,7 @@ import {
   injectDomainCache,
   injectLocalStorage,
 } from "./cache.js";
-import { createSession, destroySession, getAnthropicApiKey } from "./session.js";
+import { createSession, destroySession, getModelApiKey } from "./session.js";
 import type { SessionOptions } from "./session.js";
 import { createCheckoutTools } from "./agent-tools.js";
 import { StepTracker } from "./step-tracker.js";
@@ -167,7 +167,7 @@ export async function runCheckout(
   const cdpCreds = getCdpCredentials(creds);
 
   // 2. Validate keys early (fail fast with clear error)
-  const anthropicApiKey = getAnthropicApiKey();
+  const modelApiKey = getModelApiKey();
 
   // 3. Create Browserbase session
   const session = await createSession(input.sessionOptions);
@@ -182,7 +182,7 @@ export async function runCheckout(
       projectId: process.env.BROWSERBASE_PROJECT_ID!,
       model: {
         modelName: "anthropic/claude-haiku-4-5-20251001",
-        apiKey: anthropicApiKey,
+        apiKey: modelApiKey,
       },
       browserbaseSessionID: session.id,
       experimental: true,

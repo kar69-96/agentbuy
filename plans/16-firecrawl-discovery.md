@@ -6,29 +6,35 @@ Firecrawl is the **primary** product discovery tier. It runs before server-side 
 
 ```
 FIRECRAWL_API_KEY=fc-...
+FIRECRAWL_BASE_URL=http://localhost:3002   # default: self-hosted
+# or: FIRECRAWL_BASE_URL=https://api.firecrawl.dev  # cloud
 ```
 
-Required. If not set, Firecrawl tier is skipped entirely and discovery falls through to server-side scrape → Browserbase.
+`FIRECRAWL_API_KEY` is required. If not set, Firecrawl tier is skipped entirely and discovery falls through to server-side scrape → Browserbase.
+
+`FIRECRAWL_BASE_URL` defaults to `http://localhost:3002` (self-hosted). Set to `https://api.firecrawl.dev` for cloud.
 
 ## Pipeline Overview
 
 ```
-/extract on product URL (always — 1 API call)
+/scrape on product URL (always — 1 API call, 1 LLM call)
     │
     ├── No options detected → done (simple product)
     │
-    ├── Options + variant URLs detected → /extract on each variant URL → done
+    ├── Options + variant URLs detected → /scrape on each variant URL → done
     │
     └── Options detected + NO variant URLs → /crawl (maxDepth: 1) → done
 ```
 
 Three paths, mutually exclusive. Every product query starts with Step 1. Steps 2 and 3 only run when needed.
 
-## Step 1: `/extract` on Product URL
+## Step 1: `/scrape` on Product URL
 
 **Always runs.** Single API call that extracts structured product data from the rendered page.
 
-**Endpoint:** `POST https://api.firecrawl.dev/v1/extract`
+**Endpoint:** `POST {FIRECRAWL_BASE_URL}/v1/scrape`
+
+**Why `/scrape` instead of `/extract`:** The `/v1/extract` endpoint triggers a heavy internal pipeline (schema analysis, multi-entity detection, URL mapping/reranking, SmartScrape, JSON repair) totaling 3-10+ LLM calls per request. Since we always provide an exact URL and a fixed schema, `/v1/scrape` with `formats: ["json"]` + `jsonOptions` does the same single-page extraction with **1 LLM call**, eliminating all unnecessary overhead. This improves rate limit headroom from ~2-3 to ~20 extractions/min on Gemini free tier.
 
 **What it extracts:**
 
@@ -52,11 +58,11 @@ Three paths, mutually exclusive. Every product query starts with Step 1. Steps 2
 - If `options` has entries AND `variant_urls` is non-empty → go to Step 2.
 - If `options` has entries AND `variant_urls` is empty → go to Step 3.
 
-## Step 2: `/extract` on Each Variant URL
+## Step 2: `/scrape` on Each Variant URL
 
 **Runs when:** Step 1 found option groups (Color, Size, etc.) **and** variant URLs.
 
-For each variant URL, make a separate `/extract` call with the same product schema. Each call returns the product name, price, and selected options for that specific variant.
+For each variant URL, make a separate `/scrape` call with the same product schema + JSON format. Each call returns the product name, price, and selected options for that specific variant.
 
 **Caps:**
 - Max 20 variant URLs per product (to control credit spend)
@@ -147,7 +153,7 @@ These fall through to Browserbase Tier 3 (headless Chrome + Stagehand agent).
 ## Full Discovery Pipeline (All Tiers)
 
 ```
-1. Firecrawl /extract (primary — rich data + variant pricing)
+1. Firecrawl /scrape (primary — rich data + variant pricing, 1 LLM call)
       ↓ if Firecrawl fails or FIRECRAWL_API_KEY not set
 2. Server-side scrape (free — JSON-LD + meta tags)
       ↓ if scrape fails (bot-blocked, no structured data)
@@ -156,12 +162,50 @@ These fall through to Browserbase Tier 3 (headless Chrome + Stagehand agent).
    BloonError: QUERY_FAILED
 ```
 
+## Self-Hosted Firecrawl
+
+The `@bloon/crawling` package includes the open-source Firecrawl as a git submodule. Self-hosting eliminates cloud credit limits — extraction quality comes from whatever LLM you configure (we reuse the existing `GOOGLE_API_KEY` for Gemini).
+
+**Setup:**
+```bash
+# Initialize the submodule (one-time)
+cd packages/crawling && git submodule update --init
+
+# Start self-hosted Firecrawl (runs on port 3002)
+pnpm firecrawl:start
+
+# Check health
+pnpm firecrawl:health
+
+# Stop
+pnpm firecrawl:stop
+```
+
+**How it works:** The start script installs deps in `packages/crawling/firecrawl/apps/api` and runs the Firecrawl API server directly via Node. It configures the LLM via OpenAI-compatible API pointing to Gemini (`GOOGLE_API_KEY`).
+
+**Trade-offs vs cloud:**
+- No Fire Engine (anti-bot proxies) — not useful for our use case
+- No rate limits or credit caps
+- Same `/v1/scrape` and `/v1/crawl` endpoints
+- LLM quality depends on your configured model (Gemini 2.5 Flash by default)
+
 ## Files
 
 | File | Role |
 |------|------|
-| `packages/checkout/src/discover.ts` | All discovery logic: Firecrawl, scrape, Browserbase |
-| `packages/checkout/src/session.ts` | Browserbase session lifecycle |
-| `packages/checkout/src/cost-tracker.ts` | Credit and session cost instrumentation |
-| `packages/checkout/tests/e2e-discover.test.ts` | E2E tests against real sites |
-| `packages/checkout/tests/variant-price.test.ts` | Unit tests for variant price resolution |
+| `packages/crawling/src/discover.ts` | Firecrawl 3-step discovery pipeline entry point |
+| `packages/crawling/src/extract.ts` | `/v1/scrape` + JSON format wrapper (synchronous, 1 LLM call per URL) |
+| `packages/crawling/src/crawl.ts` | `/v1/crawl` async wrapper |
+| `packages/crawling/src/variant.ts` | Step 2 + Step 3 variant price resolution |
+| `packages/crawling/src/client.ts` | Config: `getFirecrawlConfig()` (base URL + API key) |
+| `packages/crawling/src/helpers.ts` | Price utilities: `stripCurrencySymbol`, `mapOptions`, `computeWordOverlap` |
+| `packages/crawling/src/poll.ts` | Async job polling |
+| `packages/crawling/src/constants.ts` | Schema, prompt, limits |
+| `packages/crawling/src/types.ts` | `FirecrawlExtract`, `FirecrawlConfig` |
+| `packages/crawling/firecrawl/` | Git submodule → github.com/mendableai/firecrawl |
+| `packages/crawling/scripts/` | `start.sh`, `stop.sh`, `health.sh` |
+| `packages/checkout/src/discover.ts` | Scrape + Browserbase discovery (imports `discoverViaFirecrawl` from `@bloon/crawling`) |
+| `packages/checkout/tests/e2e-discover.test.ts` | E2E tests for scrape + browser tiers |
+| `packages/crawling/tests/discover.test.ts` | 24 unit tests for Firecrawl pipeline |
+| `packages/crawling/tests/e2e.test.ts` | E2E tests against real sites via Firecrawl |
+| `packages/crawling/tests/comparison.test.ts` | Self-hosted vs cloud baseline validation |

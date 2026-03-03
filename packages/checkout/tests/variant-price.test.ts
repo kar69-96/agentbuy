@@ -28,6 +28,7 @@ vi.mock("../src/session.js", () => ({
   createSession: vi.fn().mockResolvedValue({ id: "test-session-id", connectUrl: "", replayUrl: "" }),
   destroySession: vi.fn().mockResolvedValue(undefined),
   getModelApiKey: vi.fn().mockReturnValue("test-api-key"),
+  getQueryModelApiKey: vi.fn().mockReturnValue("test-query-api-key"),
   getBrowserbaseConfig: vi.fn().mockReturnValue({ apiKey: "bb-key", projectId: "bb-proj" }),
 }));
 
