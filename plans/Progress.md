@@ -4,36 +4,45 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-03-03 (session 3)
+**Last updated:** 2026-03-04 (session 5 — AgentMail email verification)
 
 ### Summary
 
 - TypeScript: all packages compile cleanly
-- **3 stores fully passing** (Allbirds, Glossier, Stripe) — full product → checkout → shipping + card fill → total extraction
-- 17 store test cases in `tests/buy/checkout.test.ts`
-- Key breakthrough: **cross-origin iframe card fill working** — Stripe Elements card fields filled via `frame.locator().type()` (CDP-backed) + `frame.evaluate()` fallback for card number
+- 241 unit tests passing, 26 test files passing (3 pre-existing network failures unrelated to changes)
+- New: **AgentMail integration** for checkout email verification code support
 
-### E2E Checkout Test Results (dry-run mode)
+### Unit Test Results
 
-| Store | Status | Flow | Duration | Notes |
-|-------|--------|------|----------|-------|
-| **Allbirds** | **PASS** | product → size 10 → ATC → checkout → shipping (9 fields) → total $200.00 | 149s | Full Shopify flow |
-| **Glossier** | **PASS** | product → ATC → /checkout → shipping (9 fields) → total $192.00 | 97s | Combined checkout page |
-| **Stripe** | **PASS** | payment-gateway → shipping (7 fields) → card (3 fields via iframe) → total $43.94 | 97s | Cross-origin iframe card fill working |
-| Bombas | FAIL | Product needs more selections than Size: M (color/pattern required) | — | Test data issue |
-| Target | PARTIAL | Bot detection blocked page content (2919 tokens) | — | Browserbase stealth limitation |
-| Best Buy | NOT TESTED | — | — | Likely bot detection |
-| Walmart | NOT TESTED | — | — | Likely bot detection |
-| Amazon | NOT TESTED | — | — | Requires login |
-| Nike | TIMEOUT | Inconsistent: sometimes reaches checkout, sometimes stuck on cart | 180s | Cart button matching varies |
-| Etsy | FAIL | Product page detected as "unknown" (bot protection?) | 94s | ATC not detected |
-| Nordstrom | PARTIAL | Product → size M → ATC → login gate (requires account) | 103s | No guest checkout |
-| Home Depot | PARTIAL | Bot detection blocked content (812 tokens) | — | Browserbase stealth limitation |
-| B&H Photo | FAIL | Cart page stuck — checkout button not found | — | Non-standard cart buttons |
-| Apple | FAIL | Stale product URL → redirected to search page | 96s | Test data needs update |
-| Wikipedia | PARTIAL | Donation landing page — LLM couldn't navigate complex form | 95s | Donation flow needs tuning |
+```
+Test Files  26 passed | 2 failed (28)
+     Tests  241 passed | 3 failed (244)
+```
+
+Pre-existing failures (not related to AgentMail changes):
+- `gas-network.test.ts` (2 tests) — requires funded wallet on Base Sepolia
+- `wikipedia-donation.test.ts` (1 test) — E2E browser session test
 
 ### Recent Changes (this session)
+
+| Change | File | Description |
+|--------|------|-------------|
+| **ADD: AgentMail client module** | `agentmail.ts` | Singleton `AgentMailClient`, lazy inbox creation, `pollForVerificationCode()` with code extraction patterns |
+| **ADD: `"email-verification"` page type** | `scripted-actions.ts` | DOM detection (text signals + OTP input selectors), added to `PageType` union |
+| ADD: `scriptedFillVerificationCode()` | `scripted-actions.ts` | Fills OTP/code inputs via native setter + events; handles single input, named inputs, split OTP (maxlength=1), short maxlength inputs |
+| ADD: email-verification handler | `task.ts` | New case in page loop: polls AgentMail → fills code → clicks verify/submit/continue |
+| ADD: agent email swap | `task.ts` | When `AGENTMAIL_API_KEY` is set, replaces shipping email with AgentMail address before checkout |
+| ADD: `VERIFY_EMAIL` step | `task.ts` | New checkout step for email verification tracking |
+| ADD: LLM fallback instruction | `task.ts` | `"email-verification"` case in `buildPageInstruction()` with code value |
+| ADD: `agentmail` dependency | `package.json` | `agentmail@^0.3.7` added to checkout package |
+| ADD: exports | `index.ts` | `getOrCreateInbox`, `getAgentEmail`, `pollForVerificationCode`, `resetAgentMail`, `scriptedFillVerificationCode` exported |
+| ADD: spec doc | `plans/18-agentmail.md` | AgentMail integration specification |
+| ADD: env config | `plans/10-environment-setup.md` | `AGENTMAIL_API_KEY` documented |
+| ADD: plans reference | `CLAUDE.md` | `18-agentmail.md` added to plans table |
+
+### Previous Session Changes
+
+### Previous Session Changes
 
 | Change | File | Description |
 |--------|------|-------------|
@@ -82,10 +91,12 @@ for pageIdx = 0..19:
      login-gate → click guest/continue
      shipping-form → fillShipping() + LLM supplement if <3 fields, click continue
      payment-form/gateway → fill shipping if not done, fillCardFields(), fillBilling()
+     error → extractErrorMessage(), return { success: false, type, message }
      confirmation → extractConfirmationData(), return
   5. Stall detection: same URL + same pageType → increment counter (5 = stuck)
-  6. LLM fallback if scripted failed OR stalled ≥2 times
-  7. Post-LLM: mark selectionsApplied, try scripted ATC, check for confirmation
+  6. Post-action: check for confirmation OR error page
+  7. LLM fallback if scripted failed OR stalled ≥2 times
+  8. Post-LLM: mark selectionsApplied, try scripted ATC, check for confirmation OR error
 ```
 
 ---

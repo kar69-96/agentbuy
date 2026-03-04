@@ -32,6 +32,7 @@ BROWSERBASE_API_KEY=bb_live_...
 BROWSERBASE_PROJECT_ID=proj_...
 FIRECRAWL_API_KEY=fc-...           # Optional. Enables Firecrawl as primary discovery tier.
 GOOGLE_API_KEY=...                 # For Stagehand LLM (Gemini 2.5 Flash)
+AGENTMAIL_API_KEY=am_...           # Optional. AgentMail API key for checkout email verification codes.
 
 # ---- Blockchain ----
 BASE_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY

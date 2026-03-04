@@ -12,10 +12,12 @@ export type PageType =
   | "product"
   | "cart"
   | "login-gate"
+  | "email-verification"
   | "shipping-form"
   | "payment-form"
   | "payment-gateway"
   | "confirmation"
+  | "error"
   | "unknown";
 
 // ---- Card field selectors (mirrors agent-tools.ts CARD_FIELD_SELECTORS) ----
@@ -643,7 +645,35 @@ export async function detectPageType(page: Page): Promise<PageType> {
       const isConfirmUrl = url.includes("/confirmation") || url.includes("/thank-you") ||
         url.includes("/order-complete") || url.includes("/order-confirmation");
       if (confirmCount >= 2 || (confirmCount >= 1 && isConfirmUrl)) {
-        return "confirmation" as const;
+        // Check for error signals even on apparent confirmation pages
+        // "Your order could not be placed" contains "order" but is an error
+        const errorTextSignals = [
+          // Payment declines
+          "card was declined", "card has been declined", "payment was declined",
+          "payment declined", "transaction was declined", "transaction declined",
+          "your card was denied", "payment was not successful",
+          "unable to process your payment", "could not process your payment",
+          "payment could not be completed", "we couldn't process your payment",
+          // Card validation
+          "invalid card number", "card number is invalid", "card has expired",
+          "incorrect cvc", "incorrect cvv", "security code is incorrect",
+          "card was not accepted", "card is not supported",
+          // Order-level errors
+          "order could not be placed", "order could not be completed",
+          "unable to place your order", "unable to complete your order",
+          "we were unable to process", "there was a problem with your order",
+          // Out of stock
+          "sold out", "out of stock", "no longer available", "item is unavailable",
+          // Generic checkout errors
+          "something went wrong", "an error occurred", "please try again",
+          "transaction failed", "payment failed", "purchase failed",
+          "insufficient funds", "do not honor",
+        ];
+        const errorOnConfirmCount = errorTextSignals.filter(s => text.includes(s)).length;
+        if (errorOnConfirmCount === 0) {
+          return "confirmation" as const;
+        }
+        // Error signals found on confirmation-like page → fall through to error check
       }
 
       // Shared signals used by multiple detectors
@@ -696,6 +726,25 @@ export async function detectPageType(page: Page): Promise<PageType> {
       ).length;
       if (shippingFieldCount >= 2 || (isCheckoutUrl && shippingFieldCount >= 1)) {
         return "shipping-form" as const;
+      }
+
+      // Email verification / OTP page — check BEFORE email-only step
+      const verificationSignals = [
+        "verification code", "enter code", "enter the code",
+        "we sent", "we've sent", "check your email",
+        "confirm your email", "one-time", "otp",
+      ];
+      const verificationCount = verificationSignals.filter(s => text.includes(s)).length;
+      const otpInputs = document.querySelectorAll(
+        'input[autocomplete="one-time-code"], ' +
+        'input[name*="code" i], input[name*="otp" i], input[name*="verification" i], ' +
+        'input[name*="token" i], input[id*="code" i], input[id*="otp" i], ' +
+        'input[maxlength="1"], input[maxlength="4"], input[maxlength="5"], ' +
+        'input[maxlength="6"], input[maxlength="7"], input[maxlength="8"]'
+      );
+      // Require both text signals AND short code inputs (avoid false positives)
+      if (verificationCount >= 1 && otpInputs.length > 0) {
+        return "email-verification" as const;
       }
 
       // Email-only step (common in Shopify) — treat as shipping-form
@@ -753,6 +802,66 @@ export async function detectPageType(page: Page): Promise<PageType> {
       // Product page fallback (for pages on checkout URLs that also have ATC)
       if (hasAddToCart || hasAtcText) {
         return "product" as const;
+      }
+
+      // Error page — checked LAST so product/payment/shipping pages aren't misclassified
+      // (e.g., Stripe demo mentions "payment failed" in description but is a product page)
+      const errorTextSignals = [
+        // Payment declines
+        "card was declined", "card has been declined", "payment was declined",
+        "payment declined", "transaction was declined", "transaction declined",
+        "your card was denied", "payment was not successful",
+        "unable to process your payment", "could not process your payment",
+        "payment could not be completed", "we couldn't process your payment",
+        // Card validation
+        "invalid card number", "card number is invalid", "card has expired",
+        "incorrect cvc", "incorrect cvv", "security code is incorrect",
+        "card was not accepted", "card is not supported",
+        // Order-level errors
+        "order could not be placed", "order could not be completed",
+        "unable to place your order", "unable to complete your order",
+        "we were unable to process", "there was a problem with your order",
+        // Out of stock
+        "sold out", "out of stock", "no longer available", "item is unavailable",
+        // Generic checkout errors
+        "something went wrong", "an error occurred", "please try again",
+        "transaction failed", "payment failed", "purchase failed",
+        "insufficient funds", "do not honor",
+      ];
+      const errorTextCount = errorTextSignals.filter(s => text.includes(s)).length;
+
+      // CSS-based error detection — visible elements with error-confirming text
+      const errorCssSelectors = [
+        '[role="alert"]', '[class*="error" i]', '[class*="decline" i]',
+        '[class*="alert-danger" i]', '[class*="alert-error" i]',
+        '[class*="payment-error" i]', '[class*="form-error" i]',
+        '[data-testid*="error" i]', '[id*="error-message" i]',
+      ];
+      const errorConfirmingPhrases = [
+        "declined", "failed", "invalid", "expired", "denied",
+        "unable to", "could not", "cannot", "error", "problem",
+        "sold out", "out of stock", "unavailable", "insufficient",
+      ];
+      let cssErrorCount = 0;
+      for (const sel of errorCssSelectors) {
+        const els = document.querySelectorAll(sel);
+        for (const el of els) {
+          const htmlEl = el as HTMLElement;
+          // Must be visible
+          const style = getComputedStyle(htmlEl);
+          if (style.display === "none" || style.visibility === "hidden") continue;
+          if (htmlEl.offsetParent === null && style.position !== "fixed" && style.position !== "sticky") continue;
+          // Must contain error-confirming text
+          const elText = (htmlEl.textContent || "").toLowerCase();
+          if (errorConfirmingPhrases.some(p => elText.includes(p))) {
+            cssErrorCount++;
+          }
+        }
+      }
+
+      // Trigger error if ≥1 text signal OR ≥2 CSS error elements
+      if (errorTextCount >= 1 || cssErrorCount >= 2) {
+        return "error" as const;
       }
 
       return "unknown" as const;
@@ -818,4 +927,149 @@ export async function extractVisibleTotal(page: Page): Promise<string | undefine
     }
     return undefined;
   });
+}
+
+// ---- Error message extraction ----
+
+export type ErrorType = "payment_declined" | "card_invalid" | "out_of_stock" | "checkout_error";
+
+export interface ErrorData {
+  type: ErrorType;
+  message: string;
+}
+
+export async function extractErrorMessage(page: Page): Promise<ErrorData> {
+  return page.evaluate(() => {
+    const text = (document.body.textContent || "").toLowerCase();
+
+    // Classify error type
+    const declinePatterns = [
+      "card was declined", "card has been declined", "payment was declined",
+      "payment declined", "transaction was declined", "transaction declined",
+      "your card was denied", "payment was not successful",
+      "unable to process your payment", "could not process your payment",
+      "payment could not be completed", "we couldn't process your payment",
+      "transaction failed", "payment failed", "insufficient funds", "do not honor",
+    ];
+    const cardInvalidPatterns = [
+      "invalid card number", "card number is invalid", "card has expired",
+      "incorrect cvc", "incorrect cvv", "security code is incorrect",
+      "card was not accepted", "card is not supported",
+    ];
+    const outOfStockPatterns = [
+      "sold out", "out of stock", "no longer available", "item is unavailable",
+    ];
+
+    let type: "payment_declined" | "card_invalid" | "out_of_stock" | "checkout_error" = "checkout_error";
+    if (declinePatterns.some(p => text.includes(p))) type = "payment_declined";
+    else if (cardInvalidPatterns.some(p => text.includes(p))) type = "card_invalid";
+    else if (outOfStockPatterns.some(p => text.includes(p))) type = "out_of_stock";
+
+    // Extract visible error text from DOM containers
+    const errorSelectors = [
+      '[role="alert"]', '[class*="error" i]', '[class*="decline" i]',
+      '[class*="alert-danger" i]', '[class*="alert-error" i]',
+      '[class*="payment-error" i]', '[class*="form-error" i]',
+      '[data-testid*="error" i]', '[id*="error-message" i]',
+    ];
+    const errorConfirming = [
+      "declined", "failed", "invalid", "expired", "denied",
+      "unable to", "could not", "cannot", "error", "problem",
+      "sold out", "out of stock", "unavailable", "insufficient",
+    ];
+
+    for (const sel of errorSelectors) {
+      const els = document.querySelectorAll(sel);
+      for (const el of els) {
+        const htmlEl = el as HTMLElement;
+        const style = getComputedStyle(htmlEl);
+        if (style.display === "none" || style.visibility === "hidden") continue;
+        if (htmlEl.offsetParent === null && style.position !== "fixed" && style.position !== "sticky") continue;
+        const elText = (htmlEl.textContent || "").trim();
+        if (elText.length > 0 && elText.length < 500 && errorConfirming.some(p => elText.toLowerCase().includes(p))) {
+          return { type, message: elText };
+        }
+      }
+    }
+
+    // Fallback: find matching error phrase in full page text
+    const allPatterns = [...declinePatterns, ...cardInvalidPatterns, ...outOfStockPatterns,
+      "something went wrong", "an error occurred", "please try again",
+      "purchase failed", "order could not be placed", "order could not be completed",
+      "unable to place your order", "unable to complete your order",
+      "there was a problem with your order",
+    ];
+    for (const p of allPatterns) {
+      if (text.includes(p)) {
+        return { type, message: p };
+      }
+    }
+
+    return { type, message: "Unknown checkout error" };
+  });
+}
+
+// ---- Scripted verification code fill ----
+
+export async function scriptedFillVerificationCode(
+  page: Page,
+  code: string,
+): Promise<boolean> {
+  return page.evaluate((c) => {
+    function fillInput(el: HTMLInputElement, value: string) {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype, "value",
+      )?.set;
+      setter?.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.dispatchEvent(new Event("blur", { bubbles: true }));
+    }
+
+    // 1. Try autocomplete="one-time-code" first
+    const otcInput = document.querySelector<HTMLInputElement>(
+      'input[autocomplete="one-time-code"]'
+    );
+    if (otcInput) {
+      fillInput(otcInput, c);
+      return true;
+    }
+
+    // 2. Try named code/otp/verification inputs
+    const namedSelectors = [
+      'input[name*="code" i]', 'input[name*="otp" i]', 'input[name*="verification" i]',
+      'input[name*="token" i]', 'input[id*="code" i]', 'input[id*="otp" i]',
+    ];
+    for (const sel of namedSelectors) {
+      const el = document.querySelector<HTMLInputElement>(sel);
+      if (el && el.type !== "hidden") {
+        fillInput(el, c);
+        return true;
+      }
+    }
+
+    // 3. Split OTP inputs — multiple adjacent single-char inputs (maxlength=1)
+    const splitInputs = document.querySelectorAll<HTMLInputElement>(
+      'input[maxlength="1"]'
+    );
+    if (splitInputs.length >= 4 && splitInputs.length <= 8 && c.length === splitInputs.length) {
+      for (let i = 0; i < splitInputs.length; i++) {
+        fillInput(splitInputs[i]!, c[i]!);
+      }
+      return true;
+    }
+
+    // 4. Short maxlength inputs (4-8 chars)
+    for (let len = 4; len <= 8; len++) {
+      const el = document.querySelector<HTMLInputElement>(
+        `input[maxlength="${len}"]`
+      );
+      if (el && el.type !== "hidden") {
+        fillInput(el, c);
+        return true;
+      }
+    }
+
+    return false;
+  }, code);
 }

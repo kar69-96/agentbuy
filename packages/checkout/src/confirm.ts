@@ -29,6 +29,21 @@ const NEGATIVE_SIGNALS: readonly string[] = [
   "enter your",
   "sign in",
   "create account",
+  // Error/decline signals — prevent false-positive confirmations
+  "payment declined",
+  "card was declined",
+  "card has been declined",
+  "transaction failed",
+  "transaction declined",
+  "payment failed",
+  "order could not be placed",
+  "order could not be completed",
+  "unable to process your payment",
+  "insufficient funds",
+  "out of stock",
+  "sold out",
+  "card has expired",
+  "invalid card number",
 ];
 
 export interface ConfirmationResult {

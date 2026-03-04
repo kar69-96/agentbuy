@@ -199,6 +199,7 @@ All specification docs are in `plans/`:
 | `15-coinbase-onramp.md` | Coinbase Onramp Guest Checkout integration spec |
 | `16-firecrawl-discovery.md` | Firecrawl product discovery pipeline (3-step: extract → variant extract → crawl) |
 | `17-query-endpoint.md` | Query endpoint deep dive: route detection → 3-tier discovery → response |
+| `18-agentmail.md` | AgentMail integration for checkout email verification codes |
 | `skill.md` | Agent-facing API quick reference (lives in `/docs/skill.md`) |
 
 ## Documentation Sync

@@ -25,11 +25,14 @@ import {
   scriptedUncheckBillingSameAsShipping,
   scriptedClickButton,
   scriptedSelectOption,
+  scriptedFillVerificationCode,
   detectPageType,
   extractConfirmationData,
   extractVisibleTotal,
+  extractErrorMessage,
 } from "./scripted-actions.js";
 import type { PageType } from "./scripted-actions.js";
+import { getOrCreateInbox, getAgentEmail, pollForVerificationCode } from "./agentmail.js";
 
 // ---- Checkout steps ----
 
@@ -44,9 +47,11 @@ export const CHECKOUT_STEPS = {
   OBSERVE_CARD_FIELDS: "observe-card-fields",
   FILL_CARD: "fill-card",
   FILL_BILLING: "fill-billing",
+  VERIFY_EMAIL: "verify-email",
   VERIFY_PRICE: "verify-price",
   PLACE_ORDER: "place-order",
   VERIFY_CONFIRMATION: "verify-confirmation",
+  CHECKOUT_ERROR: "checkout-error",
 } as const;
 
 export type CheckoutStep = (typeof CHECKOUT_STEPS)[keyof typeof CHECKOUT_STEPS];
@@ -102,6 +107,7 @@ interface LoopState {
   lastUrl: string;
   lastPageType: PageType | null;
   stallCount: number;
+  verificationCode?: string;
   confirmationData?: { orderNumber?: string; total?: string };
 }
 
@@ -116,6 +122,8 @@ function pageTypeToStep(pageType: PageType): CheckoutStep {
       return "proceed-to-checkout";
     case "login-gate":
       return "proceed-to-checkout";
+    case "email-verification":
+      return "verify-email";
     case "shipping-form":
       return "fill-shipping";
     case "payment-form":
@@ -123,6 +131,8 @@ function pageTypeToStep(pageType: PageType): CheckoutStep {
       return "fill-card";
     case "confirmation":
       return "verify-confirmation";
+    case "error":
+      return "checkout-error";
     default:
       return "navigate";
   }
@@ -186,6 +196,9 @@ function buildPageInstruction(
 
     case "login-gate":
       return `${ctx}${stallHint}Click "Guest Checkout", "Continue as Guest", or "Continue without account" to skip login. Do NOT create an account.`;
+
+    case "email-verification":
+      return `${ctx}${stallHint}Enter the verification code that was sent to the email address. The code is: ${state.verificationCode ?? "still being retrieved"}. If you see a code input field, enter it and click Verify/Submit/Continue.`;
 
     case "shipping-form": {
       if (!state.shippingFilled) {
@@ -251,6 +264,20 @@ export async function runCheckout(
     zip: stagehandVars.x_billing_zip ?? "",
     country: stagehandVars.x_billing_country ?? "",
   };
+
+  // 3b. AgentMail — replace shipping email with agent inbox for verification support
+  let agentInboxId: string | null = null;
+  if (process.env.AGENTMAIL_API_KEY) {
+    try {
+      const inbox = await getOrCreateInbox();
+      agentInboxId = inbox.inboxId;
+      shippingData.email = inbox.email;
+      stagehandVars.x_shipping_email = inbox.email;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log(`  [agentmail] init failed, using original email: ${msg.slice(0, 100)}`);
+    }
+  }
 
   // 4. Validate keys early (fail fast with clear error)
   const modelApiKey = getModelApiKey();
@@ -444,6 +471,33 @@ export async function runCheckout(
           break;
         }
 
+        case "email-verification": {
+          // Poll AgentMail for verification code
+          if (agentInboxId) {
+            const pollStart = new Date().toISOString();
+            const code = await pollForVerificationCode(agentInboxId, pollStart, 60_000);
+
+            if (code) {
+              state.verificationCode = code;
+              const filled = await scriptedFillVerificationCode(page, code);
+              if (filled) {
+                console.log(`  [email-verification] filled code: ${code}`);
+                await page.waitForTimeout(1000);
+                advanced =
+                  await scriptedClickButton(page, "verify") ||
+                  await scriptedClickButton(page, "submit") ||
+                  await scriptedClickButton(page, "continue") ||
+                  await scriptedClickButton(page, "confirm");
+              }
+            } else {
+              console.log("  [email-verification] timed out waiting for code");
+            }
+          } else {
+            console.log("  [email-verification] no AgentMail inbox available");
+          }
+          break;
+        }
+
         case "shipping-form": {
           const filled = await scriptedFillShipping(page, shippingData);
           state.shippingFilled = filled.length > 0;
@@ -574,6 +628,30 @@ export async function runCheckout(
             await scriptedClickButton(page, "confirm order") ||
             await scriptedClickButton(page, "pay") ||
             await scriptedClickButton(page, "submit payment");
+
+          // Post-submit: check for inline validation errors (async merchant responses)
+          if (advanced) {
+            await page.waitForTimeout(3000);
+            const postSubmitType = await detectPageType(page);
+            if (postSubmitType === "error") {
+              const errorData = await extractErrorMessage(page);
+              console.log(`  [post-submit error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+
+              try {
+                const newCache = await extractDomainCache(page, domain);
+                saveDomainCache(newCache);
+              } catch { /* best-effort */ }
+
+              return {
+                success: false,
+                sessionId: session.id,
+                replayUrl: session.replayUrl,
+                failedStep: CHECKOUT_STEPS.CHECKOUT_ERROR as CheckoutStep,
+                errorMessage: `${errorData.type}: ${errorData.message}`,
+                durationMs: Date.now() - startMs,
+              };
+            }
+          }
           break;
         }
 
@@ -595,6 +673,26 @@ export async function runCheckout(
             finalTotal: data.total,
             sessionId: session.id,
             replayUrl: session.replayUrl,
+            durationMs: Date.now() - startMs,
+          };
+        }
+
+        case "error": {
+          const errorData = await extractErrorMessage(page);
+          console.log(`  [error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+
+          // Save domain cache before returning
+          try {
+            const newCache = await extractDomainCache(page, domain);
+            saveDomainCache(newCache);
+          } catch { /* best-effort */ }
+
+          return {
+            success: false,
+            sessionId: session.id,
+            replayUrl: session.replayUrl,
+            failedStep: CHECKOUT_STEPS.CHECKOUT_ERROR as CheckoutStep,
+            errorMessage: `${errorData.type}: ${errorData.message}`,
             durationMs: Date.now() - startMs,
           };
         }
@@ -621,7 +719,7 @@ export async function runCheckout(
         break;
       }
 
-      // 9f. Check if we reached confirmation after scripted actions
+      // 9f. Check if we reached confirmation or error after scripted actions
       if (advanced) {
         await page.waitForTimeout(2000);
         const postType = await detectPageType(page);
@@ -642,6 +740,24 @@ export async function runCheckout(
             finalTotal: data.total,
             sessionId: session.id,
             replayUrl: session.replayUrl,
+            durationMs: Date.now() - startMs,
+          };
+        }
+        if (postType === "error") {
+          const errorData = await extractErrorMessage(page);
+          console.log(`  [post-action error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+
+          try {
+            const newCache = await extractDomainCache(page, domain);
+            saveDomainCache(newCache);
+          } catch { /* best-effort */ }
+
+          return {
+            success: false,
+            sessionId: session.id,
+            replayUrl: session.replayUrl,
+            failedStep: CHECKOUT_STEPS.CHECKOUT_ERROR as CheckoutStep,
+            errorMessage: `${errorData.type}: ${errorData.message}`,
             durationMs: Date.now() - startMs,
           };
         }
@@ -702,7 +818,7 @@ export async function runCheckout(
           }
         }
 
-        // Check for navigation / confirmation after LLM action
+        // Check for navigation / confirmation / error after LLM action
         // Wait longer when item is in cart (Shopify checkout redirects can take 5+ seconds)
         const postLlmWait = state.addedToCart ? 5000 : 2000;
         await page.waitForTimeout(postLlmWait);
@@ -723,6 +839,24 @@ export async function runCheckout(
             finalTotal: data.total,
             sessionId: session.id,
             replayUrl: session.replayUrl,
+            durationMs: Date.now() - startMs,
+          };
+        }
+        if (postLlmType === "error") {
+          const errorData = await extractErrorMessage(page);
+          console.log(`  [post-llm error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+
+          try {
+            const newCache = await extractDomainCache(page, domain);
+            saveDomainCache(newCache);
+          } catch { /* best-effort */ }
+
+          return {
+            success: false,
+            sessionId: session.id,
+            replayUrl: session.replayUrl,
+            failedStep: CHECKOUT_STEPS.CHECKOUT_ERROR as CheckoutStep,
+            errorMessage: `${errorData.type}: ${errorData.message}`,
             durationMs: Date.now() - startMs,
           };
         }
