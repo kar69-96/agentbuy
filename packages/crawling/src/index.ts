@@ -27,6 +27,7 @@ export {
   extractPriceFromString,
   mapOptions,
   computeWordOverlap,
+  isValidPrice,
 } from "./helpers.js";
 
 // ---- Lower-level functions ----

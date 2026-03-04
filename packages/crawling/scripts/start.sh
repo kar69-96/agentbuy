@@ -18,6 +18,34 @@ if [ -z "$FIRECRAWL_LLM_KEY" ]; then
   exit 1
 fi
 
+# ---- Start Browserbase adapter (Playwright microservice for Firecrawl) ----
+ADAPTER_PORT="${ADAPTER_PORT:-3003}"
+echo "Starting Browserbase adapter on port $ADAPTER_PORT..."
+
+if [ -z "${BROWSERBASE_API_KEY:-}" ] || [ -z "${BROWSERBASE_PROJECT_ID:-}" ]; then
+  echo "Warning: BROWSERBASE_API_KEY or BROWSERBASE_PROJECT_ID not set — adapter will not start"
+  echo "  Firecrawl will use fetch-only engine (no JS rendering)"
+else
+  ADAPTER_PORT="$ADAPTER_PORT" npx tsx "$CRAWLING_DIR/src/browserbase-adapter.ts" &
+  ADAPTER_PID=$!
+  echo "Browserbase adapter PID: $ADAPTER_PID"
+  echo "$ADAPTER_PID" > "$CRAWLING_DIR/.adapter.pid"
+
+  # Wait for adapter health
+  for i in $(seq 1 15); do
+    if curl -sf "http://localhost:$ADAPTER_PORT/health" > /dev/null 2>&1; then
+      echo "Browserbase adapter is ready on port $ADAPTER_PORT"
+      break
+    fi
+    sleep 1
+  done
+
+  export PLAYWRIGHT_MICROSERVICE_URL="http://localhost:$ADAPTER_PORT/scrape"
+  echo "  PLAYWRIGHT_MICROSERVICE_URL=$PLAYWRIGHT_MICROSERVICE_URL"
+fi
+
+# ---- Start Firecrawl API ----
+echo ""
 echo "Starting Firecrawl API from source..."
 echo "  Directory: $FIRECRAWL_DIR"
 echo "  Port: ${FIRECRAWL_PORT:-3002}"

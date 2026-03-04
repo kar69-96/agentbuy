@@ -1,6 +1,6 @@
 import type { ProductOption } from "@bloon/core";
 import { getFirecrawlConfig } from "./client.js";
-import { stripCurrencySymbol, mapOptions } from "./helpers.js";
+import { stripCurrencySymbol, mapOptions, isValidPrice } from "./helpers.js";
 import { firecrawlExtractAsync } from "./extract.js";
 import {
   resolveVariantPricesViaFirecrawl,
@@ -29,12 +29,18 @@ export async function discoverViaFirecrawl(
   if (!config) return null;
 
   try {
-    // Step 1: /extract on product URL
-    const results = await firecrawlExtractAsync([url], config, 60_000);
+    // Step 1: /extract on product URL (3 attempts with exponential backoff)
+    let results: Awaited<ReturnType<typeof firecrawlExtractAsync>> = null;
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 2000 * 2 ** (attempt - 1)));
+      results = await firecrawlExtractAsync([url], config, 90_000);
+      if (results?.length) break;
+    }
     const isNullish = (v: unknown): boolean =>
       !v || v === "null" || v === "undefined";
     if (isNullish(results?.[0]?.name) || isNullish(results?.[0]?.price))
       return null;
+    if (!isValidPrice(results![0].price!)) return null;
     const extract = results![0];
 
     let options = mapOptions(extract.options);

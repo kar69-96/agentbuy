@@ -8,6 +8,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@bloon/core": "workspace:*"
+    "@bloon/core": "workspace:*",
+    "playwright-core": "^1.50.0"
   }
 }

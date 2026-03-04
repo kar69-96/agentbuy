@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { discoverViaFirecrawl } from "../src/discover.js";
+import { isValidPrice } from "../src/helpers.js";
 
 // Use a test base URL for all Firecrawl mock tests
 const TEST_BASE_URL = "https://api.firecrawl.dev";
+
+// Valid markdown content that passes the blocked-page check (>= 50 chars)
+const VALID_MD = "# Product Page\n\nThis is a real product page with enough content to pass validation checks.";
+const VALID_META = { statusCode: 200 };
 
 describe("discoverViaFirecrawl", () => {
   const originalApiKey = process.env.FIRECRAWL_API_KEY;
@@ -10,12 +15,14 @@ describe("discoverViaFirecrawl", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (originalApiKey !== undefined) {
       process.env.FIRECRAWL_API_KEY = originalApiKey;
     } else {
@@ -37,19 +44,23 @@ describe("discoverViaFirecrawl", () => {
   });
 
   it("returns null when API returns non-OK", async () => {
-    fetchSpy.mockResolvedValueOnce(new Response("error", { status: 500 }));
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    fetchSpy.mockResolvedValue(new Response("error", { status: 500 }));
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
     expect(result).toBeNull();
   });
 
   it("returns null when extract has no name/price", async () => {
-    fetchSpy.mockResolvedValueOnce(
+    fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({ success: true, data: { json: { description: "A product" } } }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
     expect(result).toBeNull();
   });
 
@@ -59,6 +70,8 @@ describe("discoverViaFirecrawl", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Tree Runner",
               price: "98.00",
@@ -105,7 +118,7 @@ describe("discoverViaFirecrawl", () => {
       new Response(
         JSON.stringify({
           success: true,
-          data: { json: { name: "Widget", price: "$99.99" } },
+          data: { markdown: VALID_MD, metadata: VALID_META, json: { name: "Widget", price: "$99.99" } },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -120,7 +133,7 @@ describe("discoverViaFirecrawl", () => {
       new Response(
         JSON.stringify({
           success: true,
-          data: { json: { name: "Simple Item", price: "10.00" } },
+          data: { markdown: VALID_MD, metadata: VALID_META, json: { name: "Simple Item", price: "10.00" } },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -136,6 +149,8 @@ describe("discoverViaFirecrawl", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Sneaker",
               price: "$120.00",
@@ -166,7 +181,7 @@ describe("discoverViaFirecrawl", () => {
       new Response(
         JSON.stringify({
           success: true,
-          data: { json: { name: "Test", price: "10.00" } },
+          data: { markdown: VALID_MD, metadata: VALID_META, json: { name: "Test", price: "10.00" } },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -185,7 +200,7 @@ describe("discoverViaFirecrawl", () => {
     const callArgs = fetchSpy.mock.calls[0];
     const body = JSON.parse(callArgs[1]!.body as string);
     expect(body.url).toBe("https://example.com/product");
-    expect(body.formats).toEqual(["json"]);
+    expect(body.formats).toEqual(["json", "markdown"]);
     expect(body.jsonOptions).toBeDefined();
     expect(body.jsonOptions.schema).toBeDefined();
     expect(body.jsonOptions.prompt).toBeDefined();
@@ -200,12 +215,14 @@ describe("discoverViaFirecrawl — scrape error handling", () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     if (originalApiKey !== undefined) {
       process.env.FIRECRAWL_API_KEY = originalApiKey;
     } else {
@@ -220,23 +237,27 @@ describe("discoverViaFirecrawl — scrape error handling", () => {
   });
 
   it("returns null when scrape response indicates failure", async () => {
-    fetchSpy.mockResolvedValueOnce(
+    fetchSpy.mockResolvedValue(
       new Response(JSON.stringify({ success: false }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
     );
 
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
     expect(result).toBeNull();
   });
 
   it("returns null when fetch rejects (e.g. timeout)", async () => {
-    fetchSpy.mockRejectedValueOnce(
+    fetchSpy.mockRejectedValue(
       new DOMException("The operation was aborted", "AbortError"),
     );
 
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
     expect(result).toBeNull();
   });
 
@@ -245,7 +266,7 @@ describe("discoverViaFirecrawl — scrape error handling", () => {
       new Response(
         JSON.stringify({
           success: true,
-          data: { json: { name: "Sync Product", price: "29.99" } },
+          data: { markdown: VALID_MD, metadata: VALID_META, json: { name: "Sync Product", price: "29.99" } },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -294,6 +315,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Sneaker",
               price: "$100.00",
@@ -315,6 +338,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Sneaker - Red",
               price: "$95.00",
@@ -330,6 +355,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Sneaker - Blue",
               price: "$110.00",
@@ -364,6 +391,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Product",
               price: "$50.00",
@@ -378,7 +407,7 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
 
     // Mock all variant extracts to return null (we're just counting calls)
     fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ success: true, data: { json: {} } }), {
+      new Response(JSON.stringify({ success: true, data: { markdown: VALID_MD, metadata: VALID_META, json: {} } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -397,6 +426,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Shirt",
               price: "$30.00",
@@ -418,6 +449,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Shirt",
               price: "$30.00",
@@ -433,6 +466,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Shirt",
               price: "$30.00",
@@ -457,6 +492,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Shoe",
               price: "$80.00",
@@ -479,6 +516,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Shoe",
               price: "$80.00",
@@ -497,6 +536,8 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Shoe",
               price: "$90.00",
@@ -554,6 +595,8 @@ describe("discoverViaFirecrawl — Step 3: crawl fallback", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Crest T-Shirt",
               price: "$25.00",
@@ -621,6 +664,8 @@ describe("discoverViaFirecrawl — Step 3: crawl fallback", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Classic Core Sheet Set",
               price: "$100.00",
@@ -680,6 +725,8 @@ describe("discoverViaFirecrawl — Step 3: crawl fallback", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Uniform Product",
               price: "$50.00",
@@ -737,6 +784,8 @@ describe("discoverViaFirecrawl — Step 3: crawl fallback", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Timeout Product",
               price: "$40.00",
@@ -805,7 +854,7 @@ describe("discoverViaFirecrawl — pipeline routing", () => {
       new Response(
         JSON.stringify({
           success: true,
-          data: { json: { name: "Simple Product", price: "$10.00" } },
+          data: { markdown: VALID_MD, metadata: VALID_META, json: { name: "Simple Product", price: "$10.00" } },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
@@ -825,6 +874,8 @@ describe("discoverViaFirecrawl — pipeline routing", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Product",
               price: "$50.00",
@@ -843,6 +894,8 @@ describe("discoverViaFirecrawl — pipeline routing", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Product Red",
               price: "$50.00",
@@ -871,6 +924,8 @@ describe("discoverViaFirecrawl — pipeline routing", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Product",
               price: "$50.00",
@@ -938,6 +993,8 @@ describe("discoverViaFirecrawl — field passthrough", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Product",
               price: "10.00",
@@ -960,6 +1017,8 @@ describe("discoverViaFirecrawl — field passthrough", () => {
         JSON.stringify({
           success: true,
           data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
             json: {
               name: "Premium Widget",
               price: "$99.99",
@@ -981,5 +1040,431 @@ describe("discoverViaFirecrawl — field passthrough", () => {
     expect(result!.currency).toBe("EUR");
     expect(result!.original_price).toBe("149.99");
     expect(result!.price).toBe("99.99");
+  });
+});
+
+// ---- Retry behavior + timeout tests ----
+
+describe("discoverViaFirecrawl — retry and timeout", () => {
+  const originalApiKey = process.env.FIRECRAWL_API_KEY;
+  const originalBaseUrl = process.env.FIRECRAWL_BASE_URL;
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    process.env.FIRECRAWL_API_KEY = "test-key";
+    process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalApiKey !== undefined) {
+      process.env.FIRECRAWL_API_KEY = originalApiKey;
+    } else {
+      delete process.env.FIRECRAWL_API_KEY;
+    }
+    if (originalBaseUrl !== undefined) {
+      process.env.FIRECRAWL_BASE_URL = originalBaseUrl;
+    } else {
+      delete process.env.FIRECRAWL_BASE_URL;
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it("retries with exponential backoff when first attempt returns null result", async () => {
+    // First call: returns blocked page (null result)
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Blocked", price: "$50.00" },
+            markdown: "Just a moment... Checking your browser.",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    // Second call (retry 1): also blocked
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Blocked", price: "$50.00" },
+            markdown: "Just a moment... Checking your browser.",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    // Third call (retry 2): returns valid data
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
+            json: { name: "Real Product", price: "$50.00" },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe("Real Product");
+    // Three fetch calls: initial + 2 retries
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns null when all 3 attempts fail", async () => {
+    // All calls return blocked page
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Blocked", price: "$50.00" },
+            markdown: "Access Denied - automated access not permitted.",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).toBeNull();
+    // Three fetch calls: initial + 2 retries
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry when first attempt succeeds", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
+            json: { name: "Quick Product", price: "$25.00" },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    const result = await discoverViaFirecrawl("https://example.com/product");
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe("Quick Product");
+    // Only one fetch call — no retry needed
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes 90s timeout to firecrawl scrape", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
+            json: { name: "Test", price: "10.00" },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await discoverViaFirecrawl("https://example.com/product");
+
+    const callArgs = fetchSpy.mock.calls[0];
+    const body = JSON.parse(callArgs[1]!.body as string);
+    expect(body.timeout).toBe(90000);
+  });
+
+  it("passes waitFor: 0 to firecrawl scrape (adapter handles waiting)", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            markdown: VALID_MD,
+            metadata: VALID_META,
+            json: { name: "Test", price: "10.00" },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+    await discoverViaFirecrawl("https://example.com/product");
+
+    const callArgs = fetchSpy.mock.calls[0];
+    const body = JSON.parse(callArgs[1]!.body as string);
+    expect(body.waitFor).toBe(0);
+  });
+});
+
+// ---- isValidPrice unit tests ----
+
+describe("isValidPrice", () => {
+  it("rejects NaN", () => {
+    expect(isValidPrice("NaN")).toBe(false);
+  });
+
+  it("rejects a lone dot", () => {
+    expect(isValidPrice(".")).toBe(false);
+  });
+
+  it("rejects $0.00", () => {
+    expect(isValidPrice("$0.00")).toBe(false);
+  });
+
+  it("rejects empty string", () => {
+    expect(isValidPrice("")).toBe(false);
+  });
+
+  it("rejects $NaN", () => {
+    expect(isValidPrice("$NaN")).toBe(false);
+  });
+
+  it("accepts 99.99", () => {
+    expect(isValidPrice("99.99")).toBe(true);
+  });
+
+  it("accepts $29.00", () => {
+    expect(isValidPrice("$29.00")).toBe(true);
+  });
+
+  it("accepts 0.01 (lowest valid price)", () => {
+    expect(isValidPrice("0.01")).toBe(true);
+  });
+});
+
+// ---- Invalid price rejection in pipeline ----
+
+describe("discoverViaFirecrawl — invalid price rejection", () => {
+  const originalApiKey = process.env.FIRECRAWL_API_KEY;
+  const originalBaseUrl = process.env.FIRECRAWL_BASE_URL;
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.FIRECRAWL_API_KEY = "test-key";
+    process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env.FIRECRAWL_API_KEY = originalApiKey;
+    } else {
+      delete process.env.FIRECRAWL_API_KEY;
+    }
+    if (originalBaseUrl !== undefined) {
+      process.env.FIRECRAWL_BASE_URL = originalBaseUrl;
+    } else {
+      delete process.env.FIRECRAWL_BASE_URL;
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it("returns null when price is NaN", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Product", price: "NaN" },
+            markdown: "# Product\nA real product page with content that is long enough.",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const result = await discoverViaFirecrawl("https://example.com/product");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when price is $0.00", async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Free Thing", price: "$0.00" },
+            markdown: "# Free Thing\nThis product is free and has enough content here.",
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const result = await discoverViaFirecrawl("https://example.com/product");
+    expect(result).toBeNull();
+  });
+});
+
+// ---- Blocked/empty page detection ----
+
+describe("discoverViaFirecrawl — blocked page detection", () => {
+  const originalApiKey = process.env.FIRECRAWL_API_KEY;
+  const originalBaseUrl = process.env.FIRECRAWL_BASE_URL;
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    process.env.FIRECRAWL_API_KEY = "test-key";
+    process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    if (originalApiKey !== undefined) {
+      process.env.FIRECRAWL_API_KEY = originalApiKey;
+    } else {
+      delete process.env.FIRECRAWL_API_KEY;
+    }
+    if (originalBaseUrl !== undefined) {
+      process.env.FIRECRAWL_BASE_URL = originalBaseUrl;
+    } else {
+      delete process.env.FIRECRAWL_BASE_URL;
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it("returns null when page returns 403 (Cloudflare)", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "PUMA Shuffle", price: "$65.00" },
+            markdown: "",
+            metadata: { statusCode: 403 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it("returns null when page returns 404", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Razer Blade", price: "$2499.99" },
+            markdown: "",
+            metadata: { statusCode: 404 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it("returns null when markdown is empty (page didn't render)", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Hallucinated Product", price: "$99.00" },
+            markdown: "",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it("returns null for bot-challenge page (Just a moment...)", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Fake Product", price: "$50.00" },
+            markdown: "Just a moment... Checking your browser before accessing the site.",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it("returns null for Access Denied page", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Blocked Product", price: "$120.00" },
+            markdown: "Access Denied\nYou don't have permission to access this resource.",
+            metadata: { statusCode: 403 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it("returns valid result for 200 with real content", async () => {
+    const realContent = "# Tree Runner\n\nLightweight running shoe made from eucalyptus tree fiber. "
+      + "Perfect for everyday wear. Available in multiple sizes and colors. "
+      + "Machine washable. Carbon neutral. Price: $98.00. Free shipping on orders over $75.";
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Tree Runner", price: "$98.00" },
+            markdown: realContent,
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const result = await discoverViaFirecrawl("https://example.com/product");
+    expect(result).not.toBeNull();
+    expect(result!.name).toBe("Tree Runner");
+    expect(result!.price).toBe("98.00");
   });
 });
