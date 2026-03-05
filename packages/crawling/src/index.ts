@@ -32,6 +32,7 @@ export {
   CRAWL_PAGE_LIMIT,
   VARIANT_EXTRACT_CONCURRENCY,
   FIRECRAWL_POLL_INTERVAL_MS,
+  classifyContent,
 } from "./constants.js";
 
 // ---- Shopify ----

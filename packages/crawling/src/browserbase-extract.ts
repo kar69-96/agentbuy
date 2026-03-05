@@ -11,12 +11,11 @@ import type { ResponseSchema } from "@google/generative-ai";
 import type { FirecrawlExtract } from "./types.js";
 import {
   FIRECRAWL_EXTRACT_PROMPT,
-  BLOCKED_PATTERNS,
-  NOT_FOUND_PATTERNS,
   ProductNotFoundError,
   ProductBlockedError,
   MAIN_CONTENT_SELECTORS,
   BOILERPLATE_SELECTORS,
+  classifyContent,
 } from "./constants.js";
 
 const ADAPTER_PORT = parseInt(process.env.ADAPTER_PORT ?? "3003", 10);
@@ -151,23 +150,14 @@ export async function fetchRenderedHtml(
     throw new Error(`HTML too short (${html.length} chars)`);
   }
 
-  const lower = html.toLowerCase();
-
-  // Treat anti-bot content as blocked before not-found to avoid false 404s.
-  if (html.length < 5000 && BLOCKED_PATTERNS.some((p) => lower.includes(p))) {
-    lastBrowserbaseFailure = {
-      code: "blocked",
-      detail: "blocked pattern detected in rendered html",
-    };
+  // Classify content for bot-blocking or not-found signals
+  const classification = classifyContent(html, 20000);
+  if (classification === "blocked") {
+    lastBrowserbaseFailure = { code: "blocked", detail: "blocked pattern detected in rendered html" };
     throw new ProductBlockedError("Page still bot-blocked after Browserbase render");
   }
-
-  // Check for 404/discontinued content.
-  if (html.length < 20000 && NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
-    lastBrowserbaseFailure = {
-      code: "not_found",
-      detail: "not_found pattern detected in rendered html",
-    };
+  if (classification === "not_found") {
+    lastBrowserbaseFailure = { code: "not_found", detail: "not_found pattern detected in rendered html" };
     throw new ProductNotFoundError("Page content indicates product not found or discontinued");
   }
 
@@ -176,17 +166,17 @@ export async function fetchRenderedHtml(
 
 // ---- Step 2: HTML → Markdown ----
 
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+});
+turndown.remove(["img", "iframe"]);
+
 export function htmlToMarkdown(html: string): string {
   const $ = load(html);
 
   // Strip non-content tags
   $("script, style, noscript, svg, meta, link").remove();
-
-  const turndown = new TurndownService({
-    headingStyle: "atx",
-    codeBlockStyle: "fenced",
-  });
-  turndown.remove(["img", "iframe"]);
 
   // Strategy 1: Try main-content selectors
   for (const selector of MAIN_CONTENT_SELECTORS) {
@@ -245,9 +235,17 @@ const GEMINI_EXTRACT_SCHEMA: ResponseSchema = {
   },
 };
 
+let cachedGenAI: InstanceType<typeof GoogleGenerativeAI> | null = null;
+
+function getGenAI(): InstanceType<typeof GoogleGenerativeAI> {
+  if (!cachedGenAI) {
+    cachedGenAI = new GoogleGenerativeAI(getGeminiApiKey());
+  }
+  return cachedGenAI;
+}
+
 async function extractWithGemini(markdown: string): Promise<FirecrawlExtract | null> {
-  const genAI = new GoogleGenerativeAI(getGeminiApiKey());
-  const model = genAI.getGenerativeModel({
+  const model = getGenAI().getGenerativeModel({
     model: "gemini-2.5-flash",
     generationConfig: {
       responseMimeType: "application/json",

@@ -5,6 +5,7 @@ import {
   BLOCKED_PATTERNS,
   NOT_FOUND_PATTERNS,
   ProductNotFoundError,
+  classifyContent,
 } from "./constants.js";
 
 export type FirecrawlFailureCode =
@@ -105,43 +106,28 @@ async function firecrawlScrapeJson(
   const lower = markdown.toLowerCase();
 
   // Classify challenge and not-found signals first, even for very short pages.
-  if (markdown.length > 0 && BLOCKED_PATTERNS.some((p) => lower.includes(p))) {
-    lastFirecrawlFailure = {
-      code: "blocked",
-      detail: "blocked pattern detected in markdown",
-    };
+  const shortClassification = classifyContent(markdown, Infinity);
+  if (shortClassification === "blocked") {
+    lastFirecrawlFailure = { code: "blocked", detail: "blocked pattern detected in markdown" };
     return null;
   }
-  if (markdown.length > 0 && NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
-    lastFirecrawlFailure = {
-      code: "not_found",
-      detail: "not_found pattern detected in markdown",
-    };
+  if (shortClassification === "not_found") {
+    lastFirecrawlFailure = { code: "not_found", detail: "not_found pattern detected in markdown" };
     throw new ProductNotFoundError("Page content indicates product not found or discontinued");
   }
   if (markdown.length < 50) {
-    lastFirecrawlFailure = {
-      code: "extract_empty",
-      detail: `markdown too short (${markdown.length})`,
-    };
+    lastFirecrawlFailure = { code: "extract_empty", detail: `markdown too short (${markdown.length})` };
     return null;
   }
 
-  // Treat anti-bot content as blocked before not-found to avoid false 404s.
-  if (markdown.length < 1500 && BLOCKED_PATTERNS.some((p) => lower.includes(p))) {
-    lastFirecrawlFailure = {
-      code: "blocked",
-      detail: "blocked pattern detected in markdown",
-    };
+  // For longer pages, only check patterns below certain thresholds
+  const lenClassification = classifyContent(markdown, 5000);
+  if (lenClassification === "blocked") {
+    lastFirecrawlFailure = { code: "blocked", detail: "blocked pattern detected in markdown" };
     return null;
   }
-
-  // Detect 404/discontinued pages that return 200 status.
-  if (markdown.length < 5000 && NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
-    lastFirecrawlFailure = {
-      code: "not_found",
-      detail: "not_found pattern detected in markdown",
-    };
+  if (lenClassification === "not_found") {
+    lastFirecrawlFailure = { code: "not_found", detail: "not_found pattern detected in markdown" };
     throw new ProductNotFoundError("Page content indicates product not found or discontinued");
   }
 

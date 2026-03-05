@@ -136,7 +136,7 @@ function acquireRateToken(): Promise<void> {
 }
 
 // Drain the rate queue periodically
-setInterval(() => {
+const rateQueueInterval = setInterval(() => {
   refillBucket();
   while (rateBucket > 0 && rateQueue.length > 0) {
     rateBucket--;
@@ -459,4 +459,8 @@ server.listen(PORT, () => {
   console.log(`  Session creation rate: ${SESSION_CREATE_RATE}/s`);
   console.log(`  Scrape retries: ${SCRAPE_RETRIES}`);
   console.log(`  Health: http://localhost:${PORT}/health`);
+});
+
+server.on("close", () => {
+  clearInterval(rateQueueInterval);
 });

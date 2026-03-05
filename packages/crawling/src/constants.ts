@@ -136,3 +136,27 @@ export const BLOCKED_PATTERNS = [
   // DistilNetworks
   "pardon our interruption",
 ];
+
+/**
+ * Classify page content for bot-blocking or not-found signals.
+ * Returns "blocked", "not_found", or null if content looks valid.
+ *
+ * `maxLenForCheck` caps the content length threshold for pattern matching —
+ * very long pages are unlikely to be challenge/error pages.
+ */
+export function classifyContent(
+  content: string,
+  maxLenForCheck: number,
+): "blocked" | "not_found" | null {
+  if (content.length === 0) return null;
+  const lower = content.toLowerCase();
+
+  // Blocked patterns take priority over not-found to avoid false 404s
+  if (content.length < maxLenForCheck && BLOCKED_PATTERNS.some((p) => lower.includes(p))) {
+    return "blocked";
+  }
+  if (content.length < maxLenForCheck && NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
+    return "not_found";
+  }
+  return null;
+}

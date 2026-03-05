@@ -12,6 +12,17 @@ import {
 import { fetchShopifyOptions } from "./shopify.js";
 import { ProductBlockedError, ProductNotFoundError } from "./constants.js";
 
+const VALID_DISCOVERY_FAILURE_CODES = new Set<string>([
+  "llm_config", "blocked", "not_found", "adapter_502",
+  "render_timeout", "http_error", "extract_empty", "transport_error",
+]);
+
+function toDiscoveryFailureCode(code: string): DiscoveryFailureCode {
+  return VALID_DISCOVERY_FAILURE_CODES.has(code)
+    ? (code as DiscoveryFailureCode)
+    : "transport_error";
+}
+
 export interface FullDiscoveryResult {
   name: string;
   price: string;
@@ -138,7 +149,7 @@ export async function discoverViaFirecrawlWithDiagnostics(
         const firecrawlFailure = getLastFirecrawlFailure();
         if (firecrawlFailure) {
           setFailure(
-            firecrawlFailure.code as DiscoveryFailureCode,
+            toDiscoveryFailureCode(firecrawlFailure.code),
             "firecrawl_extract",
             firecrawlFailure.detail,
           );
@@ -181,7 +192,7 @@ export async function discoverViaFirecrawlWithDiagnostics(
         const bbFailure = getLastBrowserbaseFailure();
         if (bbFailure) {
           setFailure(
-            bbFailure.code as DiscoveryFailureCode,
+            toDiscoveryFailureCode(bbFailure.code),
             "browserbase_extract",
             bbFailure.detail,
           );
