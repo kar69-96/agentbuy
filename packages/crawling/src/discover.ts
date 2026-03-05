@@ -2,6 +2,7 @@ import type { ProductOption } from "@bloon/core";
 import { getFirecrawlConfig } from "./client.js";
 import { stripCurrencySymbol, mapOptions, isValidPrice } from "./helpers.js";
 import { firecrawlExtractAsync } from "./extract.js";
+import { browserbaseExtract } from "./browserbase-extract.js";
 import {
   resolveVariantPricesViaFirecrawl,
   resolveVariantPricesViaCrawl,
@@ -38,8 +39,18 @@ export async function discoverViaFirecrawl(
     }
     const isNullish = (v: unknown): boolean =>
       !v || v === "null" || v === "undefined";
-    if (isNullish(results?.[0]?.name) || isNullish(results?.[0]?.price))
-      return null;
+
+    // If Firecrawl failed, try Browserbase adapter + Gemini extraction
+    if (isNullish(results?.[0]?.name) || isNullish(results?.[0]?.price)) {
+      console.log(`  [discover] Firecrawl failed for ${url}, trying Browserbase fallback`);
+      const bbExtract = await browserbaseExtract(url);
+      if (bbExtract?.name && bbExtract?.price && isValidPrice(bbExtract.price)) {
+        results = [bbExtract];
+      } else {
+        return null;
+      }
+    }
+
     if (!isValidPrice(results![0].price!)) return null;
     const extract = results![0];
 

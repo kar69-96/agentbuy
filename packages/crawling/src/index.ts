@@ -8,10 +8,14 @@ export { getFirecrawlConfig } from "./client.js";
 // ---- Types ----
 export type { FirecrawlExtract, FirecrawlConfig } from "./types.js";
 
+// ---- Browserbase fallback extraction ----
+export { browserbaseExtract } from "./browserbase-extract.js";
+
 // ---- Constants ----
 export {
   FIRECRAWL_EXTRACT_SCHEMA,
   FIRECRAWL_EXTRACT_PROMPT,
+  BLOCKED_PATTERNS,
   MAX_VARIANT_EXTRACT,
   CRAWL_PAGE_LIMIT,
   VARIANT_EXTRACT_CONCURRENCY,

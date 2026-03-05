@@ -1147,8 +1147,8 @@ describe("discoverViaFirecrawl — retry and timeout", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const result = await promise;
     expect(result).toBeNull();
-    // Three fetch calls: initial + 2 retries
-    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    // Four fetch calls: 3 Firecrawl attempts + 1 Browserbase adapter fallback
+    expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 
   it("does not retry when first attempt succeeds", async () => {

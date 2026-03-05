@@ -6,9 +6,6 @@
  * This adapter routes those through Browserbase's cloud infrastructure which
  * has CAPTCHA solving, stealth proxies, and anti-bot capabilities built in.
  *
- * Smart 3-phase wait (networkidle → product selectors → DOM stability)
- * replaces the fixed 5s waitForTimeout for better SPA rendering.
- *
  * Start: npx tsx packages/crawling/src/browserbase-adapter.ts
  */
 
@@ -18,11 +15,11 @@ import { chromium } from "playwright-core";
 // ---- Config ----
 
 const PORT = parseInt(process.env.ADAPTER_PORT ?? "3003", 10);
-const MAX_CONCURRENT = parseInt(process.env.ADAPTER_CONCURRENCY ?? "1", 10);
+const MAX_CONCURRENT = parseInt(process.env.ADAPTER_CONCURRENCY ?? "24", 10);
 const BROWSERBASE_API_URL = "https://api.browserbase.com/v1/sessions";
-const SESSION_TIMEOUT_S = 300; // 5 minutes per scrape session
+const SESSION_TIMEOUT_S = 300;
 
-// ---- Product selectors for smart wait ----
+// ---- Product selectors for content readiness ----
 
 const PRODUCT_SELECTORS = [
   '[itemprop="name"]', '[itemprop="price"]',
@@ -56,7 +53,7 @@ function release(): void {
   }
 }
 
-// ---- Browserbase session helpers (inlined to avoid circular dep) ----
+// ---- Browserbase session helpers ----
 
 function getBrowserbaseConfig(): { apiKey: string; projectId: string } {
   const apiKey = process.env.BROWSERBASE_API_KEY;
@@ -65,8 +62,6 @@ function getBrowserbaseConfig(): { apiKey: string; projectId: string } {
   if (!projectId) throw new Error("BROWSERBASE_PROJECT_ID is required");
   return { apiKey, projectId };
 }
-
-const SESSION_COOLDOWN_MS = 2000; // Wait after releasing a session before creating next
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -96,8 +91,8 @@ async function createSession(
     }
     const body = await response.text();
     if (response.status === 429 && attempt < retries) {
-      console.log(`  429 Too Many Requests — waiting ${SESSION_COOLDOWN_MS * attempt}ms before retry ${attempt + 1}/${retries}`);
-      await sleep(SESSION_COOLDOWN_MS * attempt);
+      console.log(`  429 Too Many Requests — retry ${attempt + 1}/${retries}`);
+      await sleep(1000 * attempt);
       continue;
     }
     throw new Error(`Browserbase session failed (${response.status}): ${body}`);
@@ -118,55 +113,74 @@ async function destroySession(sessionId: string): Promise<void> {
   }
 }
 
-// ---- Smart wait strategy ----
+// ---- Challenge detection + wait ----
 
 /**
- * 3-phase smart wait replaces fixed 5s waitForTimeout:
- *   Phase A: networkidle (catches SPA API calls) — 10s timeout
- *   Phase B: Product selector race — 3s timeout
- *   Phase C: DOM stability (MutationObserver) — 3s timeout
+ * Detect if the current page is a bot challenge (Cloudflare, Akamai, etc.)
+ * and wait for Browserbase's solveCaptchas to resolve it.
+ *
+ * When Browserbase solves a Cloudflare challenge, it triggers a navigation
+ * to the real page. We wait for that navigation instead of polling DOM elements.
  */
-async function smartWait(page: import("playwright-core").Page): Promise<void> {
-  // Phase A: Wait for network to go idle (no requests for 500ms)
-  await page
-    .waitForLoadState("networkidle", { timeout: 10_000 })
-    .catch(() => { /* timeout is fine — move on */ });
-
-  // Phase B: Race for any product selector to appear
-  await page
-    .waitForSelector(PRODUCT_SELECTORS, { timeout: 3000 })
-    .catch(() => { /* no selector found — move on */ });
-
-  // Phase C: DOM stability — wait for no mutations for 500ms
-  await page
+async function waitForChallengeResolution(
+  page: import("playwright-core").Page,
+): Promise<void> {
+  const isChallenge = await page
     .evaluate(() => {
-      return new Promise<void>((resolve) => {
-        let timer: ReturnType<typeof setTimeout>;
-        const observer = new MutationObserver(() => {
-          clearTimeout(timer);
-          timer = setTimeout(() => {
-            observer.disconnect();
-            resolve();
-          }, 500);
-        });
-        observer.observe(document.body, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-        });
-        // Start the initial timer (resolves if no mutations at all)
-        timer = setTimeout(() => {
-          observer.disconnect();
-          resolve();
-        }, 500);
-      });
+      const title = document.title.toLowerCase();
+      const body = document.body?.innerText?.toLowerCase() ?? "";
+      // Cloudflare
+      if (title.includes("just a moment") || title.includes("attention required")) return true;
+      if (document.querySelector("#challenge-running, #challenge-stage, #cf-challenge-running")) return true;
+      // Akamai / PerimeterX
+      if (title.includes("access denied") || body.includes("automated access")) return true;
+      // Generic
+      if (body.includes("please verify you are a human") || body.includes("checking your browser")) return true;
+      return false;
     })
-    .catch(() => { /* evaluate failed — move on */ });
+    .catch(() => false);
+
+  if (!isChallenge) return;
+
+  const startUrl = page.url();
+  console.log(`  [adapter] Challenge detected on ${startUrl} — waiting for Browserbase to solve`);
+
+  // Browserbase solveCaptchas triggers a navigation after solving.
+  // Wait for either: URL change (navigation) or challenge elements gone.
+  await Promise.race([
+    // Option A: Page navigates to the real URL after challenge
+    page.waitForURL((url) => url.toString() !== startUrl, { timeout: 20_000 }).catch(() => {}),
+    // Option B: Challenge elements disappear (same-page resolution)
+    page.waitForFunction(
+      () => {
+        const title = document.title.toLowerCase();
+        return !title.includes("just a moment")
+          && !title.includes("attention required")
+          && !document.querySelector("#challenge-running, #challenge-stage");
+      },
+      { timeout: 20_000 },
+    ).catch(() => {}),
+  ]);
+
+  // After challenge resolves, wait for the real page to load
+  await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => {});
+}
+
+// ---- Wait for content readiness ----
+
+/**
+ * Race: networkidle vs product selector — whichever comes first.
+ * This replaces the old sequential 3-phase wait.
+ */
+async function waitForContent(page: import("playwright-core").Page): Promise<void> {
+  await Promise.race([
+    page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {}),
+    page.waitForSelector(PRODUCT_SELECTORS, { timeout: 5_000 }).catch(() => {}),
+  ]);
 }
 
 // ---- Scrape handler ----
 
-/** Adapter-level error (session creation, CDP, timeout) — distinct from page errors */
 class AdapterError extends Error {
   constructor(message: string) {
     super(message);
@@ -205,8 +219,11 @@ async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
       timeout: timeoutMs,
     });
 
-    // Smart 3-phase wait (replaces fixed 5s waitForTimeout)
-    await smartWait(page);
+    // If we hit a challenge page, wait for Browserbase to solve it
+    await waitForChallengeResolution(page);
+
+    // Wait for real content to appear (race: networkidle vs product selector)
+    await waitForContent(page);
 
     // Wait for optional selector
     if (req.check_selector) {
@@ -231,7 +248,6 @@ async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
   } finally {
     if (sessionId) {
       await destroySession(sessionId);
-      await sleep(SESSION_COOLDOWN_MS);
     }
   }
 }
@@ -281,13 +297,9 @@ const server = createServer(async (req, res) => {
       await acquire();
       try {
         const result = await handleScrape(scrapeReq);
-        // Page result (even if page returned 403/404) — HTTP 200 so Firecrawl
-        // treats it as a valid playwright result
         jsonResponse(res, 200, result);
       } catch (err) {
         if (err instanceof AdapterError) {
-          // Adapter-level failure — HTTP 502 so Firecrawl's robustFetch throws
-          // and the engine waterfall falls back to fetch
           jsonResponse(res, 502, {
             content: "",
             pageStatusCode: 502,
