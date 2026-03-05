@@ -73,11 +73,28 @@ bloon/
 │   │   ├── pay.ts          # @x402/fetch from Bloon wallet
 │   │   └── index.ts
 │   │
+│   ├── crawling/src/
+│   │   ├── discover.ts              # Discovery orchestrator (3 attempts + Browserbase repair)
+│   │   ├── extract.ts               # Firecrawl /v1/scrape wrapper + content classification
+│   │   ├── browserbase-adapter.ts   # HTTP server: Firecrawl Playwright microservice (port 3003)
+│   │   ├── browserbase-extract.ts   # Browserbase+Gemini fallback extraction
+│   │   ├── parser-ensemble.ts       # Multi-source candidate scoring/ranking
+│   │   ├── providers.ts             # Pluggable provider abstraction
+│   │   ├── crawl.ts                 # /v1/crawl async wrapper
+│   │   ├── variant.ts               # Variant price resolution (Step 2 + 3)
+│   │   ├── shopify.ts               # Shopify .json fallback for options
+│   │   ├── client.ts                # Firecrawl config (base URL + API key)
+│   │   ├── helpers.ts               # Price utilities
+│   │   ├── poll.ts                  # Async job polling
+│   │   ├── constants.ts             # Schema, patterns, limits, selectors
+│   │   ├── types.ts                 # FirecrawlExtract, FirecrawlConfig
+│   │   └── index.ts
+│   │
 │   ├── checkout/src/
 │   │   ├── session.ts      # Browserbase session + domain cache inject
 │   │   ├── stagehand.ts     # Stagehand init + act/observe/extract
 │   │   ├── placeholders.ts # Credential mapping (.env → x_* keys)
-│   │   ├── discover.ts     # Navigate URL, extract product + price
+│   │   ├── discover.ts     # Scrape + Browserbase+Stagehand discovery (orchestrates all tiers)
 │   │   ├── complete.ts     # Fill forms, submit, extract confirmation
 │   │   ├── cache.ts        # Domain page cache (cookies/localStorage)
 │   │   └── index.ts
@@ -107,10 +124,14 @@ bloon/
 | HTTP Server | hono 4.x | REST API |
 | Blockchain | viem 2.x | Wallets, USDC transfers, balances |
 | x402 | @x402/fetch | Pay x402 services |
-| Browser Automation | @browserbasehq/stagehand | LLM-powered checkout (Sonnet 4) |
-| Cloud Browser | Browserbase | Remote sessions |
+| Browser Automation | @browserbasehq/stagehand | LLM-powered checkout + discovery |
+| Cloud Browser | Browserbase | Remote sessions (checkout + adapter) |
 | QR Code | qrcode | PNG generation |
-| LLM | @anthropic-ai/sdk | Sonnet 4 for Stagehand |
+| LLM (Checkout) | @anthropic-ai/sdk | Sonnet 4 for Stagehand checkout |
+| LLM (Discovery) | Gemini 2.5 Flash | Firecrawl extraction + Browserbase fallback |
+| Product Discovery | Firecrawl (self-hosted) | Primary extraction tier via /v1/scrape |
+| HTML Processing | cheerio + turndown | HTML→Markdown for Browserbase fallback |
+| Gemini SDK | @google/generative-ai | Structured extraction in Browserbase fallback |
 
 ## Key Design Decisions
 
@@ -174,10 +195,12 @@ Not open source. Deployed and operated by you.
 - Reference: this is the same flow that purl (purl.dev) and `@x402/fetch` use under the hood
 
 **Browser route — Tier 1: Firecrawl (primary, rich)**
-- Uses Firecrawl `/extract` endpoint to pull structured product data from the rendered page
-- Extracts: name, price, brand, image, currency, variant options with values and per-variant prices, variant URLs
-- If variant URLs are found → runs `/extract` on each variant URL to resolve per-variant pricing
-- If options exist but no variant URLs → runs `/crawl` (maxDepth: 1) to discover variant pages
+- Uses Firecrawl `/v1/scrape` endpoint with up to 3 attempts (exponential backoff: 2s, 4s)
+- Each attempt scored by parser ensemble; loop breaks early if confidence >= 0.75
+- If confidence is low, Browserbase+Gemini repair path renders the page and extracts via Gemini 2.5 Flash
+- Shopify `.json` fallback for options if LLM returns none
+- If variant URLs found → runs `/v1/scrape` on each variant URL to resolve per-variant pricing
+- If options exist but no variant URLs → runs `/v1/crawl` (maxDepth: 1) to discover variant pages
 - Requires `FIRECRAWL_API_KEY` env var. If not set, skipped entirely.
 - See `plans/16-firecrawl-discovery.md` for the full pipeline spec
 

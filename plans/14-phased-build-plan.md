@@ -91,10 +91,16 @@ checkout/session.ts, checkout/placeholders.ts, checkout/discover.ts, checkout/co
 
 **Discovery (price extraction):**
 ```
-[ ] discover(target_url) returns { name, price }
-[ ] discover(bestbuy_url) returns { name, price }
-[ ] discover(amazon_url) returns { name, price }
-[ ] discover(bad_url) returns PRICE_EXTRACTION_FAILED
+[ ] discoverProduct(shopify_url) returns { name, price, method: "firecrawl" }
+[ ] discoverProduct(target_url) returns { name, price }
+[ ] discoverProduct(bestbuy_url) returns { name, price }
+[ ] discoverProduct(amazon_url) returns { name, price }
+[ ] discoverProduct(bad_url) returns QUERY_FAILED
+[ ] Firecrawl pipeline: 3 retry attempts with exponential backoff
+[ ] Browserbase+Gemini repair path triggers when confidence < 0.75
+[ ] Parser ensemble ranks candidates correctly across sources
+[ ] Shopify .json fallback populates options when LLM returns none
+[ ] Variant price resolution via /scrape and /crawl
 ```
 
 **Credential security:**

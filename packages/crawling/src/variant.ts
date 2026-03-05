@@ -8,16 +8,39 @@ import { firecrawlCrawlAsync } from "./crawl.js";
 
 // ---- Step 2: Variant URL resolution via /extract ----
 
+function normalizeToken(value: string): string {
+  return value
+    .normalize("NFKD")
+    .replace(/[^\w\s]/g, " ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function valuesLikelyMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  return normalizeToken(a) === normalizeToken(b);
+}
+
+export interface VariantResolutionOptions {
+  maxVariantUrls?: number;
+}
+
 export async function resolveVariantPricesViaFirecrawl(
   variantUrls: string[],
   currentUrl: string,
   config: FirecrawlConfig,
   baseOptions: ProductOption[],
+  opts: VariantResolutionOptions = {},
 ): Promise<ProductOption[]> {
+  const maxVariantUrls =
+    opts.maxVariantUrls && opts.maxVariantUrls > 0
+      ? opts.maxVariantUrls
+      : MAX_VARIANT_EXTRACT;
   // Dedupe URLs, exclude current, cap at MAX_VARIANT_EXTRACT
   const urls = [...new Set(variantUrls)]
     .filter((u) => u !== currentUrl && u.startsWith("http"))
-    .slice(0, MAX_VARIANT_EXTRACT);
+    .slice(0, maxVariantUrls);
 
   if (urls.length === 0) return baseOptions;
 
@@ -49,20 +72,21 @@ export async function resolveVariantPricesViaFirecrawl(
     // For each option group in the variant extract, identify which value is selected
     for (const baseOpt of baseOptions) {
       const matchingExtractOpt = extractOptions.find(
-        (eo) => eo.name.toLowerCase() === baseOpt.name.toLowerCase(),
+        (eo) => valuesLikelyMatch(eo.name, baseOpt.name),
       );
       if (!matchingExtractOpt) continue;
 
       // Find a value in this variant's option group that differs from others
       // or is present as the "selected" value (typically 1 value or first value)
       for (const val of matchingExtractOpt.values) {
-        if (baseOpt.values.includes(val)) {
+        const baseMatch = baseOpt.values.find((v) => valuesLikelyMatch(v, val));
+        if (baseMatch) {
           if (!optionPriceMaps.has(baseOpt.name)) {
             optionPriceMaps.set(baseOpt.name, new Map());
           }
           const priceMap = optionPriceMaps.get(baseOpt.name)!;
-          if (!priceMap.has(val)) {
-            priceMap.set(val, extractPrice);
+          if (!priceMap.has(baseMatch)) {
+            priceMap.set(baseMatch, extractPrice);
           }
         }
       }
@@ -117,18 +141,19 @@ export async function resolveVariantPricesViaCrawl(
 
     for (const baseOpt of baseOptions) {
       const matchOpt = pageOptions.find(
-        (po) => po.name.toLowerCase() === baseOpt.name.toLowerCase(),
+        (po) => valuesLikelyMatch(po.name, baseOpt.name),
       );
       if (!matchOpt) continue;
 
       for (const val of matchOpt.values) {
-        if (baseOpt.values.includes(val)) {
+        const baseMatch = baseOpt.values.find((v) => valuesLikelyMatch(v, val));
+        if (baseMatch) {
           if (!optionPriceMaps.has(baseOpt.name)) {
             optionPriceMaps.set(baseOpt.name, new Map());
           }
           const priceMap = optionPriceMaps.get(baseOpt.name)!;
-          if (!priceMap.has(val)) {
-            priceMap.set(val, pagePrice);
+          if (!priceMap.has(baseMatch)) {
+            priceMap.set(baseMatch, pagePrice);
           }
         }
       }

@@ -457,13 +457,20 @@ export async function fetchVariantPriceBrowser(
 }
 
 /** Max variants to resolve per option group (e.g. 5 out of 30 colors). */
-const MAX_VARIANTS_PER_GROUP = 5;
+const MAX_VARIANTS_PER_GROUP = parseInt(
+  process.env.QUERY_MAX_VARIANTS_PER_GROUP ?? "3",
+  10,
+);
+const MAX_TOTAL_VARIANT_TASKS = parseInt(
+  process.env.QUERY_MAX_TOTAL_VARIANT_TASKS ?? "10",
+  10,
+);
 
 /** Resolve per-variant prices via concurrent Browserbase sessions. */
 export async function resolveVariantPricesViaBrowser(
   url: string,
   options: ProductOption[],
-  concurrency = 5,
+  concurrency = parseInt(process.env.QUERY_VARIANT_CONCURRENCY ?? "3", 10),
 ): Promise<ProductOption[]> {
   // Build task list: flatten option groups into { optionName, value } pairs
   // Cap per group to avoid spawning dozens of sessions for products with many variants
@@ -476,9 +483,11 @@ export async function resolveVariantPricesViaBrowser(
       // Skip individual values that already have a price
       if (opt.prices?.[value] != null) continue;
       if (count >= MAX_VARIANTS_PER_GROUP) break;
+      if (tasks.length >= MAX_TOTAL_VARIANT_TASKS) break;
       tasks.push({ optionName: opt.name, value });
       count++;
     }
+    if (tasks.length >= MAX_TOTAL_VARIANT_TASKS) break;
   }
 
   if (tasks.length === 0) return options;
@@ -837,6 +846,7 @@ export async function discoverProduct(
 ): Promise<FullDiscoveryResult> {
   // Primary: Firecrawl (rich data + per-variant pricing)
   const firecrawled = await discoverViaFirecrawl(url);
+  if (firecrawled?.error === "product_not_found") return firecrawled;
   if (firecrawled) return firecrawled;
 
   // Fallback: Server-side scrape (free, fast)

@@ -37,6 +37,11 @@ export function mapOptions(
   });
 }
 
+export function isValidPrice(price: string): boolean {
+  const num = parseFloat(stripCurrencySymbol(price));
+  return Number.isFinite(num) && num > 0;
+}
+
 export function computeWordOverlap(a: string, b: string): number {
   const wordsA = new Set(
     a

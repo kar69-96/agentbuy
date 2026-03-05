@@ -211,6 +211,140 @@ interface DomainCache {
 }
 ```
 
+## Discovery Pipeline Types
+
+Types used by the product discovery pipeline in `packages/crawling/` and `packages/checkout/`.
+
+### Full Discovery Result
+
+Returned by `discoverViaFirecrawl()` in `packages/crawling/src/discover.ts`.
+
+```typescript
+interface FullDiscoveryResult {
+  name: string;
+  price: string;
+  image_url?: string;
+  method: string;                     // "firecrawl" | "browserbase"
+  options: ProductOption[];
+  original_price?: string;
+  currency?: string;
+  description?: string;
+  brand?: string;
+  error?: string;                     // "product_not_found" if page is 404/discontinued
+  // Diagnostics (internal test/benchmark harnesses)
+  failure_code?: DiscoveryFailureCode;
+  failure_stage?: string;
+  failure_detail?: string;
+}
+```
+
+### Failure Codes
+
+```typescript
+// Firecrawl extraction failures (packages/crawling/src/extract.ts)
+type FirecrawlFailureCode =
+  | "blocked"           // Anti-bot/CAPTCHA detected
+  | "not_found"         // Product page is 404/discontinued
+  | "extract_empty"     // Extraction returned no usable data
+  | "http_error"        // Non-2xx HTTP response
+  | "transport_error";  // Network/fetch failure
+
+// Browserbase fallback failures (packages/crawling/src/browserbase-extract.ts)
+type BrowserbaseFailureCode =
+  | "blocked"           // Anti-bot still present after rendering
+  | "not_found"         // Product not found after rendering
+  | "render_timeout"    // Page render timed out
+  | "adapter_502"       // Browserbase adapter returned 502
+  | "extract_empty"     // Gemini returned no name/price
+  | "transport_error";  // Network failure
+
+// Top-level discovery pipeline failures (packages/crawling/src/discover.ts)
+type DiscoveryFailureCode =
+  | "llm_config"        // Missing FIRECRAWL_API_KEY
+  | "blocked"
+  | "not_found"
+  | "adapter_502"
+  | "render_timeout"
+  | "http_error"
+  | "extract_empty"
+  | "transport_error";
+```
+
+### Discovery Diagnostics
+
+```typescript
+interface DiscoveryDiagnostics {
+  failureCode?: DiscoveryFailureCode;
+  failureStage?: string;
+  failureDetail?: string;
+  method?: "firecrawl" | "browserbase";
+  timings?: {
+    totalMs: number;
+    firecrawlMs: number;
+    firecrawlAttempts: number;
+    browserbaseMs: number;
+    variantMs: number;
+  };
+}
+```
+
+### Parser Ensemble (Candidate Ranking)
+
+```typescript
+// Input to the ranking system (packages/crawling/src/parser-ensemble.ts)
+interface CandidateInput {
+  source: string;                     // "firecrawl" | "browserbase"
+  extract: FirecrawlExtract | null | undefined;
+}
+
+// Scored candidate
+interface RankedCandidate {
+  source: string;
+  extract: FirecrawlExtract;
+  confidence: number;                 // 0.0 - 1.0
+  reasons: string[];                  // Which signals contributed
+}
+```
+
+### Provider Abstraction
+
+```typescript
+// Pluggable extraction providers (packages/crawling/src/providers.ts)
+interface QueryDiscoveryProviders {
+  firecrawlExtract: (url: string, config: FirecrawlConfig, timeoutMs: number)
+    => Promise<FirecrawlExtract | null>;
+  browserbaseExtract: (url: string, timeoutMs: number)
+    => Promise<FirecrawlExtract | null>;
+}
+```
+
+### Error Classes
+
+```typescript
+// packages/crawling/src/constants.ts
+class ProductNotFoundError extends Error {}   // Page is 404/discontinued
+class ProductBlockedError extends Error {}    // Anti-bot/CAPTCHA blocked
+```
+
+### Checkout Discovery Types
+
+```typescript
+// packages/checkout/src/discover.ts
+interface DiscoveryResult {
+  name: string;
+  price: string;
+  tax?: string;
+  shipping?: string;
+  total?: string;
+  method: "scrape" | "browserbase_cart";
+  image_url?: string;
+}
+
+interface DiscoveryResultWithOptions extends DiscoveryResult {
+  options: ProductOption[];
+}
+```
+
 ## x402 Payment Requirements
 
 ```typescript

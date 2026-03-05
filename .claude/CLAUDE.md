@@ -8,7 +8,7 @@ Bloon is a REST API (TypeScript/Hono) that lets AI agents purchase anything on t
 
 ## Project Status
 
-Pre-implementation. Full specification lives in `plans/`. No source code exists yet. Closed source.
+Active development. Specification lives in `plans/`. The `crawling` and `checkout` packages have working discovery pipelines. Closed source.
 
 ## Architecture
 
@@ -61,7 +61,10 @@ These are independent — knowing one doesn't reveal the other.
 - **Wallets:** viem 2.x (NOT Coinbase CDP)
 - **x402 Payments:** @x402/fetch
 - **Browser Automation:** @browserbasehq/stagehand + Browserbase
-- **Browser LLM:** Claude Sonnet 4 (via Stagehand)
+- **Browser LLM (Checkout):** Claude Sonnet 4 (via Stagehand)
+- **Discovery LLM:** Gemini 2.5 Flash (Firecrawl extraction + Browserbase fallback)
+- **HTML Processing:** cheerio + turndown (Browserbase fallback HTML→Markdown)
+- **Gemini SDK:** @google/generative-ai (structured extraction)
 - **QR Codes:** qrcode (npm)
 - **Chain:** USDC on Base (Sepolia for testnet, mainnet for prod)
 - **Storage:** JSON files in `~/.bloon/` (chmod 600)
@@ -75,8 +78,19 @@ packages/
 ├── core/        # Types, fees, routing logic, store (JSON persistence), concurrency pool
 ├── wallet/      # viem wallet create, balance, QR, USDC transfer
 ├── x402/        # x402 detection + payment via @x402/fetch
-├── crawling/    # Firecrawl product discovery pipeline (self-hosted or cloud)
-├── checkout/    # Browserbase sessions, Stagehand, credential fills, domain cache
+├── crawling/    # Product discovery: Firecrawl primary + Browserbase+Gemini fallback
+│   ├── src/
+│   │   ├── discover.ts              # Discovery orchestrator (3 attempts + repair path)
+│   │   ├── extract.ts               # Firecrawl /v1/scrape wrapper
+│   │   ├── browserbase-adapter.ts   # HTTP server: Playwright microservice (port 3003)
+│   │   ├── browserbase-extract.ts   # Browserbase+Gemini fallback extraction
+│   │   ├── parser-ensemble.ts       # Multi-source candidate scoring/ranking
+│   │   ├── providers.ts             # Pluggable provider abstraction
+│   │   ├── variant.ts               # Variant price resolution (Steps 2/3)
+│   │   ├── constants.ts             # Patterns, schemas, selectors, limits
+│   │   └── ...                      # client, crawl, helpers, poll, shopify, types
+│   └── scripts/                     # start.sh, stop.sh, health.sh
+├── checkout/    # Browserbase sessions, Stagehand, credential fills, domain cache, discovery orchestration
 └── api/         # Hono server, routes, funding page HTML
 ```
 
@@ -198,8 +212,10 @@ All specification docs are in `plans/`:
 | `13-error-handling.md` | Error codes, HTTP statuses, recovery |
 | `14-phased-build-plan.md` | 7 phases with test gates |
 | `15-coinbase-onramp.md` | Coinbase Onramp Guest Checkout integration spec |
-| `16-firecrawl-discovery.md` | Firecrawl product discovery pipeline (3-step: extract → variant extract → crawl) |
+| `16-firecrawl-discovery.md` | Firecrawl pipeline: retry strategy, confidence thresholds, Browserbase repair, candidate ranking, failure tracking |
 | `17-query-endpoint.md` | Query endpoint deep dive: route detection → 3-tier discovery → response |
+| `18-firecrawl-server.md` | Running self-hosted Firecrawl + Browserbase adapter (start/stop, ports, config) |
+| `endpoints/query-endpoint.md` | Full query endpoint pipeline: all stages, env vars, scoring weights, failure codes |
 | `skill.md` | Agent-facing API quick reference (lives in `/docs/skill.md`) |
 
 ## Documentation Sync
