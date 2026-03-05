@@ -837,6 +837,7 @@ export async function discoverProduct(
 ): Promise<FullDiscoveryResult> {
   // Primary: Firecrawl (rich data + per-variant pricing)
   const firecrawled = await discoverViaFirecrawl(url);
+  if (firecrawled?.error === "product_not_found") return firecrawled;
   if (firecrawled) return firecrawled;
 
   // Fallback: Server-side scrape (free, fast)

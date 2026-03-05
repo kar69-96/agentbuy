@@ -15,9 +15,16 @@ import { chromium } from "playwright-core";
 // ---- Config ----
 
 const PORT = parseInt(process.env.ADAPTER_PORT ?? "3003", 10);
-const MAX_CONCURRENT = parseInt(process.env.ADAPTER_CONCURRENCY ?? "24", 10);
+const MAX_CONCURRENT = parseInt(process.env.ADAPTER_CONCURRENCY ?? "8", 10);
 const BROWSERBASE_API_URL = "https://api.browserbase.com/v1/sessions";
 const SESSION_TIMEOUT_S = 300;
+
+// Rate limit: max N session creations per second to avoid thundering herd
+const SESSION_CREATE_RATE = parseInt(process.env.ADAPTER_SESSION_RATE ?? "4", 10);
+
+// Retry config for transient failures in handleScrape
+const SCRAPE_RETRIES = 2;
+const SCRAPE_RETRY_BASE_MS = 2000;
 
 // ---- Product selectors for content readiness ----
 
@@ -31,7 +38,7 @@ const PRODUCT_SELECTORS = [
   '.price', '[data-price]', '[class*="productPrice"]',
 ].join(", ");
 
-// ---- Semaphore for concurrency control ----
+// ---- Concurrency semaphore ----
 
 let activeCount = 0;
 const waiting: Array<() => void> = [];
@@ -53,6 +60,43 @@ function release(): void {
   }
 }
 
+// ---- Session creation rate limiter ----
+// Ensures we don't slam Browserbase API with N simultaneous createSession calls.
+// Uses a token-bucket approach: refills SESSION_CREATE_RATE tokens per second.
+
+let rateBucket = SESSION_CREATE_RATE;
+let lastRefill = Date.now();
+const rateQueue: Array<() => void> = [];
+
+function refillBucket(): void {
+  const now = Date.now();
+  const elapsed = now - lastRefill;
+  if (elapsed >= 1000) {
+    const tokens = Math.floor(elapsed / 1000) * SESSION_CREATE_RATE;
+    rateBucket = Math.min(rateBucket + tokens, SESSION_CREATE_RATE);
+    lastRefill = now;
+  }
+}
+
+function acquireRateToken(): Promise<void> {
+  refillBucket();
+  if (rateBucket > 0) {
+    rateBucket--;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => rateQueue.push(resolve));
+}
+
+// Drain the rate queue periodically
+setInterval(() => {
+  refillBucket();
+  while (rateBucket > 0 && rateQueue.length > 0) {
+    rateBucket--;
+    const next = rateQueue.shift()!;
+    next();
+  }
+}, 250);
+
 // ---- Browserbase session helpers ----
 
 function getBrowserbaseConfig(): { apiKey: string; projectId: string } {
@@ -72,6 +116,9 @@ async function createSession(
 ): Promise<{ id: string; connectUrl: string }> {
   const { apiKey, projectId } = getBrowserbaseConfig();
 
+  // Wait for rate limiter before hitting the API
+  await acquireRateToken();
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     const response = await fetch(BROWSERBASE_API_URL, {
       method: "POST",
@@ -90,9 +137,10 @@ async function createSession(
       return (await response.json()) as { id: string; connectUrl: string };
     }
     const body = await response.text();
-    if (response.status === 429 && attempt < retries) {
-      console.log(`  429 Too Many Requests — retry ${attempt + 1}/${retries}`);
-      await sleep(1000 * attempt);
+    if ((response.status === 429 || response.status >= 500) && attempt < retries) {
+      const delay = 1000 * attempt + Math.random() * 500;
+      console.log(`  [adapter] Session create ${response.status} — retry ${attempt + 1}/${retries} in ${Math.round(delay)}ms`);
+      await sleep(delay);
       continue;
     }
     throw new Error(`Browserbase session failed (${response.status}): ${body}`);
@@ -115,13 +163,6 @@ async function destroySession(sessionId: string): Promise<void> {
 
 // ---- Challenge detection + wait ----
 
-/**
- * Detect if the current page is a bot challenge (Cloudflare, Akamai, etc.)
- * and wait for Browserbase's solveCaptchas to resolve it.
- *
- * When Browserbase solves a Cloudflare challenge, it triggers a navigation
- * to the real page. We wait for that navigation instead of polling DOM elements.
- */
 async function waitForChallengeResolution(
   page: import("playwright-core").Page,
 ): Promise<void> {
@@ -129,12 +170,9 @@ async function waitForChallengeResolution(
     .evaluate(() => {
       const title = document.title.toLowerCase();
       const body = document.body?.innerText?.toLowerCase() ?? "";
-      // Cloudflare
       if (title.includes("just a moment") || title.includes("attention required")) return true;
       if (document.querySelector("#challenge-running, #challenge-stage, #cf-challenge-running")) return true;
-      // Akamai / PerimeterX
       if (title.includes("access denied") || body.includes("automated access")) return true;
-      // Generic
       if (body.includes("please verify you are a human") || body.includes("checking your browser")) return true;
       return false;
     })
@@ -145,12 +183,8 @@ async function waitForChallengeResolution(
   const startUrl = page.url();
   console.log(`  [adapter] Challenge detected on ${startUrl} — waiting for Browserbase to solve`);
 
-  // Browserbase solveCaptchas triggers a navigation after solving.
-  // Wait for either: URL change (navigation) or challenge elements gone.
   await Promise.race([
-    // Option A: Page navigates to the real URL after challenge
     page.waitForURL((url) => url.toString() !== startUrl, { timeout: 20_000 }).catch(() => {}),
-    // Option B: Challenge elements disappear (same-page resolution)
     page.waitForFunction(
       () => {
         const title = document.title.toLowerCase();
@@ -162,16 +196,11 @@ async function waitForChallengeResolution(
     ).catch(() => {}),
   ]);
 
-  // After challenge resolves, wait for the real page to load
   await page.waitForLoadState("domcontentloaded", { timeout: 10_000 }).catch(() => {});
 }
 
 // ---- Wait for content readiness ----
 
-/**
- * Race: networkidle vs product selector — whichever comes first.
- * This replaces the old sequential 3-phase wait.
- */
 async function waitForContent(page: import("playwright-core").Page): Promise<void> {
   await Promise.race([
     page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {}),
@@ -179,12 +208,14 @@ async function waitForContent(page: import("playwright-core").Page): Promise<voi
   ]);
 }
 
-// ---- Scrape handler ----
+// ---- Scrape handler (single attempt) ----
 
 class AdapterError extends Error {
-  constructor(message: string) {
+  retryable: boolean;
+  constructor(message: string, retryable = false) {
     super(message);
     this.name = "AdapterError";
+    this.retryable = retryable;
   }
 }
 
@@ -203,13 +234,14 @@ interface ScrapeResponse {
   contentType?: string;
 }
 
-async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
+async function scrapeOnce(req: ScrapeRequest): Promise<ScrapeResponse> {
   let sessionId: string | undefined;
+  let browser: import("playwright-core").Browser | undefined;
   try {
     const session = await createSession();
     sessionId = session.id;
 
-    const browser = await chromium.connectOverCDP(session.connectUrl);
+    browser = await chromium.connectOverCDP(session.connectUrl);
     const context = browser.contexts()[0] ?? (await browser.newContext());
     const page = context.pages()[0] ?? (await context.newPage());
 
@@ -219,13 +251,9 @@ async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
       timeout: timeoutMs,
     });
 
-    // If we hit a challenge page, wait for Browserbase to solve it
     await waitForChallengeResolution(page);
-
-    // Wait for real content to appear (race: networkidle vs product selector)
     await waitForContent(page);
 
-    // Wait for optional selector
     if (req.check_selector) {
       await page
         .waitForSelector(req.check_selector, { timeout: 5000 })
@@ -236,6 +264,7 @@ async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
     const statusCode = response?.status() ?? 200;
 
     await browser.close();
+    browser = undefined;
 
     return {
       content,
@@ -244,12 +273,46 @@ async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new AdapterError(message);
+    // Mark timeouts and connection errors as retryable
+    const retryable = message.includes("timeout")
+      || message.includes("Timeout")
+      || message.includes("ECONNREFUSED")
+      || message.includes("ECONNRESET")
+      || message.includes("session failed")
+      || message.includes("Target closed")
+      || message.includes("browser has been closed");
+    throw new AdapterError(message, retryable);
   } finally {
+    if (browser) {
+      await browser.close().catch(() => {});
+    }
     if (sessionId) {
       await destroySession(sessionId);
     }
   }
+}
+
+// ---- Scrape with retry ----
+
+async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
+  let lastError: AdapterError | undefined;
+
+  for (let attempt = 0; attempt <= SCRAPE_RETRIES; attempt++) {
+    try {
+      return await scrapeOnce(req);
+    } catch (err) {
+      if (!(err instanceof AdapterError)) throw err;
+      lastError = err;
+
+      if (!err.retryable || attempt >= SCRAPE_RETRIES) break;
+
+      const delay = SCRAPE_RETRY_BASE_MS * (attempt + 1) + Math.random() * 1000;
+      console.log(`  [adapter] Scrape retry ${attempt + 1}/${SCRAPE_RETRIES} for ${req.url} in ${Math.round(delay)}ms (${err.message.slice(0, 60)})`);
+      await sleep(delay);
+    }
+  }
+
+  throw lastError!;
 }
 
 // ---- HTTP helpers ----
@@ -279,7 +342,13 @@ const server = createServer(async (req, res) => {
 
   // GET /health
   if (req.method === "GET" && url.pathname === "/health") {
-    jsonResponse(res, 200, { status: "healthy" });
+    jsonResponse(res, 200, {
+      status: "healthy",
+      active: activeCount,
+      maxConcurrent: MAX_CONCURRENT,
+      rateQueue: rateQueue.length,
+      waitQueue: waiting.length,
+    });
     return;
   }
 
@@ -328,5 +397,7 @@ const server = createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Browserbase adapter listening on port ${PORT}`);
   console.log(`  Max concurrent sessions: ${MAX_CONCURRENT}`);
+  console.log(`  Session creation rate: ${SESSION_CREATE_RATE}/s`);
+  console.log(`  Scrape retries: ${SCRAPE_RETRIES}`);
   console.log(`  Health: http://localhost:${PORT}/health`);
 });

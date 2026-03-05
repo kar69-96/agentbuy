@@ -42,6 +42,75 @@ export const CRAWL_PAGE_LIMIT = 25;
 export const VARIANT_EXTRACT_CONCURRENCY = 5;
 export const FIRECRAWL_POLL_INTERVAL_MS = 2000;
 
+// ---- 404 / Discontinued detection ----
+
+export class ProductNotFoundError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "ProductNotFoundError";
+  }
+}
+
+/** Content patterns that indicate a product page is 404 / discontinued / removed. */
+export const NOT_FOUND_PATTERNS = [
+  "this product is no longer available",
+  "this item is no longer available",
+  "product not found",
+  "page not found",
+  "item not found",
+  "this page doesn't exist",
+  "this page does not exist",
+  "we couldn't find that page",
+  "we could not find that page",
+  "has been discontinued",
+  "has been removed",
+  "is no longer sold",
+  "no longer in stock",
+  "this product has been deleted",
+  "sorry, this product is unavailable",
+  "sorry, this item is unavailable",
+  "the page you're looking for can't be found",
+  "the page you are looking for cannot be found",
+  "404 error",
+  "404 not found",
+  "item is currently unavailable and cannot be purchased",
+  "we can't find the page you're looking for",
+  "oops! that page can't be found",
+  "this listing has ended",
+  "this listing is no longer available",
+];
+
+// ---- HTML boilerplate stripping for smarter truncation ----
+
+/** Selectors to try (in order) for main product content extraction. */
+export const MAIN_CONTENT_SELECTORS = [
+  "main",
+  "[role='main']",
+  "#main-content",
+  "#main",
+  ".product-detail",
+  ".product-page",
+  "[data-product]",
+  "#product",
+  ".pdp-main",
+];
+
+/** Boilerplate elements to strip before markdown conversion. */
+export const BOILERPLATE_SELECTORS = [
+  "header", "footer", "nav", "aside",
+  ".navbar", "#header", ".footer", "#footer",
+  ".sidebar", "#sidebar",
+  ".modal", ".popup", ".overlay",
+  ".ad", ".ads", ".advert",
+  ".social", ".social-links",
+  ".menu", ".navigation", "#nav",
+  ".breadcrumbs",
+  ".cookie",
+  "[role='banner']", "[role='navigation']", "[role='contentinfo']",
+  ".recently-viewed", ".recommendations", ".also-bought",
+  ".newsletter", "#newsletter",
+];
+
 export const BLOCKED_PATTERNS = [
   // Cloudflare
   "just a moment", "checking your browser", "ray id", "cloudflare",

@@ -1365,7 +1365,7 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null when page returns 404", async () => {
+  it("returns product_not_found when page returns 404", async () => {
     fetchSpy.mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -1382,7 +1382,52 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
     const promise = discoverViaFirecrawl("https://example.com/product");
     await vi.advanceTimersByTimeAsync(10_000);
     const result = await promise;
-    expect(result).toBeNull();
+    expect(result).not.toBeNull();
+    expect(result!.error).toBe("product_not_found");
+    expect(result!.name).toBe("");
+    expect(result!.price).toBe("");
+  });
+
+  it("returns product_not_found when content says product discontinued", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Old Product", price: "$29.99" },
+            markdown: "Sorry, this product is no longer available. Check out our other products.",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).not.toBeNull();
+    expect(result!.error).toBe("product_not_found");
+  });
+
+  it("returns product_not_found for HTTP 410 Gone", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Removed Item", price: "$15.00" },
+            markdown: "",
+            metadata: { statusCode: 410 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(10_000);
+    const result = await promise;
+    expect(result).not.toBeNull();
+    expect(result!.error).toBe("product_not_found");
   });
 
   it("returns null when markdown is empty (page didn't render)", async () => {

@@ -8,6 +8,7 @@ import {
   resolveVariantPricesViaCrawl,
 } from "./variant.js";
 import { fetchShopifyOptions } from "./shopify.js";
+import { ProductNotFoundError } from "./constants.js";
 
 export interface FullDiscoveryResult {
   name: string;
@@ -19,6 +20,7 @@ export interface FullDiscoveryResult {
   currency?: string;
   description?: string;
   brand?: string;
+  error?: string;
 }
 
 // ---- Tier 2: Firecrawl 3-step discovery pipeline ----
@@ -101,7 +103,16 @@ export async function discoverViaFirecrawl(
       description: clean(extract.description),
       brand: clean(extract.brand),
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof ProductNotFoundError) {
+      return {
+        name: "",
+        price: "",
+        method: "firecrawl",
+        options: [],
+        error: "product_not_found",
+      };
+    }
     return null;
   }
 }

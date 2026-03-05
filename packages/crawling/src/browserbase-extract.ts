@@ -5,18 +5,45 @@
  */
 
 import TurndownService from "turndown";
+import { load } from "cheerio";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import type { ResponseSchema } from "@google/generative-ai";
 import type { FirecrawlExtract } from "./types.js";
 import {
   FIRECRAWL_EXTRACT_PROMPT,
   BLOCKED_PATTERNS,
+  NOT_FOUND_PATTERNS,
+  ProductNotFoundError,
+  MAIN_CONTENT_SELECTORS,
+  BOILERPLATE_SELECTORS,
 } from "./constants.js";
 
 const ADAPTER_PORT = parseInt(process.env.ADAPTER_PORT ?? "3003", 10);
 const ADAPTER_BASE = `http://localhost:${ADAPTER_PORT}`;
 
 const MIN_HTML_LENGTH = 500;
+
+// Limit concurrent Browserbase fallback extractions to avoid overwhelming the adapter.
+// The adapter has its own rate limiter, but callers time out if queued too long.
+const BB_EXTRACT_CONCURRENCY = parseInt(process.env.BB_EXTRACT_CONCURRENCY ?? "5", 10);
+let bbActive = 0;
+const bbQueue: Array<() => void> = [];
+
+function bbAcquire(): Promise<void> {
+  if (bbActive < BB_EXTRACT_CONCURRENCY) {
+    bbActive++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => bbQueue.push(resolve));
+}
+
+function bbRelease(): void {
+  if (bbQueue.length > 0) {
+    bbQueue.shift()!();
+  } else {
+    bbActive--;
+  }
+}
 
 // ---- Step 1: Fetch rendered HTML from Browserbase adapter ----
 
@@ -41,6 +68,9 @@ export async function fetchRenderedHtml(
     pageError?: string;
   };
 
+  if (body.pageStatusCode === 404 || body.pageStatusCode === 410) {
+    throw new ProductNotFoundError(`Page returned HTTP ${body.pageStatusCode}`);
+  }
   if (body.pageStatusCode >= 400) {
     throw new Error(`Page returned ${body.pageStatusCode}`);
   }
@@ -50,8 +80,14 @@ export async function fetchRenderedHtml(
     throw new Error(`HTML too short (${html.length} chars)`);
   }
 
-  // Check for bot-challenge content in short pages
   const lower = html.toLowerCase();
+
+  // Check for 404/discontinued content
+  if (html.length < 20000 && NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
+    throw new ProductNotFoundError("Page content indicates product not found or discontinued");
+  }
+
+  // Check for bot-challenge content in short pages
   if (html.length < 5000 && BLOCKED_PATTERNS.some((p) => lower.includes(p))) {
     throw new Error("Page still bot-blocked after Browserbase render");
   }
@@ -62,23 +98,34 @@ export async function fetchRenderedHtml(
 // ---- Step 2: HTML → Markdown ----
 
 export function htmlToMarkdown(html: string): string {
-  // Strip script and style tags before conversion
-  const cleaned = html
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, "");
+  const $ = load(html);
+
+  // Strip non-content tags
+  $("script, style, noscript, svg, meta, link").remove();
 
   const turndown = new TurndownService({
     headingStyle: "atx",
     codeBlockStyle: "fenced",
   });
-
-  // Remove images and iframes to reduce noise
   turndown.remove(["img", "iframe"]);
 
-  const md = turndown.turndown(cleaned);
+  // Strategy 1: Try main-content selectors
+  for (const selector of MAIN_CONTENT_SELECTORS) {
+    const $main = $(selector).first();
+    if ($main.length) {
+      const $clone = load($main.html()!);
+      for (const bp of BOILERPLATE_SELECTORS) $clone(bp).remove();
+      const md = turndown.turndown($clone.html()!);
+      if (md.length >= 1_000) {
+        return md.length > 30_000 ? md.slice(0, 30_000) : md;
+      }
+    }
+  }
 
-  // Truncate to ~30k chars to stay within LLM context
+  // Strategy 2: Full page with boilerplate removed
+  for (const bp of BOILERPLATE_SELECTORS) $(bp).remove();
+  const md = turndown.turndown($.html()!);
+
   return md.length > 30_000 ? md.slice(0, 30_000) : md;
 }
 
@@ -147,8 +194,10 @@ async function extractWithGemini(markdown: string): Promise<FirecrawlExtract | n
 
 export async function browserbaseExtract(
   url: string,
-  timeoutMs = 60_000,
+  timeoutMs = 90_000,
 ): Promise<FirecrawlExtract | null> {
+  // Wait for a slot — this wait should NOT count against the extraction timeout
+  await bbAcquire();
   try {
     console.log(`  [browserbase-extract] Fetching rendered HTML for ${url}`);
     const html = await fetchRenderedHtml(url, timeoutMs);
@@ -167,8 +216,11 @@ export async function browserbaseExtract(
     console.log(`  [browserbase-extract] Success: ${extract.name} — ${extract.price}`);
     return extract;
   } catch (err) {
+    if (err instanceof ProductNotFoundError) throw err;
     const message = err instanceof Error ? err.message : String(err);
     console.log(`  [browserbase-extract] Failed: ${message}`);
     return null;
+  } finally {
+    bbRelease();
   }
 }

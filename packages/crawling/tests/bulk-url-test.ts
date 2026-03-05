@@ -23,6 +23,7 @@ interface TestResult {
   optionCount: number;
   options?: string[];
   error?: string;
+  notFound: boolean;
   durationMs: number;
 }
 
@@ -132,7 +133,20 @@ async function runTest(
         success: false,
         priceValid: false,
         optionCount: 0,
+        notFound: false,
         error: "null result",
+        durationMs,
+      };
+    }
+    if (result.error === "product_not_found") {
+      return {
+        url: entry.url,
+        category: entry.category,
+        success: false,
+        priceValid: false,
+        optionCount: 0,
+        notFound: true,
+        error: "product not found / discontinued",
         durationMs,
       };
     }
@@ -148,6 +162,7 @@ async function runTest(
       options: result.options.map(
         (o) => `${o.name}: [${o.values.join(", ")}]`,
       ),
+      notFound: false,
       error: priceValid ? undefined : `invalid price: "${result.price}"`,
       durationMs,
     };
@@ -156,7 +171,9 @@ async function runTest(
       url: entry.url,
       category: entry.category,
       success: false,
+      priceValid: false,
       optionCount: 0,
+      notFound: false,
       error: err?.message ?? String(err),
       durationMs: Date.now() - start,
     };
@@ -176,7 +193,7 @@ async function main() {
     const batchResults = await Promise.all(batch.map(runTest));
     for (const r of batchResults) {
       results.push(r);
-      const status = r.success ? "OK" : "FAIL";
+      const status = r.notFound ? "404" : r.success ? "OK" : "FAIL";
       const optStr = r.optionCount > 0 ? ` [${r.optionCount} options]` : "";
       const priceStr = r.price ? ` $${r.price}` : "";
       const nameStr = r.name ? ` "${r.name.slice(0, 50)}"` : "";
@@ -190,10 +207,11 @@ async function main() {
   // Summary
   const passed = results.filter((r) => r.success);
   const failed = results.filter((r) => !r.success);
-  const nullResults = failed.filter((r) => r.error === "null result");
-  const invalidPrice = failed.filter((r) => r.error?.startsWith("invalid price"));
+  const notFoundResults = failed.filter((r) => r.notFound);
+  const nullResults = failed.filter((r) => !r.notFound && r.error === "null result");
+  const invalidPrice = failed.filter((r) => !r.notFound && r.error?.startsWith("invalid price"));
   const thrownErrors = failed.filter(
-    (r) => r.error !== "null result" && !r.error?.startsWith("invalid price"),
+    (r) => !r.notFound && r.error !== "null result" && !r.error?.startsWith("invalid price"),
   );
   const withOptions = results.filter((r) => r.optionCount > 0);
   const totalMs = results.reduce((a, r) => a + r.durationMs, 0);
@@ -205,6 +223,7 @@ async function main() {
   console.log(`Total:        ${results.length}`);
   console.log(`Passed:       ${passed.length} (${((passed.length / results.length) * 100).toFixed(0)}%)`);
   console.log(`Failed:       ${failed.length}`);
+  console.log(`  Not found:    ${notFoundResults.length}`);
   console.log(`  Null result:  ${nullResults.length}`);
   console.log(`  Bad price:    ${invalidPrice.length}`);
   console.log(`  Errors:       ${thrownErrors.length}`);
@@ -214,9 +233,17 @@ async function main() {
   console.log(`Slowest:      ${(slowest / 1000).toFixed(1)}s`);
   console.log(`Total Time:   ${(totalMs / 1000).toFixed(0)}s`);
 
-  if (failed.length > 0) {
+  if (notFoundResults.length > 0) {
+    console.log(`\n--- Not Found / Discontinued ---`);
+    for (const f of notFoundResults) {
+      console.log(`  [404] ${(f.durationMs / 1000).toFixed(1).padStart(5)}s  ${f.category}: ${f.url}`);
+    }
+  }
+
+  const otherFailed = failed.filter((r) => !r.notFound);
+  if (otherFailed.length > 0) {
     console.log(`\n--- Failed URLs ---`);
-    for (const f of failed) {
+    for (const f of otherFailed) {
       const reason = f.error === "null result"
         ? "NULL"
         : f.error?.startsWith("invalid price")

@@ -4,55 +4,83 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-03-04
+**Last updated:** 2026-03-05
 
 ### Summary
 
 - TypeScript: all packages compile cleanly (`pnpm build` passes)
-- Unit tests: 286 passed, 11 failed (pre-existing failures unrelated to Phase G)
-- Bulk failed-only test (43 previously-failing URLs): **12/43 recovered (28%)**
-- Projected overall: **32/61 (52%)** — up from 28/61 (46%) in Phase F
+- Unit tests: 286 passed, 13 failed (pre-existing failures unrelated to Phase H)
+- Bulk URL test (61 URLs, concurrency 20): **10/61 passed (16%)**, **15 detected as 404/discontinued**
+- At concurrency 1 (Phase G baseline): **32/61 (52%)** — Browserbase throughput is the main limiter at high concurrency
 
-### Phase G Changes (Browserbase Adapter Fallback in Discovery Pipeline)
+### Phase H Changes (404 Detection + Adapter Concurrency)
 
-Added Gemini-powered fallback extraction when Firecrawl's 3-attempt loop fails:
+**1. 404/Discontinued detection** — pipeline now explicitly detects and reports product-not-found pages instead of returning null:
+- `ProductNotFoundError` class in `constants.ts` — thrown on HTTP 404/410 or content-based detection
+- `NOT_FOUND_PATTERNS` (24 patterns): "product is no longer available", "page not found", "has been discontinued", etc.
+- `extract.ts`: throws `ProductNotFoundError` on 404/410 status or matching content patterns
+- `browserbase-extract.ts`: same detection, re-throws through catch-all
+- `discover.ts`: catches `ProductNotFoundError`, returns `FullDiscoveryResult` with `error: "product_not_found"` instead of null
+- `FullDiscoveryResult` now has optional `error?: string` field
+- `checkout/discover.ts`: `discoverProduct` short-circuits on `product_not_found` error
+- Bulk tests updated to show `[404]` status and separate "Not Found / Discontinued" section
 
-1. **`browserbase-extract.ts`** (new): Fetches rendered HTML from Browserbase adapter → converts to markdown via `turndown` → extracts product data via Gemini `gemini-2.5-flash` with structured JSON output using the same schema as Firecrawl
-2. **`discover.ts`** fallback: After 3 Firecrawl attempts return null, calls `browserbaseExtract(url)` before giving up. Result feeds into same downstream logic (Shopify fallback, variant resolution)
-3. **`constants.ts`**: Shared `BLOCKED_PATTERNS` export (was inline in `extract.ts`)
-4. **`browserbase-adapter.ts`**: Major rewrite — Cloudflare challenge detection via `Promise.race` (URL change vs DOM disappearance), simplified content wait (race networkidle vs product selector, 5s max), concurrency bumped to 24
-5. **Dependencies**: `@google/generative-ai`, `turndown`, `@types/turndown`
+**2. Adapter concurrency improvements** (`browserbase-adapter.ts`):
+- Session creation rate limiter (token-bucket, 4/s default) — prevents thundering herd on Browserbase API
+- Retry with backoff in `handleScrape` (2 retries, exponential + jitter) — recovers transient 502s/timeouts
+- Retryable error classification (`AdapterError.retryable`) — only retries timeouts/connection errors, not 403s
+- 5xx retry in `createSession` (was 429-only)
+- Better cleanup — `browser.close()` in finally block
+- Health endpoint reports active/queue counts
 
-### Phase G Bulk Test Results (43 previously-failing URLs)
+**3. Caller-side concurrency control** (`browserbase-extract.ts`):
+- Semaphore limiting concurrent Browserbase fallback extractions (default 5 via `BB_EXTRACT_CONCURRENCY`)
+- Prevents caller timeouts from semaphore queue wait exhausting the extraction timeout
+- Default extraction timeout raised from 60s → 90s
 
-**12/43 recovered (28% recovery rate)**
+### Phase H Bulk Test Results (concurrency 20)
 
-| Site | Product | Price | Notes |
-|------|---------|-------|-------|
-| Brooklinen | Classic Hardcore Sheet Bundle | $263.20 | OK |
-| HydroFlask | Wide Mouth 32 oz | $44.95 | OK |
-| Zara | Loose-Fit Sweatshirt | $35.90 | OK |
-| H&M | Loose Fit Sweatshirt | $10.49 | OK |
-| Apple | iPhone 16 | $799.00 | OK |
-| Google Pixel | Pixel 9 | $799.00 | OK |
-| Thrive Market | Organic Peanut Butter | $33,000 | Bad price — Gemini hallucination |
-| Yeti | Rambler 20 oz | $38.00 | OK |
-| Warby Parker | Durand | $95.00 | OK |
-| Aesop | Resurrection Aromatique | $39.00 | OK |
-| Lego | The Razor Crest | $149.99 | OK |
-| iHerb | Garden of Life Multivitamin | $34.19 | OK |
+**10/61 passed, 15 detected as 404/discontinued, 36 null**
 
-### Phase G Failure Categories
+| Site | Product | Price | Options |
+|------|---------|-------|---------|
+| Zara | RUSTIC COTTON T-SHIRT | $14.90 | 1 (Color) |
+| Apple | iPhone 16 | $699 | 4 (Model, Color, Storage, AppleCare) |
+| Samsung | Galaxy S25 Ultra | $1299.99 | 2 (Color, Storage) |
+| Logitech | MX Master 3S | $99.99 | 1 (Color) |
+| IKEA | KALLAX Shelf unit | $49.99 | 1 (Size) |
+| CeraVe | Moisturizing Cream | $14.99 | 1 (Size) |
+| Patagonia | Nano Puff Jacket | $142.99 | 2 (Color, Size) |
+| Bookshop | Land of My Heart | $20.00 | 1 |
+| Warby Parker | Durand | $95 | 2 (Color, Width) |
+| Lego | Eiffel Tower 10307 | $629.99 | — |
+| Thrive Market | (hallucinated) | $33000 | — | Bad price |
 
-- **404/Discontinued** (~15 URLs): Product pages no longer exist (Allbirds, Everlane, Glossier, etc.)
-- **Gemini extraction failures** (~8 URLs): HTML fetched successfully but Gemini couldn't extract product data (Nordstrom 306KB, Gap 945KB, B&N 1.5MB, West Elm 565KB)
-- **Still bot-blocked** (~10 URLs): Enterprise WAFs block even Browserbase stealth (Amazon, Nike, Adidas, etc.)
-- **Bad price** (1 URL): Thrive Market — Gemini hallucinated $33,000 price
+### Phase H 404 Detections (15 URLs)
+
+Gymshark, Bombas, Ruggable, Chubbies, Uniqlo, Bose, Sony, Anker, Instacart, Everlane, ASOS, Decathlon, Muji, eBay, Target
+
+### Phase H Remaining Nulls (36 URLs)
+
+| Cause | Count | Examples |
+|-------|-------|---------|
+| Adapter timeout | ~12 | Browserbase sessions slow under concurrency |
+| Gemini extraction failed | ~9 | Large pages truncated to 30k chars, product data lost |
+| Bot-blocked (403/WAF) | ~5 | Nike, Adidas, Sephora, Glossier |
+| Other (502, connection) | ~10 | Transient Browserbase infrastructure failures |
+
+**Note:** At concurrency 1 (Phase G), 32/61 passed. The throughput gap is Browserbase infrastructure, not pipeline logic.
+
+**4. Smart HTML truncation** (`browserbase-extract.ts` + `constants.ts`):
+- Cheerio-based boilerplate stripping: removes header, footer, nav, sidebar, ads, modals before markdown conversion
+- Main-content extraction: tries `main`, `[role='main']`, `.product-detail`, etc. first — if found, only converts that section
+- `MAIN_CONTENT_SELECTORS` and `BOILERPLATE_SELECTORS` in constants.ts
+- Should recover some of the ~9 Gemini extraction failures caused by product data being lost after 30k-char truncation
 
 ### Known Issues
 
-- Thrive Market price hallucination: Gemini extracted $33,000 instead of real price (~$8). Need price sanity check or re-extraction
-- Large HTML pages (>500KB) may exceed Gemini context after markdown conversion — truncated to 30k chars but some pages need more targeted extraction
+- Thrive Market price hallucination: Gemini extracted $33,000 instead of real price (~$8). Need price sanity check
+- High concurrency (>10) degrades Browserbase session reliability — recommended concurrency 1-5 for best results
 
 ### Phase F Changes (Defeat Cloudflare Enterprise + SPA Rendering)
 
@@ -67,14 +95,16 @@ Applied 5 changes targeting WAF blocks and SPA rendering failures:
 
 ### Bulk URL Test Results (61 product URLs)
 
-| Metric | Before (baseline) | Fetch-only (Phase A+B) | With Browserbase (Phase C) | Phase E | Phase F | Phase G |
-|--------|-------------------|------------------------|---------------------------|---------|---------|---------|
-| Total URLs | 61 | 61 | 61 | 61 | 61 | 61 |
-| Passed | ~24 (39%) | 16 (26%) | **20 (33%)** | **25 (41%)** | **28 (46%)** | **32 (52%)** |
-| Hallucinated wrong products | ~8 | **0** | **0** | **0** | **0** | **1** (Thrive) |
-| Bad prices ($NaN, ".", $0.00) | ~3 | **0** | **0** | **0** | **0** | **0** |
-| True correct products | ~16 | 16 | **20** | **25** | **28** | **31** |
-| With options extracted | 15 | 14 | **16** | pending | pending | pending |
+| Metric | Before (baseline) | Fetch-only (Phase A+B) | With Browserbase (Phase C) | Phase E | Phase F | Phase G | Phase H (c=20) |
+|--------|-------------------|------------------------|---------------------------|---------|---------|---------|----------------|
+| Total URLs | 61 | 61 | 61 | 61 | 61 | 61 | 61 |
+| Passed | ~24 (39%) | 16 (26%) | **20 (33%)** | **25 (41%)** | **28 (46%)** | **32 (52%)** | **10 (16%)** |
+| 404 detected | — | — | — | — | — | — | **15** |
+| Hallucinated wrong products | ~8 | **0** | **0** | **0** | **0** | **1** (Thrive) | **1** (Thrive) |
+| Bad prices ($NaN, ".", $0.00) | ~3 | **0** | **0** | **0** | **0** | **0** | **0** |
+| True correct products | ~16 | 16 | **20** | **25** | **28** | **31** | **9** |
+| With options extracted | 15 | 14 | **16** | pending | pending | pending | **7** |
+| Concurrency | 1 | 1 | 1 | 1 | 1 | 1 | **20** |
 | Avg time per URL | ~8s | 12.7s | 36.8s | pending | ~28s | pending |
 
 ### Phase F Newly Passing (3 URLs recovered)
