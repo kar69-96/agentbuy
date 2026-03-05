@@ -563,7 +563,12 @@ export async function scriptedSelectOption(
         const label = input.labels?.[0]?.textContent?.toLowerCase() ?? "";
         const val = input.value.toLowerCase();
         const id = input.id.toLowerCase();
-        if (label.includes(lower) || val.includes(lower) || id.includes(lower)) {
+        // Also check parent element text (for inputs without proper <label> association)
+        const parentText = input.parentElement?.textContent?.toLowerCase() ?? "";
+        // Check aria-label on the input itself
+        const ariaLabel = input.getAttribute("aria-label")?.toLowerCase() ?? "";
+        if (label.includes(lower) || val.includes(lower) || id.includes(lower) ||
+            parentText.includes(lower) || ariaLabel.includes(lower)) {
           input.click();
           input.dispatchEvent(new Event("change", { bubbles: true }));
           return true;
@@ -604,8 +609,7 @@ export async function scriptedSelectOption(
 // ---- Page type detection ----
 
 export async function detectPageType(page: Page): Promise<PageType> {
-  return page.evaluate(
-    ({ cardSelectors }) => {
+  const evalBody = ({ cardSelectors }: { cardSelectors: string[] }) => {
       const text = (document.body.textContent || "").toLowerCase();
       const url = window.location.href.toLowerCase();
 
@@ -688,9 +692,14 @@ export async function detectPageType(page: Page): Promise<PageType> {
         'button[class*="add-to-cart" i], button[name*="add" i], ' +
         'input[value*="add to cart" i], button[data-action*="add-to-cart" i], ' +
         'form[action*="cart"] button[type="submit"], ' +
-        'button[data-testid*="add" i], button[id*="add-to-cart" i]'
+        'button[data-testid*="add" i], button[id*="add-to-cart" i], ' +
+        'button[aria-label*="add to cart" i], button[aria-label*="add to bag" i], ' +
+        'button[data-testid*="add-to-cart" i], [data-action="add-to-cart"], ' +
+        'form[action*="/cart/add"] button, ' +
+        'button[data-test*="add-to-cart" i], button[data-test*="addToCart" i], ' +
+        '[data-test="shipItButton"], [data-test="orderPickupButton"]'
       );
-      const addToCartText = ["add to cart", "add to bag", "add to basket", "buy now"];
+      const addToCartText = ["add to cart", "add to bag", "add to basket", "buy now", "add it to your cart", "add item", "add to order", "ship it", "pick it up", "deliver it"];
       const hasAtcText = addToCartText.some(s => text.includes(s));
       const isCheckoutUrl = url.includes("/checkout") || url.includes("/payment") ||
         url.includes("/billing");
@@ -774,6 +783,8 @@ export async function detectPageType(page: Page): Promise<PageType> {
       const loginSignals = [
         "sign in", "log in", "create account", "guest checkout",
         "continue as guest", "checkout as guest", "sign-in", "email or mobile",
+        "sign up", "register", "returning customer", "new customer",
+        "have an account", "already a member", "shop as guest",
       ];
       const loginCount = loginSignals.filter(s => text.includes(s)).length;
       const isLoginUrl = isCheckoutUrl || url.includes("/login") ||
@@ -823,6 +834,7 @@ export async function detectPageType(page: Page): Promise<PageType> {
         "we were unable to process", "there was a problem with your order",
         // Out of stock
         "sold out", "out of stock", "no longer available", "item is unavailable",
+        "option not available", "currently unavailable",
         // Generic checkout errors
         "something went wrong", "an error occurred", "please try again",
         "transaction failed", "payment failed", "purchase failed",
@@ -865,9 +877,19 @@ export async function detectPageType(page: Page): Promise<PageType> {
       }
 
       return "unknown" as const;
-    },
-    { cardSelectors: CARD_SELECTORS },
-  );
+  };
+
+  try {
+    return await page.evaluate(evalBody, { cardSelectors: CARD_SELECTORS });
+  } catch {
+    // DOM may be mutating (SPA navigation, hydration). Wait and retry once.
+    await page.waitForTimeout(2000);
+    try {
+      return await page.evaluate(evalBody, { cardSelectors: CARD_SELECTORS });
+    } catch {
+      return "unknown";
+    }
+  }
 }
 
 // ---- Extract confirmation data ----
@@ -913,18 +935,38 @@ export async function extractConfirmationData(page: Page): Promise<ConfirmationD
 
 export async function extractVisibleTotal(page: Page): Promise<string | undefined> {
   return page.evaluate(() => {
+    // Pass 1: DOM-aware — find elements with total labels, extract adjacent dollar amount
+    const labelPatterns = [
+      "order total", "estimated total", "total due", "amount due",
+      "subtotal", "order subtotal", "donation amount",
+    ];
+    const allElements = Array.from(document.querySelectorAll("*"));
+    for (const el of allElements) {
+      if (el.children.length > 5) continue; // skip large containers
+      const elText = (el.textContent || "").toLowerCase().trim();
+      if (!labelPatterns.some(lp => elText.includes(lp))) continue;
+      const combined = (el.textContent || "") + " " + (el.nextElementSibling?.textContent || "");
+      const m = combined.match(/\$\s*([\d,]+\.\d{2})/);
+      if (m?.[1]) return m[1].replace(/,/g, "");
+    }
+
+    // Pass 2: Regex on full text — labeled patterns only
     const text = document.body.textContent || "";
-    const patterns = [
+    const labeledPatterns = [
       /(?:order\s*)?total\s*[:.]?\s*[$€£¥]?\s*([\d,]+\.?\d{0,2})/i,
       /(?:estimated\s*)?total\s*[:.]?\s*[$€£¥]?\s*([\d,]+\.?\d{0,2})/i,
       /(?:amount\s*)?due\s*[:.]?\s*[$€£¥]?\s*([\d,]+\.?\d{0,2})/i,
       /(?:donation\s*)?amount\s*[:.]?\s*[$€£¥]?\s*([\d,]+\.?\d{0,2})/i,
-      /[$€£¥]\s*([\d,]+\.\d{2})/,
     ];
-    for (const pat of patterns) {
+    for (const pat of labeledPatterns) {
       const m = text.match(pat);
       if (m?.[1]) return m[1].replace(/,/g, "");
     }
+
+    // Pass 3: Greedy fallback — last resort
+    const fallback = text.match(/[$€£¥]\s*([\d,]+\.\d{2})/);
+    if (fallback?.[1]) return fallback[1].replace(/,/g, "");
+
     return undefined;
   });
 }

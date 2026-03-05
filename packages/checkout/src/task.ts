@@ -166,9 +166,9 @@ function buildPageInstruction(
   switch (pageType) {
     case "donation-landing":
       if (isStalled) {
-        return `${ctx}${stallHint}The donation amount should already be selected. Now click the button to proceed to payment — look for "Donate by card", "Continue", "Donate", "Give now", or "Proceed to payment". Do NOT re-select the amount.`;
+        return `${ctx}${stallHint}Do NOT click the payment method button yet. First find and click the donation amount closest to $${price}. Look for radio buttons, amount cards, or clickable elements showing dollar amounts. After selecting the amount, select "one-time" if available, then click "Continue", "Donate", or "Give now".`;
       }
-      return `${ctx}Select a $${price} donation amount if available. Choose a one-time donation (not recurring). Decline any optional extras like newsletters or email updates. Then click the button to proceed to pay by credit/debit card.`;
+      return `${ctx}First select the $${price} donation amount — look for radio buttons, amount cards, or clickable dollar amounts. Then select one-time (not recurring). Then click "Continue", "Donate by card", "Donate", or "Give now" to proceed to payment. Do NOT click the payment method button before selecting the amount.`;
 
     case "product": {
       // Buy endpoint: selections come from the order (set at query time).
@@ -195,7 +195,7 @@ function buildPageInstruction(
       return `${ctx}${stallHint}Click "Checkout", "Proceed to Checkout", or "Continue to Checkout" to advance to the checkout page.`;
 
     case "login-gate":
-      return `${ctx}${stallHint}Click "Guest Checkout", "Continue as Guest", or "Continue without account" to skip login. Do NOT create an account.`;
+      return `${ctx}${stallHint}Click "Guest Checkout", "Continue as Guest", "Continue without account", "Checkout as Guest", "Continue without signing in", "Skip sign in", "Shop as guest", or "No thanks" to skip login. Do NOT create an account.`;
 
     case "email-verification":
       return `${ctx}${stallHint}Enter the verification code that was sent to the email address. The code is: ${state.verificationCode ?? "still being retrieved"}. If you see a code input field, enter it and click Verify/Submit/Continue.`;
@@ -317,6 +317,60 @@ export async function runCheckout(
     });
     await page.waitForTimeout(5000);
 
+    // 8a-verify. Redirect verification
+    const finalUrl = page.url();
+    try {
+      const origDomain = extractDomain(url);
+      const finalDomain = extractDomain(finalUrl);
+      if (origDomain !== finalDomain) {
+        return {
+          success: false,
+          sessionId: session.id,
+          replayUrl: session.replayUrl,
+          failedStep: "navigate" as CheckoutStep,
+          errorMessage: `Redirect to different domain: ${origDomain} → ${finalDomain}`,
+          durationMs: Date.now() - startMs,
+        };
+      }
+      const finalUrlObj = new URL(finalUrl);
+      const isSearchPage =
+        ["/search", "/find"].some(s => finalUrlObj.pathname.toLowerCase().includes(s)) ||
+        ["q=", "query="].some(s => finalUrlObj.search.toLowerCase().includes(s));
+      if (isSearchPage) {
+        return {
+          success: false,
+          sessionId: session.id,
+          replayUrl: session.replayUrl,
+          failedStep: "navigate" as CheckoutStep,
+          errorMessage: `Product URL redirected to search page — product may no longer exist at original URL`,
+          durationMs: Date.now() - startMs,
+        };
+      }
+      if (finalUrl !== url) {
+        console.log(`  [redirect] ${url.slice(0, 80)} → ${finalUrl.slice(0, 80)}`);
+      }
+    } catch { /* URL parsing failed — continue */ }
+
+    // 8a-bot. Bot-block detection — minimal page content signals bot-blocked site
+    try {
+      const bodyText = await page.evaluate(() => document.body.textContent || "");
+      const wordCount = bodyText.trim().split(/\s+/).filter((w: string) => w.length > 0).length;
+      const charCount = bodyText.trim().length;
+      if (charCount < 500 || wordCount < 50) {
+        console.log(`  [bot-blocked] page content too small: ${charCount} chars, ${wordCount} words`);
+        return {
+          success: false,
+          sessionId: session.id,
+          replayUrl: session.replayUrl,
+          failedStep: "navigate" as CheckoutStep,
+          errorMessage: `bot_blocked: page rendered minimal content (${charCount} chars, ${wordCount} words) — site likely blocks automated browsers`,
+          durationMs: Date.now() - startMs,
+        };
+      }
+    } catch {
+      // Page evaluation failed — continue; we'll discover issues in the loop
+    }
+
     // 8b. Inject localStorage (must happen after navigating to target domain)
     if (existingCache) {
       try {
@@ -362,7 +416,13 @@ export async function runCheckout(
       await scriptedDismissPopups(page);
 
       // 9c. Detect page type
-      const pageType = await detectPageType(page);
+      let pageType: PageType;
+      try {
+        pageType = await detectPageType(page);
+      } catch {
+        console.log(`  [detect-error] detectPageType threw, treating as unknown`);
+        pageType = "unknown";
+      }
       state.currentStep = pageTypeToStep(pageType);
       console.log(`[page ${pageIdx}] type=${pageType} url=${page.url().slice(0, 80)}`);
 
@@ -371,9 +431,82 @@ export async function runCheckout(
 
       switch (pageType) {
         case "donation-landing": {
-          // Donation pages vary wildly — always defer to LLM
-          // (amount options, frequency, email opt-in, payment method are all site-specific)
-          advanced = false;
+          // 3-step scripted handler: select amount → one-time → click payment button
+          console.log(`  [donation] entering scripted handler, price=${input.order.product.price}`);
+          const price = input.order.product.price;
+          let amountSelected = false;
+
+          // Step 1: Select donation amount matching order price
+          if (price) {
+            const priceNum = parseFloat(price);
+            const variants = [
+              `$${priceNum}`, `$${priceNum.toFixed(2)}`, `${priceNum}`, `${priceNum.toFixed(2)}`,
+            ];
+
+            // Try radio buttons with matching value
+            for (const v of variants) {
+              if (await scriptedSelectOption(page, v, "radio")) {
+                amountSelected = true;
+                console.log(`  [donation] selected amount via radio: ${v}`);
+                break;
+              }
+            }
+
+            // Try data-amount or clickable elements containing price text
+            if (!amountSelected) {
+              amountSelected = await page.evaluate((vars: string[]) => {
+                // data-amount attributes
+                for (const v of vars) {
+                  const plain = v.replace("$", "");
+                  const el = document.querySelector(`[data-amount="${plain}"], [data-amount="${v}"]`);
+                  if (el) { (el as HTMLElement).click(); return true; }
+                }
+                // Buttons/labels containing the price text
+                const clickables = document.querySelectorAll(
+                  'button, label, [role="button"], [class*="amount" i], [class*="option" i]',
+                );
+                for (const el of clickables) {
+                  const text = (el.textContent || "").trim();
+                  if (vars.some(v => text === v || text.includes(v))) {
+                    (el as HTMLElement).click();
+                    return true;
+                  }
+                }
+                return false;
+              }, variants);
+              if (amountSelected) console.log(`  [donation] selected amount via DOM click`);
+            }
+          }
+
+          // Step 2: Select one-time (not recurring)
+          if (amountSelected) {
+            await page.waitForTimeout(500);
+            const oneTimeSelected =
+              await scriptedSelectOption(page, "one-time", "radio") ||
+              await scriptedSelectOption(page, "one time", "radio") ||
+              await scriptedSelectOption(page, "just once", "radio");
+            if (oneTimeSelected) console.log(`  [donation] selected one-time frequency`);
+          }
+
+          // Step 3: Click payment button (only if amount was selected)
+          if (amountSelected) {
+            await page.waitForTimeout(500);
+            advanced =
+              await scriptedClickButton(page, "donate by credit") ||
+              await scriptedClickButton(page, "donate by card") ||
+              await scriptedClickButton(page, "credit card") ||
+              await scriptedClickButton(page, "credit/debit card") ||
+              await scriptedClickButton(page, "donate now") ||
+              await scriptedClickButton(page, "continue") ||
+              await scriptedClickButton(page, "donate") ||
+              await scriptedClickButton(page, "give now");
+            if (advanced) console.log(`  [donation] clicked payment button`);
+          }
+
+          // If amount selection failed → advanced stays false → LLM fallback
+          if (!amountSelected && price) {
+            console.log(`  [donation] scripted amount selection failed for $${price}`);
+          }
           break;
         }
 
@@ -399,13 +532,46 @@ export async function runCheckout(
             break;
           }
 
+          // Check for out-of-stock / unavailable variant before trying ATC
+          const isUnavailable = await page.evaluate(() => {
+            const unavailableTexts = [
+              "option not available", "sold out", "out of stock",
+              "unavailable", "notify me", "coming soon", "not available",
+              "currently out", "temporarily out",
+            ];
+            // Check all buttons and submit inputs for unavailable signals
+            const allButtons = document.querySelectorAll('button, input[type="submit"]');
+            for (const btn of allButtons) {
+              const text = (btn.textContent || "").trim().toLowerCase();
+              const value = ((btn as HTMLInputElement).value || "").toLowerCase();
+              const combined = `${text} ${value}`;
+              if (unavailableTexts.some(s => combined.includes(s))) {
+                return text || value || "unavailable";
+              }
+            }
+            return null;
+          });
+          if (isUnavailable) {
+            console.log(`  [product] ATC button unavailable: "${isUnavailable}"`);
+            return {
+              success: false,
+              sessionId: session.id,
+              replayUrl: session.replayUrl,
+              failedStep: "add-to-cart" as CheckoutStep,
+              errorMessage: `out_of_stock: ${isUnavailable}`,
+              durationMs: Date.now() - startMs,
+            };
+          }
+
           // No selections needed, or selections already applied — try scripted add-to-cart
           // Prefer "buy now" (goes directly to checkout, skips cart drawer)
           const addedToCart =
             await scriptedClickButton(page, "buy now") ||
             await scriptedClickButton(page, "add to cart") ||
             await scriptedClickButton(page, "add to bag") ||
-            await scriptedClickButton(page, "add to basket");
+            await scriptedClickButton(page, "add to basket") ||
+            await scriptedClickButton(page, "ship it") ||
+            await scriptedClickButton(page, "deliver it");
           if (addedToCart) {
             state.addedToCart = true;
             console.log(`  [product] added to cart via scripted click`);
@@ -421,6 +587,7 @@ export async function runCheckout(
                 await scriptedClickButton(page, "checkout") ||
                 await scriptedClickButton(page, "proceed to checkout") ||
                 await scriptedClickButton(page, "go to checkout") ||
+                await scriptedClickButton(page, "secure checkout") ||
                 await scriptedClickButton(page, "view bag") ||
                 await scriptedClickButton(page, "view cart");
               // If no checkout button found, navigate directly to /checkout
@@ -445,7 +612,11 @@ export async function runCheckout(
           advanced =
             await scriptedClickButton(page, "checkout") ||
             await scriptedClickButton(page, "proceed to checkout") ||
-            await scriptedClickButton(page, "continue to checkout");
+            await scriptedClickButton(page, "continue to checkout") ||
+            await scriptedClickButton(page, "secure checkout") ||
+            await scriptedClickButton(page, "go to checkout") ||
+            await scriptedClickButton(page, "start checkout") ||
+            await scriptedClickButton(page, "begin checkout");
           // Fallback: navigate directly to /checkout if buttons didn't work
           if (!advanced) {
             console.log(`  [cart] no checkout button found, navigating to /checkout`);
@@ -467,7 +638,13 @@ export async function runCheckout(
             await scriptedClickButton(page, "guest checkout") ||
             await scriptedClickButton(page, "continue as guest") ||
             await scriptedClickButton(page, "continue without account") ||
-            await scriptedClickButton(page, "guest");
+            await scriptedClickButton(page, "guest") ||
+            await scriptedClickButton(page, "checkout as guest") ||
+            await scriptedClickButton(page, "continue without signing in") ||
+            await scriptedClickButton(page, "skip sign in") ||
+            await scriptedClickButton(page, "shop as guest") ||
+            await scriptedClickButton(page, "checkout without an account") ||
+            await scriptedClickButton(page, "no thanks");
           break;
         }
 
@@ -800,7 +977,9 @@ export async function runCheckout(
               await scriptedClickButton(page, "buy now") ||
               await scriptedClickButton(page, "add to cart") ||
               await scriptedClickButton(page, "add to bag") ||
-              await scriptedClickButton(page, "add to basket");
+              await scriptedClickButton(page, "add to basket") ||
+              await scriptedClickButton(page, "ship it") ||
+              await scriptedClickButton(page, "deliver it");
             if (postLlmAtc) {
               state.addedToCart = true;
               console.log(`  [post-llm] scripted add-to-cart succeeded`);
@@ -910,11 +1089,19 @@ export async function runCheckout(
 
     // 13. Final result
     if (input.dryRun) {
+      // Dry-run success requires reaching at least card fill stage
+      // (or confirmation page). If we stalled on login-gate/cart/product,
+      // the checkout didn't actually complete.
+      const dryRunSuccess = state.cardFilled || confirmedViaPageText;
       return {
-        success: true,
+        success: dryRunSuccess,
         finalTotal: finalTotal ?? state.confirmationData?.total,
         sessionId: session.id,
         replayUrl: session.replayUrl,
+        failedStep: dryRunSuccess ? undefined : state.currentStep,
+        errorMessage: dryRunSuccess
+          ? undefined
+          : `Checkout did not reach payment stage (stopped at ${state.currentStep}, ${state.llmCalls}/${MAX_LLM_CALLS} LLM calls used)`,
         durationMs: Date.now() - startMs,
       };
     }
