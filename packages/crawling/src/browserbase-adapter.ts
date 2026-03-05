@@ -21,6 +21,14 @@ const SESSION_TIMEOUT_S = 300;
 
 // Rate limit: max N session creations per second to avoid thundering herd
 const SESSION_CREATE_RATE = parseInt(process.env.ADAPTER_SESSION_RATE ?? "4", 10);
+const ADAPTER_QUEUE_TIMEOUT_MS = parseInt(
+  process.env.ADAPTER_QUEUE_TIMEOUT_MS ?? "15000",
+  10,
+);
+const ADAPTER_RATE_QUEUE_TIMEOUT_MS = parseInt(
+  process.env.ADAPTER_RATE_QUEUE_TIMEOUT_MS ?? "12000",
+  10,
+);
 
 // Retry config for transient failures in handleScrape
 const SCRAPE_RETRIES = 2;
@@ -41,20 +49,42 @@ const PRODUCT_SELECTORS = [
 // ---- Concurrency semaphore ----
 
 let activeCount = 0;
-const waiting: Array<() => void> = [];
+const waiting: Array<{
+  resolve: () => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+  enqueuedAt: number;
+}> = [];
+let queueTimeouts = 0;
+let scrapeRetriesTriggered = 0;
+let sessionRetriesTriggered = 0;
 
 function acquire(): Promise<void> {
   if (activeCount < MAX_CONCURRENT) {
     activeCount++;
     return Promise.resolve();
   }
-  return new Promise((resolve) => waiting.push(resolve));
+  return new Promise((resolve, reject) => {
+    const enqueuedAt = Date.now();
+    const timer = setTimeout(() => {
+      const idx = waiting.findIndex((entry) => entry.reject === reject);
+      if (idx >= 0) waiting.splice(idx, 1);
+      queueTimeouts++;
+      reject(
+        new Error(
+          `adapter concurrency queue timeout after ${ADAPTER_QUEUE_TIMEOUT_MS}ms`,
+        ),
+      );
+    }, ADAPTER_QUEUE_TIMEOUT_MS);
+    waiting.push({ resolve, reject, timer, enqueuedAt });
+  });
 }
 
 function release(): void {
   if (waiting.length > 0) {
     const next = waiting.shift()!;
-    next();
+    clearTimeout(next.timer);
+    next.resolve();
   } else {
     activeCount--;
   }
@@ -66,7 +96,12 @@ function release(): void {
 
 let rateBucket = SESSION_CREATE_RATE;
 let lastRefill = Date.now();
-const rateQueue: Array<() => void> = [];
+const rateQueue: Array<{
+  resolve: () => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+  enqueuedAt: number;
+}> = [];
 
 function refillBucket(): void {
   const now = Date.now();
@@ -84,7 +119,20 @@ function acquireRateToken(): Promise<void> {
     rateBucket--;
     return Promise.resolve();
   }
-  return new Promise((resolve) => rateQueue.push(resolve));
+  return new Promise((resolve, reject) => {
+    const enqueuedAt = Date.now();
+    const timer = setTimeout(() => {
+      const idx = rateQueue.findIndex((entry) => entry.reject === reject);
+      if (idx >= 0) rateQueue.splice(idx, 1);
+      queueTimeouts++;
+      reject(
+        new Error(
+          `adapter rate queue timeout after ${ADAPTER_RATE_QUEUE_TIMEOUT_MS}ms`,
+        ),
+      );
+    }, ADAPTER_RATE_QUEUE_TIMEOUT_MS);
+    rateQueue.push({ resolve, reject, timer, enqueuedAt });
+  });
 }
 
 // Drain the rate queue periodically
@@ -93,7 +141,8 @@ setInterval(() => {
   while (rateBucket > 0 && rateQueue.length > 0) {
     rateBucket--;
     const next = rateQueue.shift()!;
-    next();
+    clearTimeout(next.timer);
+    next.resolve();
   }
 }, 250);
 
@@ -139,6 +188,7 @@ async function createSession(
     const body = await response.text();
     if ((response.status === 429 || response.status >= 500) && attempt < retries) {
       const delay = 1000 * attempt + Math.random() * 500;
+      sessionRetriesTriggered++;
       console.log(`  [adapter] Session create ${response.status} — retry ${attempt + 1}/${retries} in ${Math.round(delay)}ms`);
       await sleep(delay);
       continue;
@@ -273,12 +323,13 @@ async function scrapeOnce(req: ScrapeRequest): Promise<ScrapeResponse> {
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    // Mark timeouts and connection errors as retryable
+    // Retry on transport and browser/session infra errors.
     const retryable = message.includes("timeout")
       || message.includes("Timeout")
       || message.includes("ECONNREFUSED")
       || message.includes("ECONNRESET")
       || message.includes("session failed")
+      || message.includes("queue timeout")
       || message.includes("Target closed")
       || message.includes("browser has been closed");
     throw new AdapterError(message, retryable);
@@ -307,6 +358,7 @@ async function handleScrape(req: ScrapeRequest): Promise<ScrapeResponse> {
       if (!err.retryable || attempt >= SCRAPE_RETRIES) break;
 
       const delay = SCRAPE_RETRY_BASE_MS * (attempt + 1) + Math.random() * 1000;
+      scrapeRetriesTriggered++;
       console.log(`  [adapter] Scrape retry ${attempt + 1}/${SCRAPE_RETRIES} for ${req.url} in ${Math.round(delay)}ms (${err.message.slice(0, 60)})`);
       await sleep(delay);
     }
@@ -348,6 +400,13 @@ const server = createServer(async (req, res) => {
       maxConcurrent: MAX_CONCURRENT,
       rateQueue: rateQueue.length,
       waitQueue: waiting.length,
+      queueTimeouts,
+      scrapeRetriesTriggered,
+      sessionRetriesTriggered,
+      oldestWaitQueueMs:
+        waiting.length > 0 ? Date.now() - waiting[0]!.enqueuedAt : 0,
+      oldestRateQueueMs:
+        rateQueue.length > 0 ? Date.now() - rateQueue[0]!.enqueuedAt : 0,
     });
     return;
   }

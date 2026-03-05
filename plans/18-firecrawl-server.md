@@ -87,6 +87,98 @@ The default model is `gemini-2.5-flash`. Override with:
 FIRECRAWL_MODEL=gemini-2.0-flash pnpm firecrawl:start
 ```
 
+## Browserbase Adapter Deep Dive
+
+The adapter (`packages/crawling/src/browserbase-adapter.ts`) is an HTTP server that implements Firecrawl's Playwright microservice protocol. When `PLAYWRIGHT_MICROSERVICE_URL` is set, Firecrawl routes rendering requests through it instead of using its own browser.
+
+### Endpoints
+
+**`GET /health`** — Returns adapter status:
+```json
+{
+  "status": "healthy",
+  "active": 3,
+  "maxConcurrent": 8,
+  "rateQueue": 0,
+  "waitQueue": 1,
+  "queueTimeouts": 0,
+  "scrapeRetriesTriggered": 2,
+  "sessionRetriesTriggered": 0,
+  "oldestWaitQueueMs": 0,
+  "oldestRateQueueMs": 0
+}
+```
+
+**`POST /scrape`** — Renders a URL via Browserbase and returns the HTML:
+```json
+// Request
+{ "url": "https://example.com/product", "timeout": 30000, "check_selector": "[itemprop='price']" }
+
+// Response
+{ "content": "<html>...</html>", "pageStatusCode": 200, "contentType": "text/html" }
+```
+
+### Session Management
+
+Each `/scrape` request creates a fresh Browserbase session with:
+- `proxies: true` — stealth proxies enabled
+- `solveCaptchas: true` — automatic CAPTCHA solving
+- `stealth: true` — anti-detection measures
+- 5-minute session timeout
+
+Sessions are destroyed after each request (no reuse).
+
+### Concurrency Control
+
+Two layers of rate limiting prevent overwhelming Browserbase:
+
+**1. Concurrency semaphore** (`ADAPTER_CONCURRENCY`, default: 8)
+- Limits concurrent active sessions
+- Excess requests queue with a timeout (`ADAPTER_QUEUE_TIMEOUT_MS`, default: 15s)
+
+**2. Session creation rate limiter** (`ADAPTER_SESSION_RATE`, default: 4/sec)
+- Token-bucket algorithm, refills at the configured rate
+- Prevents thundering-herd session creation
+- Separate queue with its own timeout (`ADAPTER_RATE_QUEUE_TIMEOUT_MS`, default: 12s)
+
+### Challenge Detection
+
+After page load, the adapter checks for anti-bot challenges:
+- Cloudflare "Just a moment" / "Attention required" pages
+- `#challenge-running`, `#challenge-stage`, `#cf-challenge-running` selectors
+- "Access denied" / "Automated access" text
+- "Please verify you are a human" / "Checking your browser" text
+
+If detected, waits up to 20s for Browserbase's built-in challenge solver to resolve.
+
+### Content Readiness
+
+After challenge resolution, waits for product content using 14 common product page selectors:
+- `[itemprop="name"]`, `[itemprop="price"]`
+- `.product-title`, `.product-name`, `.product__title`
+- `[data-product-title]`, `[data-product]`
+- `.price`, `[data-price]`
+- etc.
+
+### Retry Strategy
+
+Each scrape has up to 3 attempts (1 initial + 2 retries):
+- Retries on: timeouts, connection errors, session failures, browser closures
+- Does NOT retry on: non-retryable application errors
+- Backoff: `2s * (attempt + 1)` + random jitter
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ADAPTER_PORT` | `3003` | Port the adapter listens on |
+| `ADAPTER_CONCURRENCY` | `8` | Max concurrent Browserbase sessions |
+| `ADAPTER_SESSION_RATE` | `4` | Max session creations per second |
+| `ADAPTER_QUEUE_TIMEOUT_MS` | `15000` | Concurrency queue timeout |
+| `ADAPTER_RATE_QUEUE_TIMEOUT_MS` | `12000` | Rate limiter queue timeout |
+| `BROWSERBASE_API_KEY` | — | Required |
+| `BROWSERBASE_PROJECT_ID` | — | Required |
+
 ## Health Check
 
 ```bash

@@ -14,6 +14,7 @@ import {
   BLOCKED_PATTERNS,
   NOT_FOUND_PATTERNS,
   ProductNotFoundError,
+  ProductBlockedError,
   MAIN_CONTENT_SELECTORS,
   BOILERPLATE_SELECTORS,
 } from "./constants.js";
@@ -26,20 +27,66 @@ const MIN_HTML_LENGTH = 500;
 // Limit concurrent Browserbase fallback extractions to avoid overwhelming the adapter.
 // The adapter has its own rate limiter, but callers time out if queued too long.
 const BB_EXTRACT_CONCURRENCY = parseInt(process.env.BB_EXTRACT_CONCURRENCY ?? "5", 10);
+const BB_EXTRACT_QUEUE_TIMEOUT_MS = parseInt(
+  process.env.BB_EXTRACT_QUEUE_TIMEOUT_MS ?? "15000",
+  10,
+);
+const GEMINI_EXTRACT_TIMEOUT_MS = parseInt(
+  process.env.GEMINI_EXTRACT_TIMEOUT_MS ?? "20000",
+  10,
+);
+const GEMINI_EXTRACT_RETRIES = parseInt(
+  process.env.GEMINI_EXTRACT_RETRIES ?? "2",
+  10,
+);
+export type BrowserbaseFailureCode =
+  | "blocked"
+  | "not_found"
+  | "render_timeout"
+  | "adapter_502"
+  | "extract_empty"
+  | "transport_error";
+let lastBrowserbaseFailure:
+  | { code: BrowserbaseFailureCode; detail?: string }
+  | null = null;
+
+export function getLastBrowserbaseFailure():
+  | { code: BrowserbaseFailureCode; detail?: string }
+  | null {
+  return lastBrowserbaseFailure;
+}
+
 let bbActive = 0;
-const bbQueue: Array<() => void> = [];
+const bbQueue: Array<{
+  resolve: () => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}> = [];
 
 function bbAcquire(): Promise<void> {
   if (bbActive < BB_EXTRACT_CONCURRENCY) {
     bbActive++;
     return Promise.resolve();
   }
-  return new Promise((resolve) => bbQueue.push(resolve));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      const idx = bbQueue.findIndex((entry) => entry.reject === reject);
+      if (idx >= 0) bbQueue.splice(idx, 1);
+      reject(
+        new Error(
+          `browserbase-extract queue timeout after ${BB_EXTRACT_QUEUE_TIMEOUT_MS}ms`,
+        ),
+      );
+    }, BB_EXTRACT_QUEUE_TIMEOUT_MS);
+    bbQueue.push({ resolve, reject, timer });
+  });
 }
 
 function bbRelease(): void {
   if (bbQueue.length > 0) {
-    bbQueue.shift()!();
+    const next = bbQueue.shift()!;
+    clearTimeout(next.timer);
+    next.resolve();
   } else {
     bbActive--;
   }
@@ -51,6 +98,7 @@ export async function fetchRenderedHtml(
   url: string,
   timeoutMs = 60_000,
 ): Promise<string> {
+  lastBrowserbaseFailure = null;
   const response = await fetch(`${ADAPTER_BASE}/scrape`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -59,6 +107,10 @@ export async function fetchRenderedHtml(
   });
 
   if (!response.ok) {
+    lastBrowserbaseFailure = {
+      code: response.status === 502 ? "adapter_502" : "transport_error",
+      detail: `adapter HTTP ${response.status}`,
+    };
     throw new Error(`Adapter returned ${response.status}`);
   }
 
@@ -69,27 +121,54 @@ export async function fetchRenderedHtml(
   };
 
   if (body.pageStatusCode === 404 || body.pageStatusCode === 410) {
+    lastBrowserbaseFailure = {
+      code: "not_found",
+      detail: `browserbase page status ${body.pageStatusCode}`,
+    };
     throw new ProductNotFoundError(`Page returned HTTP ${body.pageStatusCode}`);
   }
+  if (body.pageStatusCode === 401 || body.pageStatusCode === 403 || body.pageStatusCode === 429) {
+    lastBrowserbaseFailure = {
+      code: "blocked",
+      detail: `browserbase page status ${body.pageStatusCode}`,
+    };
+    throw new ProductBlockedError(`Page blocked with HTTP ${body.pageStatusCode}`);
+  }
   if (body.pageStatusCode >= 400) {
+    lastBrowserbaseFailure = {
+      code: "transport_error",
+      detail: `browserbase page status ${body.pageStatusCode}`,
+    };
     throw new Error(`Page returned ${body.pageStatusCode}`);
   }
 
   const html = body.content ?? "";
   if (html.length < MIN_HTML_LENGTH) {
+    lastBrowserbaseFailure = {
+      code: "extract_empty",
+      detail: `html too short (${html.length})`,
+    };
     throw new Error(`HTML too short (${html.length} chars)`);
   }
 
   const lower = html.toLowerCase();
 
-  // Check for 404/discontinued content
-  if (html.length < 20000 && NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
-    throw new ProductNotFoundError("Page content indicates product not found or discontinued");
+  // Treat anti-bot content as blocked before not-found to avoid false 404s.
+  if (html.length < 5000 && BLOCKED_PATTERNS.some((p) => lower.includes(p))) {
+    lastBrowserbaseFailure = {
+      code: "blocked",
+      detail: "blocked pattern detected in rendered html",
+    };
+    throw new ProductBlockedError("Page still bot-blocked after Browserbase render");
   }
 
-  // Check for bot-challenge content in short pages
-  if (html.length < 5000 && BLOCKED_PATTERNS.some((p) => lower.includes(p))) {
-    throw new Error("Page still bot-blocked after Browserbase render");
+  // Check for 404/discontinued content.
+  if (html.length < 20000 && NOT_FOUND_PATTERNS.some((p) => lower.includes(p))) {
+    lastBrowserbaseFailure = {
+      code: "not_found",
+      detail: "not_found pattern detected in rendered html",
+    };
+    throw new ProductNotFoundError("Page content indicates product not found or discontinued");
   }
 
   return html;
@@ -178,16 +257,30 @@ async function extractWithGemini(markdown: string): Promise<FirecrawlExtract | n
 
   const prompt = `${FIRECRAWL_EXTRACT_PROMPT}\n\nPage content:\n${markdown}`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-
-  if (!text) return null;
-
-  try {
-    return JSON.parse(text) as FirecrawlExtract;
-  } catch {
-    return null;
+  for (let attempt = 0; attempt <= GEMINI_EXTRACT_RETRIES; attempt++) {
+    try {
+      const result = await Promise.race([
+        model.generateContent(prompt),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("Gemini extraction timeout")),
+            GEMINI_EXTRACT_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+      const text = result.response.text();
+      if (!text) return null;
+      try {
+        return JSON.parse(text) as FirecrawlExtract;
+      } catch {
+        return null;
+      }
+    } catch {
+      if (attempt >= GEMINI_EXTRACT_RETRIES) return null;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
   }
+  return null;
 }
 
 // ---- Orchestrator ----
@@ -209,6 +302,10 @@ export async function browserbaseExtract(
     const extract = await extractWithGemini(markdown);
 
     if (!extract?.name || !extract?.price) {
+      lastBrowserbaseFailure = {
+        code: "extract_empty",
+        detail: "gemini returned no name/price",
+      };
       console.log(`  [browserbase-extract] Gemini extraction returned no name/price`);
       return null;
     }
@@ -216,8 +313,15 @@ export async function browserbaseExtract(
     console.log(`  [browserbase-extract] Success: ${extract.name} — ${extract.price}`);
     return extract;
   } catch (err) {
-    if (err instanceof ProductNotFoundError) throw err;
+    if (err instanceof ProductNotFoundError || err instanceof ProductBlockedError) throw err;
     const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("timeout")) {
+      lastBrowserbaseFailure = { code: "render_timeout", detail: message };
+    } else if (message.includes("Adapter returned 502")) {
+      lastBrowserbaseFailure = { code: "adapter_502", detail: message };
+    } else if (!lastBrowserbaseFailure) {
+      lastBrowserbaseFailure = { code: "transport_error", detail: message };
+    }
     console.log(`  [browserbase-extract] Failed: ${message}`);
     return null;
   } finally {

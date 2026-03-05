@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { discoverViaFirecrawl } from "../src/discover.js";
+import {
+  discoverViaFirecrawl,
+  discoverViaFirecrawlWithDiagnostics,
+} from "../src/discover.js";
 import { isValidPrice } from "../src/helpers.js";
 
 // Use a test base URL for all Firecrawl mock tests
@@ -1470,6 +1473,29 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
     expect(result).toBeNull();
   });
 
+  it("classifies challenge pages as blocked (not not_found)", async () => {
+    fetchSpy.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Fake Product", price: "$50.00" },
+            markdown: "Access denied. Page not found.",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    const promise = discoverViaFirecrawlWithDiagnostics(
+      "https://example.com/product",
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    const { result, diagnostics } = await promise;
+    expect(result).toBeNull();
+    expect(diagnostics.failureCode).toBe("blocked");
+  });
+
   it("returns null for Access Denied page", async () => {
     fetchSpy.mockResolvedValue(
       new Response(
@@ -1511,5 +1537,27 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
     expect(result).not.toBeNull();
     expect(result!.name).toBe("Tree Runner");
     expect(result!.price).toBe("98.00");
+  });
+});
+
+describe("discoverViaFirecrawl diagnostics", () => {
+  const originalApiKey = process.env.FIRECRAWL_API_KEY;
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env.FIRECRAWL_API_KEY = originalApiKey;
+    } else {
+      delete process.env.FIRECRAWL_API_KEY;
+    }
+  });
+
+  it("returns llm_config code when FIRECRAWL_API_KEY is missing", async () => {
+    delete process.env.FIRECRAWL_API_KEY;
+    const { result, diagnostics } = await discoverViaFirecrawlWithDiagnostics(
+      "https://example.com/product",
+    );
+    expect(result).toBeNull();
+    expect(diagnostics.failureCode).toBe("llm_config");
+    expect(diagnostics.failureStage).toBe("config");
   });
 });

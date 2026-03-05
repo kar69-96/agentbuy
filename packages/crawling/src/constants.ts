@@ -51,6 +51,13 @@ export class ProductNotFoundError extends Error {
   }
 }
 
+export class ProductBlockedError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = "ProductBlockedError";
+  }
+}
+
 /** Content patterns that indicate a product page is 404 / discontinued / removed. */
 export const NOT_FOUND_PATTERNS = [
   "this product is no longer available",

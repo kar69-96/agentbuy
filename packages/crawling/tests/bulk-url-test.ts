@@ -5,7 +5,10 @@
  * Usage: npx tsx packages/crawling/tests/bulk-url-test.ts
  */
 
-import { discoverViaFirecrawl } from "../src/discover.js";
+import {
+  discoverViaFirecrawlWithDiagnostics,
+  type DiscoveryFailureCode,
+} from "../src/discover.js";
 import { isValidPrice } from "../src/helpers.js";
 import type { FullDiscoveryResult } from "../src/discover.js";
 
@@ -19,7 +22,17 @@ interface TestResult {
   success: boolean;
   name?: string;
   price?: string;
+  method?: string;
+  failureCode?: DiscoveryFailureCode;
+  failureStage?: string;
+  failureDetail?: string;
+  timingTotalMs?: number;
+  timingFirecrawlMs?: number;
+  timingFirecrawlAttempts?: number;
+  timingBrowserbaseMs?: number;
+  timingVariantMs?: number;
   priceValid: boolean;
+  nameValid: boolean;
   optionCount: number;
   options?: string[];
   error?: string;
@@ -124,7 +137,9 @@ async function runTest(
 ): Promise<TestResult> {
   const start = Date.now();
   try {
-    const result = await discoverViaFirecrawl(entry.url);
+    const { result, diagnostics } = await discoverViaFirecrawlWithDiagnostics(
+      entry.url,
+    );
     const durationMs = Date.now() - start;
     if (!result) {
       return {
@@ -132,9 +147,18 @@ async function runTest(
         category: entry.category,
         success: false,
         priceValid: false,
+        nameValid: false,
         optionCount: 0,
         notFound: false,
         error: "null result",
+        failureCode: diagnostics.failureCode,
+        failureStage: diagnostics.failureStage,
+        failureDetail: diagnostics.failureDetail,
+        timingTotalMs: diagnostics.timings?.totalMs,
+        timingFirecrawlMs: diagnostics.timings?.firecrawlMs,
+        timingFirecrawlAttempts: diagnostics.timings?.firecrawlAttempts,
+        timingBrowserbaseMs: diagnostics.timings?.browserbaseMs,
+        timingVariantMs: diagnostics.timings?.variantMs,
         durationMs,
       };
     }
@@ -144,26 +168,50 @@ async function runTest(
         category: entry.category,
         success: false,
         priceValid: false,
+        nameValid: false,
         optionCount: 0,
         notFound: true,
         error: "product not found / discontinued",
+        failureCode: diagnostics.failureCode ?? result.failure_code,
+        failureStage: diagnostics.failureStage ?? result.failure_stage,
+        failureDetail: diagnostics.failureDetail ?? result.failure_detail,
+        timingTotalMs: diagnostics.timings?.totalMs,
+        timingFirecrawlMs: diagnostics.timings?.firecrawlMs,
+        timingFirecrawlAttempts: diagnostics.timings?.firecrawlAttempts,
+        timingBrowserbaseMs: diagnostics.timings?.browserbaseMs,
+        timingVariantMs: diagnostics.timings?.variantMs,
         durationMs,
       };
     }
     const priceValid = isValidPrice(result.price);
+    const nameValid = Boolean(result.name && result.name.trim().length >= 3);
     return {
       url: entry.url,
       category: entry.category,
-      success: priceValid,
+      success: priceValid && nameValid,
       name: result.name,
       price: result.price,
+      method: result.method,
+      failureCode: diagnostics.failureCode,
+      failureStage: diagnostics.failureStage,
+      failureDetail: diagnostics.failureDetail,
+      timingTotalMs: diagnostics.timings?.totalMs,
+      timingFirecrawlMs: diagnostics.timings?.firecrawlMs,
+      timingFirecrawlAttempts: diagnostics.timings?.firecrawlAttempts,
+      timingBrowserbaseMs: diagnostics.timings?.browserbaseMs,
+      timingVariantMs: diagnostics.timings?.variantMs,
       priceValid,
+      nameValid,
       optionCount: result.options.length,
       options: result.options.map(
         (o) => `${o.name}: [${o.values.join(", ")}]`,
       ),
       notFound: false,
-      error: priceValid ? undefined : `invalid price: "${result.price}"`,
+      error: !priceValid
+        ? `invalid price: "${result.price}"`
+        : !nameValid
+          ? "invalid name"
+          : undefined,
       durationMs,
     };
   } catch (err: any) {
@@ -172,6 +220,7 @@ async function runTest(
       category: entry.category,
       success: false,
       priceValid: false,
+      nameValid: false,
       optionCount: 0,
       notFound: false,
       error: err?.message ?? String(err),
@@ -210,14 +259,64 @@ async function main() {
   const notFoundResults = failed.filter((r) => r.notFound);
   const nullResults = failed.filter((r) => !r.notFound && r.error === "null result");
   const invalidPrice = failed.filter((r) => !r.notFound && r.error?.startsWith("invalid price"));
+  const invalidName = failed.filter((r) => !r.notFound && r.error === "invalid name");
   const thrownErrors = failed.filter(
-    (r) => !r.notFound && r.error !== "null result" && !r.error?.startsWith("invalid price"),
+    (r) =>
+      !r.notFound
+      && r.error !== "null result"
+      && !r.error?.startsWith("invalid price")
+      && r.error !== "invalid name",
   );
   const withOptions = results.filter((r) => r.optionCount > 0);
   const totalMs = results.reduce((a, r) => a + r.durationMs, 0);
+  const sortedDurations = [...results.map((r) => r.durationMs)].sort((a, b) => a - b);
+  const percentile = (p: number): number => {
+    const idx = Math.min(
+      sortedDurations.length - 1,
+      Math.max(0, Math.ceil((p / 100) * sortedDurations.length) - 1),
+    );
+    return sortedDurations[idx] ?? 0;
+  };
   const avgTime = totalMs / results.length;
+  const p50 = percentile(50);
+  const p95 = percentile(95);
+  const p99 = percentile(99);
   const fastest = Math.min(...results.map((r) => r.durationMs));
   const slowest = Math.max(...results.map((r) => r.durationMs));
+  const methodCounts = results.reduce<Record<string, number>>((acc, r) => {
+    const key = r.method ?? "unknown";
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+  const failureCodeCounts = failed.reduce<Record<string, number>>((acc, r) => {
+    const key = r.failureCode ?? (r.notFound ? "not_found" : "unknown");
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+  const avg = (values: number[]): number =>
+    values.length > 0
+      ? values.reduce((a, b) => a + b, 0) / values.length
+      : 0;
+  const avgFirecrawlMs = avg(
+    results
+      .map((r) => r.timingFirecrawlMs)
+      .filter((v): v is number => typeof v === "number"),
+  );
+  const avgBrowserbaseMs = avg(
+    results
+      .map((r) => r.timingBrowserbaseMs)
+      .filter((v): v is number => typeof v === "number" && v > 0),
+  );
+  const avgVariantMs = avg(
+    results
+      .map((r) => r.timingVariantMs)
+      .filter((v): v is number => typeof v === "number" && v > 0),
+  );
+  const avgFirecrawlAttempts = avg(
+    results
+      .map((r) => r.timingFirecrawlAttempts)
+      .filter((v): v is number => typeof v === "number"),
+  );
 
   console.log(`\n=== Summary ===`);
   console.log(`Total:        ${results.length}`);
@@ -226,12 +325,28 @@ async function main() {
   console.log(`  Not found:    ${notFoundResults.length}`);
   console.log(`  Null result:  ${nullResults.length}`);
   console.log(`  Bad price:    ${invalidPrice.length}`);
+  console.log(`  Bad name:     ${invalidName.length}`);
   console.log(`  Errors:       ${thrownErrors.length}`);
   console.log(`W/ Options:   ${withOptions.length}`);
   console.log(`Avg Time:     ${(avgTime / 1000).toFixed(1)}s`);
+  console.log(`P50 Time:     ${(p50 / 1000).toFixed(1)}s`);
+  console.log(`P95 Time:     ${(p95 / 1000).toFixed(1)}s`);
+  console.log(`P99 Time:     ${(p99 / 1000).toFixed(1)}s`);
   console.log(`Fastest:      ${(fastest / 1000).toFixed(1)}s`);
   console.log(`Slowest:      ${(slowest / 1000).toFixed(1)}s`);
   console.log(`Total Time:   ${(totalMs / 1000).toFixed(0)}s`);
+  console.log(
+    `Methods:      ${Object.entries(methodCounts)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(", ")}`,
+  );
+  console.log(
+    `Failure codes:${Object.entries(failureCodeCounts)
+      .map(([k, v]) => ` ${k}=${v}`)
+      .join(",")}`,
+  );
+  console.log(`Avg stage ms: firecrawl=${avgFirecrawlMs.toFixed(1)}, browserbase=${avgBrowserbaseMs.toFixed(1)}, variant=${avgVariantMs.toFixed(1)}`);
+  console.log(`Avg firecrawl attempts: ${avgFirecrawlAttempts.toFixed(2)}`);
 
   if (notFoundResults.length > 0) {
     console.log(`\n--- Not Found / Discontinued ---`);
@@ -248,8 +363,23 @@ async function main() {
         ? "NULL"
         : f.error?.startsWith("invalid price")
           ? "BAD_PRICE"
+          : f.error === "invalid name"
+            ? "BAD_NAME"
           : "ERROR";
       console.log(`  [${reason}] ${(f.durationMs / 1000).toFixed(1).padStart(5)}s  ${f.category}: ${f.url}`);
+      if (f.failureCode || f.failureStage) {
+        console.log(
+          `         code=${f.failureCode ?? "unknown"} stage=${f.failureStage ?? "unknown"}`,
+        );
+      }
+      if (typeof f.timingFirecrawlMs === "number") {
+        console.log(
+          `         timing_ms total=${f.timingTotalMs ?? 0} firecrawl=${f.timingFirecrawlMs} browserbase=${f.timingBrowserbaseMs ?? 0} variant=${f.timingVariantMs ?? 0} attempts=${f.timingFirecrawlAttempts ?? 0}`,
+        );
+      }
+      if (f.failureDetail) {
+        console.log(`         detail=${f.failureDetail.slice(0, 160)}`);
+      }
       if (reason === "ERROR") console.log(`         ${f.error}`);
     }
   }

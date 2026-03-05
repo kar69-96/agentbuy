@@ -7,6 +7,16 @@ export { getFirecrawlConfig } from "./client.js";
 
 // ---- Types ----
 export type { FirecrawlExtract, FirecrawlConfig } from "./types.js";
+export {
+  chooseBestCandidate,
+  rankCandidate,
+  type CandidateInput,
+  type RankedCandidate,
+} from "./parser-ensemble.js";
+export {
+  defaultQueryDiscoveryProviders,
+  type QueryDiscoveryProviders,
+} from "./providers.js";
 
 // ---- Browserbase fallback extraction ----
 export { browserbaseExtract } from "./browserbase-extract.js";
