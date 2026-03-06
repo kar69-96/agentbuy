@@ -1,10 +1,8 @@
 /**
  * Browserbase adapter that speaks Firecrawl's Playwright microservice protocol.
  *
- * Firecrawl's engine fallback checks PLAYWRIGHT_MICROSERVICE_URL. When set,
- * the `playwright` engine (quality: 20) sends POST /scrape requests here.
- * This adapter routes those through Browserbase's cloud infrastructure which
- * has CAPTCHA solving, stealth proxies, and anti-bot capabilities built in.
+ * Each request runs in full isolation — no internal queues or semaphores.
+ * Browserbase's API handles its own rate limiting (429s trigger retries).
  *
  * Start: npx tsx packages/crawling/src/browserbase-adapter.ts
  */
@@ -15,24 +13,17 @@ import { chromium } from "playwright-core";
 // ---- Config ----
 
 const PORT = parseInt(process.env.ADAPTER_PORT ?? "3003", 10);
-const MAX_CONCURRENT = parseInt(process.env.ADAPTER_CONCURRENCY ?? "8", 10);
-const BROWSERBASE_API_URL = "https://api.browserbase.com/v1/sessions";
-const SESSION_TIMEOUT_S = 300;
-
-// Rate limit: max N session creations per second to avoid thundering herd
-const SESSION_CREATE_RATE = parseInt(process.env.ADAPTER_SESSION_RATE ?? "4", 10);
-const ADAPTER_QUEUE_TIMEOUT_MS = parseInt(
-  process.env.ADAPTER_QUEUE_TIMEOUT_MS ?? "15000",
-  10,
-);
-const ADAPTER_RATE_QUEUE_TIMEOUT_MS = parseInt(
-  process.env.ADAPTER_RATE_QUEUE_TIMEOUT_MS ?? "12000",
-  10,
-);
 
 // Retry config for transient failures in handleScrape
 const SCRAPE_RETRIES = 2;
 const SCRAPE_RETRY_BASE_MS = 2000;
+
+// ---- Metrics (read-only diagnostics, not used for flow control) ----
+
+let activeCount = 0;
+let totalRequests = 0;
+let scrapeRetriesTriggered = 0;
+let sessionRetriesTriggered = 0;
 
 // ---- Product selectors for content readiness ----
 
@@ -46,106 +37,6 @@ const PRODUCT_SELECTORS = [
   '.price', '[data-price]', '[class*="productPrice"]',
 ].join(", ");
 
-// ---- Concurrency semaphore ----
-
-let activeCount = 0;
-const waiting: Array<{
-  resolve: () => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  enqueuedAt: number;
-}> = [];
-let queueTimeouts = 0;
-let scrapeRetriesTriggered = 0;
-let sessionRetriesTriggered = 0;
-
-function acquire(): Promise<void> {
-  if (activeCount < MAX_CONCURRENT) {
-    activeCount++;
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const enqueuedAt = Date.now();
-    const timer = setTimeout(() => {
-      const idx = waiting.findIndex((entry) => entry.reject === reject);
-      if (idx >= 0) waiting.splice(idx, 1);
-      queueTimeouts++;
-      reject(
-        new Error(
-          `adapter concurrency queue timeout after ${ADAPTER_QUEUE_TIMEOUT_MS}ms`,
-        ),
-      );
-    }, ADAPTER_QUEUE_TIMEOUT_MS);
-    waiting.push({ resolve, reject, timer, enqueuedAt });
-  });
-}
-
-function release(): void {
-  if (waiting.length > 0) {
-    const next = waiting.shift()!;
-    clearTimeout(next.timer);
-    next.resolve();
-  } else {
-    activeCount--;
-  }
-}
-
-// ---- Session creation rate limiter ----
-// Ensures we don't slam Browserbase API with N simultaneous createSession calls.
-// Uses a token-bucket approach: refills SESSION_CREATE_RATE tokens per second.
-
-let rateBucket = SESSION_CREATE_RATE;
-let lastRefill = Date.now();
-const rateQueue: Array<{
-  resolve: () => void;
-  reject: (err: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-  enqueuedAt: number;
-}> = [];
-
-function refillBucket(): void {
-  const now = Date.now();
-  const elapsed = now - lastRefill;
-  if (elapsed >= 1000) {
-    const tokens = Math.floor(elapsed / 1000) * SESSION_CREATE_RATE;
-    rateBucket = Math.min(rateBucket + tokens, SESSION_CREATE_RATE);
-    lastRefill = now;
-  }
-}
-
-function acquireRateToken(): Promise<void> {
-  refillBucket();
-  if (rateBucket > 0) {
-    rateBucket--;
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const enqueuedAt = Date.now();
-    const timer = setTimeout(() => {
-      const idx = rateQueue.findIndex((entry) => entry.reject === reject);
-      if (idx >= 0) rateQueue.splice(idx, 1);
-      queueTimeouts++;
-      reject(
-        new Error(
-          `adapter rate queue timeout after ${ADAPTER_RATE_QUEUE_TIMEOUT_MS}ms`,
-        ),
-      );
-    }, ADAPTER_RATE_QUEUE_TIMEOUT_MS);
-    rateQueue.push({ resolve, reject, timer, enqueuedAt });
-  });
-}
-
-// Drain the rate queue periodically
-const rateQueueInterval = setInterval(() => {
-  refillBucket();
-  while (rateBucket > 0 && rateQueue.length > 0) {
-    rateBucket--;
-    const next = rateQueue.shift()!;
-    clearTimeout(next.timer);
-    next.resolve();
-  }
-}, 250);
-
 // ---- Browserbase session helpers ----
 
 function getBrowserbaseConfig(): { apiKey: string; projectId: string } {
@@ -156,6 +47,9 @@ function getBrowserbaseConfig(): { apiKey: string; projectId: string } {
   return { apiKey, projectId };
 }
 
+const BROWSERBASE_API_URL = "https://api.browserbase.com/v1/sessions";
+const SESSION_TIMEOUT_S = 300;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -164,9 +58,6 @@ async function createSession(
   retries = 5,
 ): Promise<{ id: string; connectUrl: string }> {
   const { apiKey, projectId } = getBrowserbaseConfig();
-
-  // Wait for rate limiter before hitting the API
-  await acquireRateToken();
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     const response = await fetch(BROWSERBASE_API_URL, {
@@ -282,6 +173,7 @@ interface ScrapeResponse {
   pageStatusCode: number;
   pageError?: string;
   contentType?: string;
+  finalUrl?: string;
 }
 
 async function scrapeOnce(req: ScrapeRequest): Promise<ScrapeResponse> {
@@ -312,6 +204,7 @@ async function scrapeOnce(req: ScrapeRequest): Promise<ScrapeResponse> {
 
     const content = await page.content();
     const statusCode = response?.status() ?? 200;
+    const finalUrl = page.url();
 
     await browser.close();
     browser = undefined;
@@ -320,6 +213,7 @@ async function scrapeOnce(req: ScrapeRequest): Promise<ScrapeResponse> {
       content,
       pageStatusCode: statusCode,
       contentType: "text/html",
+      finalUrl,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -397,22 +291,17 @@ const server = createServer(async (req, res) => {
     jsonResponse(res, 200, {
       status: "healthy",
       active: activeCount,
-      maxConcurrent: MAX_CONCURRENT,
-      rateQueue: rateQueue.length,
-      waitQueue: waiting.length,
-      queueTimeouts,
+      totalRequests,
       scrapeRetriesTriggered,
       sessionRetriesTriggered,
-      oldestWaitQueueMs:
-        waiting.length > 0 ? Date.now() - waiting[0]!.enqueuedAt : 0,
-      oldestRateQueueMs:
-        rateQueue.length > 0 ? Date.now() - rateQueue[0]!.enqueuedAt : 0,
     });
     return;
   }
 
   // POST /scrape
   if (req.method === "POST" && url.pathname === "/scrape") {
+    totalRequests++;
+    activeCount++;
     try {
       const body = await readBody(req);
       const scrapeReq = JSON.parse(body) as ScrapeRequest;
@@ -422,7 +311,6 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      await acquire();
       try {
         const result = await handleScrape(scrapeReq);
         jsonResponse(res, 200, result);
@@ -436,8 +324,6 @@ const server = createServer(async (req, res) => {
         } else {
           throw err;
         }
-      } finally {
-        release();
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -446,6 +332,8 @@ const server = createServer(async (req, res) => {
         pageStatusCode: 500,
         pageError: message,
       });
+    } finally {
+      activeCount--;
     }
     return;
   }
@@ -455,12 +343,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Browserbase adapter listening on port ${PORT}`);
-  console.log(`  Max concurrent sessions: ${MAX_CONCURRENT}`);
-  console.log(`  Session creation rate: ${SESSION_CREATE_RATE}/s`);
+  console.log(`  No concurrency limits — Browserbase handles its own rate limiting`);
   console.log(`  Scrape retries: ${SCRAPE_RETRIES}`);
   console.log(`  Health: http://localhost:${PORT}/health`);
-});
-
-server.on("close", () => {
-  clearInterval(rateQueueInterval);
 });

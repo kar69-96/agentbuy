@@ -8,7 +8,7 @@ import { firecrawlCrawlAsync } from "./crawl.js";
 
 // ---- Step 2: Variant URL resolution via /extract ----
 
-function normalizeToken(value: string): string {
+export function normalizeToken(value: string): string {
   return value
     .normalize("NFKD")
     .replace(/[^\w\s]/g, " ")
@@ -17,7 +17,7 @@ function normalizeToken(value: string): string {
     .trim();
 }
 
-function valuesLikelyMatch(a: string, b: string): boolean {
+export function valuesLikelyMatch(a: string, b: string): boolean {
   if (a === b) return true;
   return normalizeToken(a) === normalizeToken(b);
 }

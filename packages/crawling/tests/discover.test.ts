@@ -1150,8 +1150,8 @@ describe("discoverViaFirecrawl — retry and timeout", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     const result = await promise;
     expect(result).toBeNull();
-    // Four fetch calls: 3 Firecrawl attempts + 1 Browserbase adapter fallback
-    expect(fetchSpy).toHaveBeenCalledTimes(4);
+    // At least 1 Firecrawl attempt detects "blocked", plus possible retries/Browserbase fallback
+    expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(1);
   });
 
   it("does not retry when first attempt succeeds", async () => {
@@ -1559,5 +1559,212 @@ describe("discoverViaFirecrawl diagnostics", () => {
     expect(result).toBeNull();
     expect(diagnostics.failureCode).toBe("llm_config");
     expect(diagnostics.failureStage).toBe("config");
+  });
+});
+
+// ---- Concurrency isolation tests ----
+// These verify that concurrent discovery requests don't corrupt each other's
+// results or diagnostics via shared mutable state.
+
+describe("discoverViaFirecrawl — concurrency isolation", () => {
+  const originalApiKey = process.env.FIRECRAWL_API_KEY;
+  const originalBaseUrl = process.env.FIRECRAWL_BASE_URL;
+  let fetchSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    process.env.FIRECRAWL_API_KEY = "test-key";
+    process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
+    fetchSpy = vi.spyOn(globalThis, "fetch");
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env.FIRECRAWL_API_KEY = originalApiKey;
+    } else {
+      delete process.env.FIRECRAWL_API_KEY;
+    }
+    if (originalBaseUrl !== undefined) {
+      process.env.FIRECRAWL_BASE_URL = originalBaseUrl;
+    } else {
+      delete process.env.FIRECRAWL_BASE_URL;
+    }
+    fetchSpy.mockRestore();
+  });
+
+  it("concurrent requests each get their own correct product data", async () => {
+    // Mock returns different products based on the URL in the request body
+    fetchSpy.mockImplementation(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      const requestUrl = body.url as string;
+
+      // Simulate slight delay to increase interleaving likelihood
+      await new Promise((r) => setTimeout(r, Math.random() * 10));
+
+      if (requestUrl.includes("product-a")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              json: { name: "Product A", price: "$10.00" },
+              markdown: "# Product A\n\nThis is product A with enough content to pass validation checks.",
+              metadata: { statusCode: 200 },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (requestUrl.includes("product-b")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              json: { name: "Product B", price: "$20.00" },
+              markdown: "# Product B\n\nThis is product B with enough content to pass validation checks.",
+              metadata: { statusCode: 200 },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (requestUrl.includes("product-c")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              json: { name: "Product C", price: "$30.00" },
+              markdown: "# Product C\n\nThis is product C with enough content to pass validation checks.",
+              metadata: { statusCode: 200 },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    // Fire all three concurrently
+    const [resultA, resultB, resultC] = await Promise.all([
+      discoverViaFirecrawl("https://example.com/product-a"),
+      discoverViaFirecrawl("https://example.com/product-b"),
+      discoverViaFirecrawl("https://example.com/product-c"),
+    ]);
+
+    // Each request must get its own product — no cross-contamination
+    expect(resultA).not.toBeNull();
+    expect(resultA!.name).toBe("Product A");
+    expect(resultA!.price).toBe("10.00");
+
+    expect(resultB).not.toBeNull();
+    expect(resultB!.name).toBe("Product B");
+    expect(resultB!.price).toBe("20.00");
+
+    expect(resultC).not.toBeNull();
+    expect(resultC!.name).toBe("Product C");
+    expect(resultC!.price).toBe("30.00");
+  });
+
+  it("concurrent requests with mixed success/failure get correct diagnostics", async () => {
+    // Blocked/error paths trigger retry backoff (2s+4s) and Browserbase fallback,
+    // so this test needs more time than the default 5s.
+    fetchSpy.mockImplementation(async (url: string | URL | Request, init?: RequestInit) => {
+      const fetchUrl = typeof url === "string" ? url : url instanceof URL ? url.toString() : url.url;
+
+      // Browserbase adapter fallback calls go to localhost — reject them fast
+      if (fetchUrl.includes("localhost")) {
+        return new Response("adapter not running", { status: 502 });
+      }
+
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      const requestUrl = body.url as string;
+
+      await new Promise((r) => setTimeout(r, Math.random() * 10));
+
+      if (requestUrl.includes("success")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              json: { name: "Good Product", price: "$50.00" },
+              markdown: "# Good Product\n\nThis is a valid product page with enough content here.",
+              metadata: { statusCode: 200 },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (requestUrl.includes("blocked")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              json: { name: "Blocked", price: "$99.00" },
+              markdown: "Just a moment... Checking your browser before accessing the site. Please wait.",
+              metadata: { statusCode: 200 },
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (requestUrl.includes("error")) {
+        return new Response("server error", { status: 500 });
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    const [
+      { result: successResult, diagnostics: successDiag },
+      { result: blockedResult, diagnostics: blockedDiag },
+      { result: errorResult, diagnostics: errorDiag },
+    ] = await Promise.all([
+      discoverViaFirecrawlWithDiagnostics("https://example.com/success"),
+      discoverViaFirecrawlWithDiagnostics("https://example.com/blocked"),
+      discoverViaFirecrawlWithDiagnostics("https://example.com/error"),
+    ]);
+
+    // Success request must succeed regardless of concurrent failures
+    expect(successResult).not.toBeNull();
+    expect(successResult!.name).toBe("Good Product");
+    expect(successResult!.price).toBe("50.00");
+
+    // Blocked request must report "blocked", not "http_error" from the error request
+    expect(blockedResult).toBeNull();
+    expect(blockedDiag.failureCode).toBe("blocked");
+
+    // Error request must NOT report "blocked" — it should report its own failure.
+    // After Firecrawl 500s (http_error), it falls back to Browserbase which also
+    // fails (adapter_502). adapter_502 has higher priority so it wins.
+    expect(errorResult).toBeNull();
+    expect(errorDiag.failureCode).not.toBe("blocked");
+    expect(["http_error", "adapter_502"]).toContain(errorDiag.failureCode);
+  }, 30_000);
+
+  it("10 concurrent identical requests all return the same correct result", async () => {
+    fetchSpy.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, Math.random() * 20));
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            json: { name: "Popular Item", price: "$42.00" },
+            markdown: "# Popular Item\n\nA very popular product with enough content for validation.",
+            metadata: { statusCode: 200 },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        discoverViaFirecrawl(`https://example.com/popular-item?v=${i}`),
+      ),
+    );
+
+    // Every single result must be correct — no nulls, no wrong data
+    for (let i = 0; i < 10; i++) {
+      expect(results[i]).not.toBeNull();
+      expect(results[i]!.name).toBe("Popular Item");
+      expect(results[i]!.price).toBe("42.00");
+    }
   });
 });

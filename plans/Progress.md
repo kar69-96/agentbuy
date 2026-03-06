@@ -4,14 +4,50 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-03-05
+**Last updated:** 2026-03-06
 
 ### Summary
 
 - TypeScript: all packages compile cleanly (`pnpm build` passes)
-- Unit tests: 286 passed, 13 failed (pre-existing failures unrelated to Phase H)
-- Bulk URL test (61 URLs, concurrency 20): **10/61 passed (16%)**, **15 detected as 404/discontinued**
-- At concurrency 1 (Phase G baseline): **32/61 (52%)** — Browserbase throughput is the main limiter at high concurrency
+- Unit tests: **75 passed** (crawling package: 23 exa-extract + 52 discover/browserbase)
+- Exa unit tests: 23/23 passed
+- Build: clean after all three pipeline fixes
+
+### Pipeline Fixes (2026-03-06)
+
+Three fixes applied to improve discovery accuracy:
+
+**Fix 1: Exa parallel execution** — Exa was timing out in the pipeline because Firecrawl consumed 30-90s first. Now Exa fires in parallel with Firecrawl (`discoverViaExa(url).catch(() => null)`) and is awaited after Firecrawl/scrape fail. URLs like CB2, West Elm, AG1, Costco that succeeded standalone now work in the pipeline.
+
+**Fix 3: Browserbase extraction quality** — Many pages rendered successfully but Gemini returned null because product data was lost in 30k-char markdown truncation. Added JSON-LD (`<script type="application/ld+json">`) and meta tag (`og:title` + `product:price:amount`) extraction from raw HTML before falling back to Gemini. These are faster and more reliable for structured data.
+
+**Fix 4: Redirect detection** — URLs like Bookshop (Atomic Habits → Land of My Heart) and MVMT (Classic Black Tan → Coronada Ceramic) were redirecting to different products. Added `isRedirectedResult()` in exa-extract.ts and `isRedirectToOtherPage()` in browserbase-extract.ts. Both check domain mismatch, homepage/search redirect, and significant path changes.
+
+**Files changed:**
+- `packages/crawling/src/exa-extract.ts` — added `isRedirectedResult()`, redirect check after Exa result
+- `packages/crawling/src/browserbase-extract.ts` — added `extractJsonLdFromHtml()`, `extractMetaFromHtml()`, `isRedirectToOtherPage()`, `RenderedPage` interface; reordered extraction: JSON-LD → meta tags → Gemini
+- `packages/crawling/src/browserbase-adapter.ts` — added `finalUrl` to `ScrapeResponse`, captures `page.url()` after navigation
+- `packages/checkout/src/discover.ts` — Exa runs in parallel with Firecrawl, awaited after scrape fails
+
+### Exa.ai Stage 2.5
+
+Added Exa.ai as Stage 2.5 in the discovery pipeline (between server-side scrape and Browserbase). Uses livecrawl + LLM structured extraction via JSON Schema.
+
+**Schema fix:** Initial `{type, description}` object format caused Exa validation error. Fixed to proper JSON Schema (`{type: "object", properties: {...}, required: [...]}`).
+
+**Exa.ai extracted these 8 URLs that other tiers couldn't:**
+| Site | Product | Price |
+|------|---------|-------|
+| H&M | Loose Fit Sweatshirt | $14.99 |
+| Adidas | Ultraboost 5 Shoes | $180 |
+| Levi's | 511 Slim Fit Men's Jeans | $69.50 |
+| Wayfair | Sheets & Pillowcases | $25.28 |
+| Chewy | Pet Food | $24.99 |
+| Aesop | Resolute Facial Concentrate | $179.00 |
+| Lego | Eiffel Tower 10307 | $629.99 |
+| iHerb | Gaia Herbs Mental Alertness | $31.49 |
+
+**Impact:** Exa saved 8 Browserbase sessions (~$0.40-$1.20 saved per run).
 
 ### Phase H Changes (404 Detection + Adapter Concurrency)
 
@@ -95,17 +131,17 @@ Applied 5 changes targeting WAF blocks and SPA rendering failures:
 
 ### Bulk URL Test Results (61 product URLs)
 
-| Metric | Before (baseline) | Fetch-only (Phase A+B) | With Browserbase (Phase C) | Phase E | Phase F | Phase G | Phase H (c=20) |
-|--------|-------------------|------------------------|---------------------------|---------|---------|---------|----------------|
-| Total URLs | 61 | 61 | 61 | 61 | 61 | 61 | 61 |
-| Passed | ~24 (39%) | 16 (26%) | **20 (33%)** | **25 (41%)** | **28 (46%)** | **32 (52%)** | **10 (16%)** |
-| 404 detected | — | — | — | — | — | — | **15** |
-| Hallucinated wrong products | ~8 | **0** | **0** | **0** | **0** | **1** (Thrive) | **1** (Thrive) |
-| Bad prices ($NaN, ".", $0.00) | ~3 | **0** | **0** | **0** | **0** | **0** | **0** |
-| True correct products | ~16 | 16 | **20** | **25** | **28** | **31** | **9** |
-| With options extracted | 15 | 14 | **16** | pending | pending | pending | **7** |
-| Concurrency | 1 | 1 | 1 | 1 | 1 | 1 | **20** |
-| Avg time per URL | ~8s | 12.7s | 36.8s | pending | ~28s | pending |
+| Metric | Before (baseline) | Fetch-only (Phase A+B) | With Browserbase (Phase C) | Phase E | Phase F | Phase G | Phase H (c=20) | + Exa (c=3) |
+|--------|-------------------|------------------------|---------------------------|---------|---------|---------|----------------|-------------|
+| Total URLs | 61 | 61 | 61 | 61 | 61 | 61 | 61 | 61 |
+| Passed | ~24 (39%) | 16 (26%) | **20 (33%)** | **25 (41%)** | **28 (46%)** | **32 (52%)** | **10 (16%)** | **29 (48%)** |
+| 404 detected | — | — | — | — | — | — | **15** | **22** |
+| Hallucinated wrong products | ~8 | **0** | **0** | **0** | **0** | **1** (Thrive) | **1** (Thrive) | **1** (Thrive) |
+| Bad prices ($NaN, ".", $0.00) | ~3 | **0** | **0** | **0** | **0** | **0** | **0** | **0** |
+| True correct products | ~16 | 16 | **20** | **25** | **28** | **31** | **9** | **28** |
+| Discovered via Exa | — | — | — | — | — | — | — | **8** |
+| Concurrency | 1 | 1 | 1 | 1 | 1 | 1 | **20** | **3** |
+| Avg time per URL | ~8s | 12.7s | 36.8s | pending | ~28s | pending | | ~58s |
 
 ### Phase F Newly Passing (3 URLs recovered)
 
@@ -142,6 +178,7 @@ The remaining failures are all WAF-blocked (null result). The `isBlockedContent`
 
 | Change | File(s) | Description |
 |--------|---------|-------------|
+| Exa.ai Stage 2.5 | `exa-extract.ts` (NEW), `discover.ts`, `variant.ts`, `index.ts`, `checkout/discover.ts` | New Exa.ai discovery tier between scrape and Browserbase. Uses livecrawl + structured extraction (~$0.002/req, 5-15s). Variant resolution via domain-scoped search. Gracefully skipped if no `EXA_API_KEY`. |
 | Smart 3-phase wait | `browserbase-adapter.ts` | networkidle + product selector race + DOM stability MutationObserver (replaces fixed 5s wait) |
 | Blocked detection + mobile retry | `browserbase-adapter.ts` | `isBlockedContent()` with 24 patterns, automatic mobile profile retry on block |
 | Fingerprint rotation | `browserbase-adapter.ts` | Random viewport pools (5 desktop, 4 mobile), `advancedStealth`, realistic headers |

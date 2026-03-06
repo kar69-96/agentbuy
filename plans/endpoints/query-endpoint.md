@@ -54,6 +54,14 @@ POST /api/query
   | success? ──> return result
   |
   v
+[Exa.ai Extraction]                    (packages/crawling/src/exa-extract.ts)
+  |  - Livecrawl + LLM structured extraction
+  |  - Variant discovery via domain-scoped search
+  |  - ~$0.002/request, 5-15s
+  |
+  | success? ──> return result
+  |
+  v
 [Last Resort: Browserbase+Stagehand]   (packages/checkout/src/discover.ts)
   |  - Full headless Chrome session
   |  - Stagehand LLM agent extracts product data
@@ -170,6 +178,7 @@ The pipeline tracks the **highest-priority failure** across all attempts:
 | `adapter_502` | 70 | Browserbase adapter returned 502 |
 | `render_timeout` | 65 | Page render timed out |
 | `http_error` | 60 | Non-2xx HTTP response |
+| `exa_error` | 50 | Exa extraction failed |
 | `extract_empty` | 40 | Extraction returned no usable data |
 | `transport_error` | 30 | Network/fetch failure |
 
@@ -195,6 +204,46 @@ Plain HTTP fetch with a Chrome user-agent. Parses:
    - `og:image` for image
 
 Fast (~1-2s), free, no API key needed. Works well on Shopify and most DTC stores. Fails on bot-blocked sites. Returns `method: "scrape"`.
+
+---
+
+## Stage 2.5: Exa.ai Extraction
+
+**Entry point:** `discoverViaExa(url)` in `packages/crawling/src/exa-extract.ts`
+
+Requires `EXA_API_KEY`. If not set, returns `null` (tier skipped).
+
+Exa.ai fills the cost/latency gap between server-side scrape (free, fast, but fails on bot-blocked sites) and Browserbase (works on anything but costs ~$0.05-0.15/session at 30-120s). Exa uses livecrawl + LLM extraction for ~$0.002/request in 5-15s.
+
+### Product Extraction
+
+1. Calls `exa.getContents([url])` with `summary.schema` defining the product fields
+2. Uses `livecrawl: "always"` to get fresh page content
+3. Parses the summary JSON, validates name + price via `isValidPrice()`
+4. Returns `null` on missing/invalid data (falls through to Browserbase)
+
+### Variant Price Resolution
+
+If options are found, calls `exa.searchAndContents(productName)` with `includeDomains` filtering to find variant pages on the same domain:
+
+1. Filters results by word overlap with base product name (>= 0.3)
+2. Matches option values to base options via `valuesLikelyMatch()`
+3. Builds per-option price maps, applies same-price filter
+4. Errors are swallowed — base result returned without variant prices
+
+### Error Handling
+
+| Scenario | Behavior |
+|----------|----------|
+| No `EXA_API_KEY` | Return `null`, skip tier |
+| 404 / not found | Throw `ProductNotFoundError` |
+| 403 / blocked | Return `null` (fall to Browserbase) |
+| Timeout | Return `null` |
+| Rate limit (429) | Return `null` |
+| Invalid name/price | Return `null` |
+| Variant search fails | Swallow, return base result |
+
+Returns `method: "exa"`.
 
 ---
 
@@ -275,7 +324,7 @@ Returns `method: "browserbase"`. Slowest tier (~30-120s), most expensive.
 | `options` | Variant groups. `prices` is a value-to-price map, only present when variants have different prices. |
 | `required_fields` | What the agent must provide in `POST /api/buy`. Shipping fields always included for browser-route products. `selections` appears only if options exist. |
 | `route` | `"x402"` or `"browserbase"` — how the purchase will be executed. |
-| `discovery_method` | Which source found the data: `"x402"`, `"firecrawl"`, `"browserbase"`, or `"scrape"`. |
+| `discovery_method` | Which source found the data: `"x402"`, `"firecrawl"`, `"scrape"`, `"exa"`, or `"browserbase"`. |
 
 ---
 
@@ -299,6 +348,15 @@ Returns `method: "browserbase"`. Slowest tier (~30-120s), most expensive.
 | `BB_EXTRACT_QUEUE_TIMEOUT_MS` | `15000` | Queue timeout waiting for a Browserbase slot |
 | `GEMINI_EXTRACT_TIMEOUT_MS` | `20000` | Timeout for Gemini structured extraction |
 | `GEMINI_EXTRACT_RETRIES` | `2` | Number of Gemini extraction retries |
+
+### Exa.ai (Stage 2.5)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EXA_API_KEY` | — | Exa.ai API key. Tier skipped if not set. |
+| `EXA_LIVECRAWL_TIMEOUT_MS` | `15000` | Livecrawl timeout for base product extraction |
+| `EXA_MAX_VARIANT_RESULTS` | `10` | Max variant pages to fetch via search |
+| `EXA_EXTRACT_TIMEOUT_MS` | `20000` | Overall timeout for the Exa getContents call |
 
 ### Browserbase + Stagehand (Tier 3)
 
@@ -338,6 +396,8 @@ POST /api/query
              -> shopify.ts                       (options fallback)
              -> variant.ts                       (Steps 2/3)
           -> scrapePriceWithOptions(url)         [Stage 2 - checkout]
+          -> discoverViaExa(url)                [Stage 2.5 - packages/crawling]
+             -> exa-extract.ts                  (Exa getContents + searchAndContents)
           -> discoverViaBrowser(url)             [Stage 3 - checkout]
   -> packages/api/src/formatters.ts              (format response)
 ```

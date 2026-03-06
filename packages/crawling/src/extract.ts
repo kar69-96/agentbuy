@@ -15,13 +15,21 @@ export type FirecrawlFailureCode =
   | "http_error"
   | "transport_error";
 
-let lastFirecrawlFailure:
-  | { code: FirecrawlFailureCode; detail?: string }
-  | null = null;
+export interface FirecrawlFailure {
+  code: FirecrawlFailureCode;
+  detail?: string;
+}
 
-export function getLastFirecrawlFailure():
-  | { code: FirecrawlFailureCode; detail?: string }
-  | null {
+export interface FirecrawlScrapeResult {
+  extract: FirecrawlExtract | null;
+  failure: FirecrawlFailure | null;
+}
+
+// Legacy global accessor — only used by code that hasn't migrated yet.
+// Prefer the per-call `failure` field on FirecrawlScrapeResult.
+let lastFirecrawlFailure: FirecrawlFailure | null = null;
+
+export function getLastFirecrawlFailure(): FirecrawlFailure | null {
   return lastFirecrawlFailure;
 }
 
@@ -29,8 +37,7 @@ async function firecrawlScrapeJson(
   url: string,
   config: FirecrawlConfig,
   timeoutMs: number,
-): Promise<FirecrawlExtract | null> {
-  lastFirecrawlFailure = null;
+): Promise<FirecrawlScrapeResult> {
   const response = await fetch(`${config.baseUrl}/v1/scrape`, {
     method: "POST",
     headers: {
@@ -51,97 +58,111 @@ async function firecrawlScrapeJson(
   });
 
   if (!response.ok) {
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "http_error",
       detail: `firecrawl response ${response.status}`,
     };
-    return null;
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
 
   const body = (await response.json()) as Record<string, unknown>;
   if (!body["success"]) {
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "http_error",
       detail: "firecrawl body success=false",
     };
-    return null;
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
 
   const data = body["data"] as Record<string, unknown> | undefined;
   if (!data) {
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "extract_empty",
       detail: "firecrawl body missing data",
     };
-    return null;
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
 
   // Reject non-2xx pages (403 Cloudflare, 404 not found)
   const metadata = data["metadata"] as Record<string, unknown> | undefined;
   const statusCode = metadata?.["statusCode"] as number | undefined;
   if (statusCode === 404 || statusCode === 410) {
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "not_found",
       detail: `firecrawl status ${statusCode}`,
     };
+    lastFirecrawlFailure = failure;
     throw new ProductNotFoundError(`Page returned HTTP ${statusCode}`);
   }
   if (statusCode === 401 || statusCode === 403 || statusCode === 429) {
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "blocked",
       detail: `firecrawl status ${statusCode}`,
     };
-    return null;
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
   if (statusCode && statusCode >= 400) {
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "http_error",
       detail: `firecrawl status ${statusCode}`,
     };
-    return null;
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
 
   // Reject empty/tiny content (page didn't render)
   const markdown = ((data["markdown"] as string) ?? "").trim();
-  const lower = markdown.toLowerCase();
 
   // Classify challenge and not-found signals first, even for very short pages.
   const shortClassification = classifyContent(markdown, Infinity);
   if (shortClassification === "blocked") {
-    lastFirecrawlFailure = { code: "blocked", detail: "blocked pattern detected in markdown" };
-    return null;
+    const failure: FirecrawlFailure = { code: "blocked", detail: "blocked pattern detected in markdown" };
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
   if (shortClassification === "not_found") {
-    lastFirecrawlFailure = { code: "not_found", detail: "not_found pattern detected in markdown" };
+    const failure: FirecrawlFailure = { code: "not_found", detail: "not_found pattern detected in markdown" };
+    lastFirecrawlFailure = failure;
     throw new ProductNotFoundError("Page content indicates product not found or discontinued");
   }
   if (markdown.length < 50) {
-    lastFirecrawlFailure = { code: "extract_empty", detail: `markdown too short (${markdown.length})` };
-    return null;
+    const failure: FirecrawlFailure = { code: "extract_empty", detail: `markdown too short (${markdown.length})` };
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
 
   // For longer pages, only check patterns below certain thresholds
   const lenClassification = classifyContent(markdown, 5000);
   if (lenClassification === "blocked") {
-    lastFirecrawlFailure = { code: "blocked", detail: "blocked pattern detected in markdown" };
-    return null;
+    const failure: FirecrawlFailure = { code: "blocked", detail: "blocked pattern detected in markdown" };
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
   if (lenClassification === "not_found") {
-    lastFirecrawlFailure = { code: "not_found", detail: "not_found pattern detected in markdown" };
+    const failure: FirecrawlFailure = { code: "not_found", detail: "not_found pattern detected in markdown" };
+    lastFirecrawlFailure = failure;
     throw new ProductNotFoundError("Page content indicates product not found or discontinued");
   }
 
   const extract = ((data["json"] ?? data["extract"] ?? null) as FirecrawlExtract | null);
   if (!extract || (!extract.name && !extract.price)) {
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "extract_empty",
       detail: "firecrawl response missing usable json extract",
     };
-    return null;
+    lastFirecrawlFailure = failure;
+    return { extract: null, failure };
   }
 
-  return extract;
+  lastFirecrawlFailure = null;
+  return { extract, failure: null };
 }
+
+export { firecrawlScrapeJson };
 
 export async function firecrawlExtractAsync(
   urls: string[],
@@ -151,16 +172,17 @@ export async function firecrawlExtractAsync(
   try {
     const results: FirecrawlExtract[] = [];
     for (const url of urls) {
-      const extract = await firecrawlScrapeJson(url, config, timeoutMs);
+      const { extract } = await firecrawlScrapeJson(url, config, timeoutMs);
       if (extract) results.push(extract);
     }
     return results.length > 0 ? results : null;
   } catch (err) {
     if (err instanceof ProductNotFoundError) throw err;
-    lastFirecrawlFailure = {
+    const failure: FirecrawlFailure = {
       code: "transport_error",
       detail: err instanceof Error ? err.message : String(err),
     };
+    lastFirecrawlFailure = failure;
     return null;
   }
 }

@@ -2,6 +2,9 @@
  * Browserbase fallback extraction: when Firecrawl's direct scrape fails
  * (bot-blocked), fetch rendered HTML via the Browserbase adapter, convert
  * to markdown, and extract product data using Gemini.
+ *
+ * Each call runs in full isolation — no shared queues or semaphores.
+ * External services (Browserbase, Gemini) handle their own rate limiting.
  */
 
 import TurndownService from "turndown";
@@ -23,13 +26,6 @@ const ADAPTER_BASE = `http://localhost:${ADAPTER_PORT}`;
 
 const MIN_HTML_LENGTH = 500;
 
-// Limit concurrent Browserbase fallback extractions to avoid overwhelming the adapter.
-// The adapter has its own rate limiter, but callers time out if queued too long.
-const BB_EXTRACT_CONCURRENCY = parseInt(process.env.BB_EXTRACT_CONCURRENCY ?? "5", 10);
-const BB_EXTRACT_QUEUE_TIMEOUT_MS = parseInt(
-  process.env.BB_EXTRACT_QUEUE_TIMEOUT_MS ?? "15000",
-  10,
-);
 const GEMINI_EXTRACT_TIMEOUT_MS = parseInt(
   process.env.GEMINI_EXTRACT_TIMEOUT_MS ?? "20000",
   10,
@@ -45,58 +41,35 @@ export type BrowserbaseFailureCode =
   | "adapter_502"
   | "extract_empty"
   | "transport_error";
-let lastBrowserbaseFailure:
-  | { code: BrowserbaseFailureCode; detail?: string }
-  | null = null;
 
-export function getLastBrowserbaseFailure():
-  | { code: BrowserbaseFailureCode; detail?: string }
-  | null {
+export interface BrowserbaseFailure {
+  code: BrowserbaseFailureCode;
+  detail?: string;
+}
+
+export interface BrowserbaseExtractResult {
+  extract: FirecrawlExtract | null;
+  failure: BrowserbaseFailure | null;
+}
+
+// Legacy global accessor — prefer the per-call `failure` field.
+let lastBrowserbaseFailure: BrowserbaseFailure | null = null;
+
+export function getLastBrowserbaseFailure(): BrowserbaseFailure | null {
   return lastBrowserbaseFailure;
-}
-
-let bbActive = 0;
-const bbQueue: Array<{
-  resolve: () => void;
-  reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
-}> = [];
-
-function bbAcquire(): Promise<void> {
-  if (bbActive < BB_EXTRACT_CONCURRENCY) {
-    bbActive++;
-    return Promise.resolve();
-  }
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      const idx = bbQueue.findIndex((entry) => entry.reject === reject);
-      if (idx >= 0) bbQueue.splice(idx, 1);
-      reject(
-        new Error(
-          `browserbase-extract queue timeout after ${BB_EXTRACT_QUEUE_TIMEOUT_MS}ms`,
-        ),
-      );
-    }, BB_EXTRACT_QUEUE_TIMEOUT_MS);
-    bbQueue.push({ resolve, reject, timer });
-  });
-}
-
-function bbRelease(): void {
-  if (bbQueue.length > 0) {
-    const next = bbQueue.shift()!;
-    clearTimeout(next.timer);
-    next.resolve();
-  } else {
-    bbActive--;
-  }
 }
 
 // ---- Step 1: Fetch rendered HTML from Browserbase adapter ----
 
+export interface RenderedPage {
+  html: string;
+  finalUrl: string;
+}
+
 export async function fetchRenderedHtml(
   url: string,
   timeoutMs = 60_000,
-): Promise<string> {
+): Promise<RenderedPage> {
   lastBrowserbaseFailure = null;
   const response = await fetch(`${ADAPTER_BASE}/scrape`, {
     method: "POST",
@@ -117,6 +90,7 @@ export async function fetchRenderedHtml(
     content: string;
     pageStatusCode: number;
     pageError?: string;
+    finalUrl?: string;
   };
 
   if (body.pageStatusCode === 404 || body.pageStatusCode === 410) {
@@ -161,19 +135,25 @@ export async function fetchRenderedHtml(
     throw new ProductNotFoundError("Page content indicates product not found or discontinued");
   }
 
-  return html;
+  return { html, finalUrl: body.finalUrl ?? url };
 }
 
 // ---- Step 2: HTML → Markdown ----
+// Create a fresh TurndownService per call to avoid shared mutable state
+// across concurrent requests.
 
-const turndown = new TurndownService({
-  headingStyle: "atx",
-  codeBlockStyle: "fenced",
-});
-turndown.remove(["img", "iframe"]);
+function createTurndown(): TurndownService {
+  const td = new TurndownService({
+    headingStyle: "atx",
+    codeBlockStyle: "fenced",
+  });
+  td.remove(["img", "iframe"]);
+  return td;
+}
 
 export function htmlToMarkdown(html: string): string {
   const $ = load(html);
+  const turndown = createTurndown();
 
   // Strip non-content tags
   $("script, style, noscript, svg, meta, link").remove();
@@ -287,12 +267,167 @@ export async function browserbaseExtract(
   url: string,
   timeoutMs = 90_000,
 ): Promise<FirecrawlExtract | null> {
-  // Wait for a slot — this wait should NOT count against the extraction timeout
-  await bbAcquire();
+  const { extract } = await browserbaseExtractWithFailure(url, timeoutMs);
+  return extract;
+}
+
+// ---- Redirect detection ----
+
+/**
+ * Returns true if the final URL looks like a different product or a generic
+ * page (home, search, 404-catch-all) compared to the original request URL.
+ */
+function isRedirectToOtherPage(originalUrl: string, finalUrl: string): boolean {
+  if (!finalUrl || originalUrl === finalUrl) return false;
+  try {
+    const orig = new URL(originalUrl);
+    const final = new URL(finalUrl);
+    // Different domain = definitely redirected
+    if (orig.hostname !== final.hostname) return true;
+    // Redirected to homepage or search
+    if (final.pathname === "/" || final.pathname.startsWith("/search")) return true;
+    // Path collapsed significantly (product page → category page)
+    const origSegments = orig.pathname.split("/").filter(Boolean);
+    const finalSegments = final.pathname.split("/").filter(Boolean);
+    if (origSegments.length >= 3 && finalSegments.length <= 1) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// ---- Structured data extraction from rendered HTML ----
+
+function extractJsonLdFromHtml(html: string): FirecrawlExtract | null {
+  const regex =
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(html)) !== null) {
+    try {
+      const data = JSON.parse(match[1]!) as Record<string, unknown>;
+      const product =
+        data["@type"] === "Product"
+          ? data
+          : Array.isArray(data["@graph"])
+            ? (data["@graph"] as Record<string, unknown>[]).find(
+                (item) => item["@type"] === "Product",
+              )
+            : null;
+      if (!product) continue;
+
+      const name = product["name"] as string | undefined;
+      let price: string | undefined;
+      let currency: string | undefined;
+
+      let offers = product["offers"] as
+        | Record<string, unknown>
+        | Record<string, unknown>[]
+        | undefined;
+      if (Array.isArray(offers)) offers = offers[0];
+      if (offers) {
+        if (offers["price"] != null) price = String(offers["price"]);
+        else if (offers["lowPrice"] != null) price = String(offers["lowPrice"]);
+        currency = (offers["priceCurrency"] as string) ?? undefined;
+      }
+
+      if (name && price) {
+        const image = typeof product["image"] === "string" ? product["image"] : undefined;
+        const brand =
+          typeof product["brand"] === "object" && product["brand"]
+            ? ((product["brand"] as Record<string, unknown>)["name"] as string)
+            : typeof product["brand"] === "string"
+              ? product["brand"]
+              : undefined;
+        const description = typeof product["description"] === "string" ? product["description"] : undefined;
+
+        return {
+          name,
+          price,
+          currency,
+          brand,
+          image_url: image,
+          description,
+          options: [],
+        };
+      }
+    } catch {
+      // Invalid JSON, skip
+    }
+  }
+  return null;
+}
+
+function extractMetaTagFromHtml(html: string, property: string): string | null {
+  const regex = new RegExp(
+    `<meta[^>]*(?:property|name)=["']${property}["'][^>]*content=["']([^"']*)["']`,
+    "i",
+  );
+  const match = regex.exec(html);
+  if (match) return match[1] || null;
+  const regexReversed = new RegExp(
+    `<meta[^>]*content=["']([^"']*)["'][^>]*(?:property|name)=["']${property}["']`,
+    "i",
+  );
+  const matchReversed = regexReversed.exec(html);
+  return matchReversed ? matchReversed[1] || null : null;
+}
+
+function extractMetaFromHtml(html: string): FirecrawlExtract | null {
+  const ogTitle = extractMetaTagFromHtml(html, "og:title");
+  const ogPrice =
+    extractMetaTagFromHtml(html, "product:price:amount") ||
+    extractMetaTagFromHtml(html, "og:price:amount");
+  const ogImage = extractMetaTagFromHtml(html, "og:image") || undefined;
+
+  if (ogTitle && ogPrice) {
+    const cleaned = ogPrice.trim().replace(/,/g, "");
+    const match = /[\d]+\.?\d*/.exec(cleaned);
+    if (match) {
+      return {
+        name: ogTitle,
+        price: match[0],
+        image_url: ogImage,
+        options: [],
+      };
+    }
+  }
+  return null;
+}
+
+export async function browserbaseExtractWithFailure(
+  url: string,
+  timeoutMs = 90_000,
+): Promise<BrowserbaseExtractResult> {
   try {
     console.log(`  [browserbase-extract] Fetching rendered HTML for ${url}`);
-    const html = await fetchRenderedHtml(url, timeoutMs);
+    const { html, finalUrl } = await fetchRenderedHtml(url, timeoutMs);
 
+    // Fix 4: Detect redirects to different pages
+    if (isRedirectToOtherPage(url, finalUrl)) {
+      console.log(`  [browserbase-extract] Redirected to different page: ${finalUrl}`);
+      const failure: BrowserbaseFailure = {
+        code: "extract_empty",
+        detail: `redirected from ${url} to ${finalUrl}`,
+      };
+      lastBrowserbaseFailure = failure;
+      return { extract: null, failure };
+    }
+
+    // Fix 3: Try JSON-LD / meta tag extraction from rendered HTML first (fast, reliable)
+    const jsonLdExtract = extractJsonLdFromHtml(html);
+    if (jsonLdExtract?.name && jsonLdExtract?.price) {
+      console.log(`  [browserbase-extract] JSON-LD success: ${jsonLdExtract.name} — ${jsonLdExtract.price}`);
+      return { extract: jsonLdExtract, failure: null };
+    }
+
+    const metaExtract = extractMetaFromHtml(html);
+    if (metaExtract?.name && metaExtract?.price) {
+      console.log(`  [browserbase-extract] Meta tag success: ${metaExtract.name} — ${metaExtract.price}`);
+      return { extract: metaExtract, failure: null };
+    }
+
+    // Fall back to Gemini markdown extraction
     console.log(`  [browserbase-extract] Converting HTML to markdown (${html.length} chars)`);
     const markdown = htmlToMarkdown(html);
 
@@ -300,29 +435,30 @@ export async function browserbaseExtract(
     const extract = await extractWithGemini(markdown);
 
     if (!extract?.name || !extract?.price) {
-      lastBrowserbaseFailure = {
+      const failure: BrowserbaseFailure = {
         code: "extract_empty",
         detail: "gemini returned no name/price",
       };
+      lastBrowserbaseFailure = failure;
       console.log(`  [browserbase-extract] Gemini extraction returned no name/price`);
-      return null;
+      return { extract: null, failure };
     }
 
     console.log(`  [browserbase-extract] Success: ${extract.name} — ${extract.price}`);
-    return extract;
+    return { extract, failure: null };
   } catch (err) {
     if (err instanceof ProductNotFoundError || err instanceof ProductBlockedError) throw err;
     const message = err instanceof Error ? err.message : String(err);
+    let failure: BrowserbaseFailure;
     if (message.includes("timeout")) {
-      lastBrowserbaseFailure = { code: "render_timeout", detail: message };
+      failure = { code: "render_timeout", detail: message };
     } else if (message.includes("Adapter returned 502")) {
-      lastBrowserbaseFailure = { code: "adapter_502", detail: message };
-    } else if (!lastBrowserbaseFailure) {
-      lastBrowserbaseFailure = { code: "transport_error", detail: message };
+      failure = { code: "adapter_502", detail: message };
+    } else {
+      failure = lastBrowserbaseFailure ?? { code: "transport_error", detail: message };
     }
+    lastBrowserbaseFailure = failure;
     console.log(`  [browserbase-extract] Failed: ${message}`);
-    return null;
-  } finally {
-    bbRelease();
+    return { extract: null, failure };
   }
 }
