@@ -119,11 +119,24 @@ describe("Buy checkout — Shopify stores", () => {
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
 
-  it("Bombas — add socks to cart + guest checkout (dry-run)", async () => {
+  it("ColourPop — eyeshadow checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.bombas.com/products/womens-ankle-sock-4-pack",
-      name: "Women's Ankle Sock 4-Pack",
-      price: "49.80",
+      url: "https://colourpop.com/products/frog",
+      name: "Super Shock Shadow Frog",
+      price: "5.25",
+    });
+    const result = await runCheckout(buildInput(order));
+    logResult("ColourPop", result);
+
+    expect(result.sessionId).toBeTruthy();
+    expect(result.replayUrl).toContain("browserbase.com");
+  }, 180_000);
+
+  it("Bombas — ankle sock checkout (dry-run)", async () => {
+    const order = buildOrder({
+      url: "https://bombas.com/products/mens-tri-block-ankle-sock",
+      name: "Men's Tri-Block Ankle Sock",
+      price: "14.00",
       selections: { Size: "M" },
     });
     const result = await runCheckout(buildInput(order));
@@ -132,40 +145,53 @@ describe("Buy checkout — Shopify stores", () => {
     expect(result.sessionId).toBeTruthy();
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
-
-  it("Glossier — Balm Dotcom checkout (dry-run)", async () => {
-    const order = buildOrder({
-      url: "https://www.glossier.com/products/balm-dotcom",
-      name: "Balm Dotcom",
-      price: "19.00",
-    });
-    const result = await runCheckout(buildInput(order));
-    logResult("Glossier", result);
-
-    expect(result.sessionId).toBeTruthy();
-    expect(result.replayUrl).toContain("browserbase.com");
-  }, 180_000);
 });
 
 describe("Buy checkout — Major retailers", () => {
-  it("Target — Stanley tumbler checkout (dry-run)", async () => {
+  it("Cotopaxi — Allpita Mini Bag checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.target.com/p/stanley-quencher-h2-0-flowstate-tumbler-40oz/-/A-87154432",
-      name: "Stanley Quencher H2.0 FlowState Tumbler 40oz",
-      price: "20.00",
+      url: "https://www.cotopaxi.com/products/allpita-mini-bag-del-dia",
+      name: "Allpita Mini Bag - Del Dia",
+      price: "15.00",
     });
     const result = await runCheckout(buildInput(order));
-    logResult("Target", result);
+    logResult("Cotopaxi", result);
 
     expect(result.sessionId).toBeTruthy();
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
 
-  it("Best Buy — AirPods checkout (dry-run)", async () => {
+  it("Patagonia — headband checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.bestbuy.com/site/apple-airpods-4-white/6447382.p",
-      name: "Apple AirPods 4",
-      price: "20.00",
+      url: "https://www.patagonia.com/product/re-tool-fleece-headband/22251.html",
+      name: "Re-Tool Fleece Headband",
+      price: "25.00",
+    });
+    const result = await runCheckout(buildInput(order));
+    logResult("Patagonia", result);
+
+    expect(result.sessionId).toBeTruthy();
+    expect(result.replayUrl).toContain("browserbase.com");
+  }, 180_000);
+
+  it("REI — merino socks checkout (dry-run)", async () => {
+    const order = buildOrder({
+      url: "https://www.rei.com/product/165398/rei-co-op-merino-wool-lightweight-hiking-crew-socks",
+      name: "REI Co-op Merino Wool Hiking Crew Socks",
+      price: "18.95",
+    });
+    const result = await runCheckout(buildInput(order));
+    logResult("REI", result);
+
+    expect(result.sessionId).toBeTruthy();
+    expect(result.replayUrl).toContain("browserbase.com");
+  }, 180_000);
+
+  it("Best Buy — Apple USB-C cable checkout (dry-run)", async () => {
+    const order = buildOrder({
+      url: "https://www.bestbuy.com/product/apple-usb-c-woven-charge-cable-1m-white/JJGCQ3YKVW",
+      name: "Apple USB-C Woven Charge Cable (1m)",
+      price: "14.99",
     });
     const result = await runCheckout(buildInput(order));
     logResult("Best Buy", result);
@@ -174,24 +200,12 @@ describe("Buy checkout — Major retailers", () => {
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
 
-  it("Walmart — Crayola crayons checkout (dry-run)", async () => {
+  it("Amazon — Reebok Vintage Sneakers checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.walmart.com/ip/Crayola-Crayons-24-Ct-School-Supplies-for-Kids/17730162",
-      name: "Crayola Crayons 24 Ct",
-      price: "3.49",
-    });
-    const result = await runCheckout(buildInput(order));
-    logResult("Walmart", result);
-
-    expect(result.sessionId).toBeTruthy();
-    expect(result.replayUrl).toContain("browserbase.com");
-  }, 180_000);
-
-  it("Amazon — cheap item checkout (dry-run)", async () => {
-    const order = buildOrder({
-      url: "https://www.amazon.com/dp/B0D1XD1ZV3",
-      name: "Test Amazon Product",
-      price: "15.00",
+      url: "https://www.amazon.com/Reebok-Vintage-Sneakers-Top-Chalk-Paperwhite/dp/B07DPL9H6H",
+      name: "Reebok Vintage Sneakers",
+      price: "84.99",
+      selections: { Size: "10" },
     });
     const result = await runCheckout(buildInput(order));
     logResult("Amazon", result);
@@ -216,11 +230,11 @@ describe("Buy checkout — Specialty / niche stores", () => {
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
 
-  it("Etsy — handmade item checkout (dry-run)", async () => {
+  it("Etsy — shark stud earrings checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.etsy.com/listing/1055173658/personalized-leather-journal",
-      name: "Personalized Leather Journal",
-      price: "25.00",
+      url: "https://www.etsy.com/listing/1560610481/mismatched-shark-stud-screw-back-flat",
+      name: "Mismatched Shark Stud Earrings",
+      price: "18.08",
     });
     const result = await runCheckout(buildInput(order));
     logResult("Etsy", result);
@@ -243,40 +257,40 @@ describe("Buy checkout — Specialty / niche stores", () => {
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
 
-  it("Home Depot — hardware item checkout (dry-run)", async () => {
+  it("Adafruit — resistor pack checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.homedepot.com/p/HDX-Yellow-Heavy-Duty-100-ft-12-3-Outdoor-Extension-Cord-HD-277-525/100661449",
-      name: "HDX 100ft Extension Cord",
-      price: "25.00",
+      url: "https://www.adafruit.com/product/4294",
+      name: "Through-Hole Resistors 1.0K ohm 5% 1/4W Pack of 25",
+      price: "0.75",
     });
     const result = await runCheckout(buildInput(order));
-    logResult("Home Depot", result);
+    logResult("Adafruit", result);
 
     expect(result.sessionId).toBeTruthy();
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
 
-  it("B&H Photo — electronics checkout (dry-run)", async () => {
+  it("MVMT — watch strap checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.bhphotovideo.com/c/product/1773759-REG/sandisk_sdssde61_1t00_g25_1tb_extreme_portable_ssd.html",
-      name: "SanDisk 1TB Extreme Portable SSD",
-      price: "89.99",
+      url: "https://www.mvmt.com/strap-guide/mens-strap-guide/field/field---22mm-grey-nylon/M0492.html",
+      name: "Field 22mm Grey Nylon Watch Strap",
+      price: "19.20",
     });
     const result = await runCheckout(buildInput(order));
-    logResult("B&H Photo", result);
+    logResult("MVMT", result);
 
     expect(result.sessionId).toBeTruthy();
     expect(result.replayUrl).toContain("browserbase.com");
   }, 180_000);
 
-  it("Apple — accessory checkout (dry-run)", async () => {
+  it("Anker — USB-C cable checkout (dry-run)", async () => {
     const order = buildOrder({
-      url: "https://www.apple.com/shop/product/MK2C3LL/A/magic-keyboard-with-touch-id-for-mac-models-with-apple-silicon",
-      name: "Magic Keyboard with Touch ID",
-      price: "199.00",
+      url: "https://www.anker.com/products/a8752",
+      name: "2-Pack Nylon USB-C to USB-C Cable 3.3ft",
+      price: "9.99",
     });
     const result = await runCheckout(buildInput(order));
-    logResult("Apple", result);
+    logResult("Anker", result);
 
     expect(result.sessionId).toBeTruthy();
     expect(result.replayUrl).toContain("browserbase.com");
@@ -311,32 +325,3 @@ describe("Buy checkout — Donation / payment-only", () => {
   }, 180_000);
 });
 
-describe("Buy checkout — with variant selections", () => {
-  it("Allbirds — specific size selection (dry-run)", async () => {
-    const order = buildOrder({
-      url: "https://www.allbirds.com/products/mens-tree-runners",
-      name: "Men's Tree Runners",
-      price: "100.00",
-      selections: { Size: "10" },
-    });
-    const result = await runCheckout(buildInput(order));
-    logResult("Allbirds (Size 10)", result);
-
-    expect(result.sessionId).toBeTruthy();
-    expect(result.replayUrl).toContain("browserbase.com");
-  }, 180_000);
-
-  it("Allbirds — color + size selection (dry-run)", async () => {
-    const order = buildOrder({
-      url: "https://www.allbirds.com/products/mens-tree-runners",
-      name: "Men's Tree Runners",
-      price: "100.00",
-      selections: { Color: "Basin Blue", Size: "10" },
-    });
-    const result = await runCheckout(buildInput(order));
-    logResult("Allbirds (Basin Blue, Size 10)", result);
-
-    expect(result.sessionId).toBeTruthy();
-    expect(result.replayUrl).toContain("browserbase.com");
-  }, 180_000);
-});

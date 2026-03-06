@@ -716,6 +716,14 @@ export async function detectPageType(page: Page): Promise<PageType> {
         return "payment-form" as const;
       }
 
+      // Login-gate — URL-based early detection (before payment-gateway steals it)
+      const isLoginUrl2 = isCheckoutUrl && (
+        url.includes("/sign-in") || url.includes("/signin") || url.includes("/login")
+      );
+      if (isLoginUrl2) {
+        return "login-gate" as const;
+      }
+
       // Payment gateway (iframes that likely contain card fields)
       if (paymentIframeSignals.length > 0) {
         return "payment-gateway" as const;

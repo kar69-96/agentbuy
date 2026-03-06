@@ -312,7 +312,7 @@ export async function runCheckout(
 
     // 8. Navigate to product URL
     await page.goto(url, {
-      waitUntil: "load",
+      waitUntil: "domcontentloaded",
       timeoutMs: 30000,
     });
     await page.waitForTimeout(5000);
@@ -874,9 +874,26 @@ export async function runCheckout(
           };
         }
 
-        default:
-          // unknown — will fall through to LLM fallback
+        default: {
+          // unknown — check for help/FAQ page recovery before LLM fallback
+          const currentUrl = page.url().toLowerCase();
+          if (state.addedToCart && (
+            currentUrl.includes("/help") ||
+            currentUrl.includes("/faq") ||
+            currentUrl.includes("/support") ||
+            currentUrl.includes("/customer-service")
+          )) {
+            try {
+              const origin = new URL(page.url()).origin;
+              console.log(`  [recovery] help page detected, navigating to ${origin}/cart`);
+              await page.goto(`${origin}/cart`, { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+              advanced = true;
+            } catch {
+              // Fall through to LLM
+            }
+          }
           break;
+        }
       }
 
       // 9e. Stall detection — track URL + page type to detect no-progress loops

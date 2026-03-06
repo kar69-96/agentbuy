@@ -16,6 +16,7 @@ import { sanitizeShipping } from "./credentials.js";
 import { concurrencyPool } from "./concurrency-pool.js";
 import { CostTracker } from "./cost-tracker.js";
 
+
 // ---- Discovery result ----
 
 export interface DiscoveryResult {
@@ -1300,16 +1301,16 @@ export async function discoverViaFirecrawl(
   }
 }
 
-// ---- Main discovery entry point: Firecrawl (primary) → Scrape (fallback) → Browserbase ----
+// ---- Main discovery entry point: Firecrawl → Scrape → Browserbase ----
 
 export async function discoverProduct(
   url: string,
 ): Promise<FullDiscoveryResult> {
-  // Primary: Firecrawl (rich data + per-variant pricing)
+  // Tier 1: Firecrawl (rich data + per-variant pricing)
   const firecrawled = await discoverViaFirecrawl(url);
   if (firecrawled) return firecrawled;
 
-  // Fallback: Server-side scrape (free, fast)
+  // Tier 2: Server-side scrape (free, fast)
   const scraped = await scrapePriceWithOptions(url);
   if (scraped) {
     return {

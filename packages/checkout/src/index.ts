@@ -13,6 +13,7 @@ export {
   scrapePriceWithOptions,
   discoverViaFirecrawl,
   discoverViaBrowser,
+
   extractVariantsFromJsonLd,
   fetchVariantPriceBrowser,
   resolveVariantPricesViaBrowser,
@@ -87,6 +88,7 @@ export {
   extractErrorMessage,
 } from "./scripted-actions.js";
 export type { PageType, ConfirmationData, ErrorData, ErrorType } from "./scripted-actions.js";
+
 
 // ---- AgentMail (email verification) ----
 export {
