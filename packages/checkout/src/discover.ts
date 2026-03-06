@@ -8,6 +8,7 @@ import {
 } from "@bloon/core";
 import {
   discoverViaFirecrawl,
+  discoverViaExa,
   stripCurrencySymbol,
   extractPriceFromString,
 } from "@bloon/crawling";
@@ -844,6 +845,10 @@ export async function scrapePriceWithOptions(
 export async function discoverProduct(
   url: string,
 ): Promise<FullDiscoveryResult> {
+  // Kick off Exa early so it runs in parallel with Firecrawl.
+  // Exa is fast (~5-15s) and works on bot-blocked sites Firecrawl can't reach.
+  const exaPromise = discoverViaExa(url).catch(() => null);
+
   // Primary: Firecrawl (rich data + per-variant pricing)
   const firecrawled = await discoverViaFirecrawl(url);
   if (firecrawled?.error === "product_not_found") return firecrawled;
@@ -860,6 +865,10 @@ export async function discoverProduct(
       options: scraped.options,
     };
   }
+
+  // Stage 2.5: Exa (already running in parallel — just await the result)
+  const exaResult = await exaPromise;
+  if (exaResult) return exaResult;
 
   // Tier 3: Browserbase headless Chrome + LLM extract
   const browsered = await discoverViaBrowser(url);

@@ -3,8 +3,6 @@ import { getFirecrawlConfig } from "./client.js";
 import { stripCurrencySymbol, mapOptions, isValidPrice } from "./helpers.js";
 import { chooseBestCandidate, type CandidateInput } from "./parser-ensemble.js";
 import { defaultQueryDiscoveryProviders } from "./providers.js";
-import { getLastFirecrawlFailure } from "./extract.js";
-import { getLastBrowserbaseFailure } from "./browserbase-extract.js";
 import {
   resolveVariantPricesViaFirecrawl,
   resolveVariantPricesViaCrawl,
@@ -15,6 +13,7 @@ import { ProductBlockedError, ProductNotFoundError } from "./constants.js";
 const VALID_DISCOVERY_FAILURE_CODES = new Set<string>([
   "llm_config", "blocked", "not_found", "adapter_502",
   "render_timeout", "http_error", "extract_empty", "transport_error",
+  "exa_error",
 ]);
 
 function toDiscoveryFailureCode(code: string): DiscoveryFailureCode {
@@ -48,13 +47,14 @@ export type DiscoveryFailureCode =
   | "extract_empty"
   | "not_found"
   | "http_error"
-  | "transport_error";
+  | "transport_error"
+  | "exa_error";
 
 export interface DiscoveryDiagnostics {
   failureCode?: DiscoveryFailureCode;
   failureStage?: string;
   failureDetail?: string;
-  method?: "firecrawl" | "browserbase";
+  method?: "firecrawl" | "browserbase" | "exa";
   timings?: {
     totalMs: number;
     firecrawlMs: number;
@@ -114,6 +114,7 @@ export async function discoverViaFirecrawlWithDiagnostics(
     adapter_502: 70,
     render_timeout: 65,
     http_error: 60,
+    exa_error: 50,
     extract_empty: 40,
     transport_error: 30,
   };
@@ -138,22 +139,19 @@ export async function discoverViaFirecrawlWithDiagnostics(
         await new Promise((r) => setTimeout(r, 2000 * 2 ** (attempt - 1)));
       }
       const attemptStart = Date.now();
-      const extract = await defaultQueryDiscoveryProviders.firecrawlExtract(
+      const { extract, failure: firecrawlFailure } = await defaultQueryDiscoveryProviders.firecrawlExtract(
         url,
         config,
         perAttemptTimeoutMs,
       );
       firecrawlMs += Date.now() - attemptStart;
       firecrawlAttempts += 1;
-      if (!extract) {
-        const firecrawlFailure = getLastFirecrawlFailure();
-        if (firecrawlFailure) {
-          setFailure(
-            toDiscoveryFailureCode(firecrawlFailure.code),
-            "firecrawl_extract",
-            firecrawlFailure.detail,
-          );
-        }
+      if (!extract && firecrawlFailure) {
+        setFailure(
+          toDiscoveryFailureCode(firecrawlFailure.code),
+          "firecrawl_extract",
+          firecrawlFailure.detail,
+        );
       }
       if (extract) {
         candidates.push({ source: "firecrawl", extract });
@@ -183,20 +181,17 @@ export async function discoverViaFirecrawlWithDiagnostics(
     // try Browserbase + Gemini as a repair path.
     if (!hasRequiredFields || (best && best.confidence < minConfidence && hasValidPrice)) {
       const browserbaseStart = Date.now();
-      const bbExtract = await defaultQueryDiscoveryProviders.browserbaseExtract(
+      const { extract: bbExtract, failure: bbFailure } = await defaultQueryDiscoveryProviders.browserbaseExtract(
         url,
         perAttemptTimeoutMs,
       );
       browserbaseMs += Date.now() - browserbaseStart;
-      if (!bbExtract) {
-        const bbFailure = getLastBrowserbaseFailure();
-        if (bbFailure) {
-          setFailure(
-            toDiscoveryFailureCode(bbFailure.code),
-            "browserbase_extract",
-            bbFailure.detail,
-          );
-        }
+      if (!bbExtract && bbFailure) {
+        setFailure(
+          toDiscoveryFailureCode(bbFailure.code),
+          "browserbase_extract",
+          bbFailure.detail,
+        );
       }
       if (bbExtract) {
         candidates.push({ source: "browserbase", extract: bbExtract });

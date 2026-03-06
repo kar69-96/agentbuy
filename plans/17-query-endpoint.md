@@ -63,7 +63,7 @@ curl -X POST http://localhost:3000/api/query \
 | `options` | Variant groups. `prices` is a value→price map, only present when variants have different prices. |
 | `required_fields` | What the agent must provide in `POST /api/buy`. Shipping fields are always included for browser-route products. `selections` appears only if options exist. |
 | `route` | `"x402"` or `"browserbase"` — how the purchase will be executed. |
-| `discovery_method` | Which tier found the data: `"x402"`, `"firecrawl"`, `"scrape"`, or `"browserbase"`. |
+| `discovery_method` | Which tier found the data: `"x402"`, `"firecrawl"`, `"scrape"`, `"exa"`, or `"browserbase"`. |
 
 ## How It Works
 
@@ -78,12 +78,13 @@ The orchestrator fetches the URL and checks if it returns HTTP 402 with x402 pay
 
 ### Step 2: Product Discovery
 
-`discoverProduct(url)` runs a 3-tier pipeline. Each tier is tried in order; the first to succeed wins.
+`discoverProduct(url)` runs a 4-tier pipeline. Each tier is tried in order; the first to succeed wins.
 
 ```
-Tier 1: Firecrawl    → up to 3 attempts + Browserbase+Gemini repair, candidate ranking, variant pricing
-Tier 2: Scrape       → free server-side fetch, JSON-LD + meta tags + variant extraction
-Tier 3: Browserbase  → headless Chrome + Stagehand agent + per-variant interaction
+Tier 1:   Firecrawl    → up to 3 attempts + Browserbase+Gemini repair, candidate ranking, variant pricing
+Tier 2:   Scrape       → free server-side fetch, JSON-LD + meta tags + variant extraction
+Tier 2.5: Exa.ai       → livecrawl + LLM structured extraction (~$0.002/req, 5-15s)
+Tier 3:   Browserbase  → headless Chrome + Stagehand agent + per-variant interaction
 ```
 
 #### Tier 1: Firecrawl (Primary)
@@ -108,6 +109,16 @@ Plain HTTP fetch of the product URL. Parses:
 - Open Graph meta tags — `og:title`, `product:price:amount`
 
 Fast (~1-2s), free, no API key needed. Works well on Shopify, most DTC stores. Fails on bot-blocked sites.
+
+#### Tier 2.5: Exa.ai (Search-Based Extraction)
+
+Requires `EXA_API_KEY`. Skipped if not set.
+
+Uses Exa's `getContents()` with livecrawl + structured summary extraction to pull product data. Fills the cost/latency gap between server-side scrape (free but fails on bot-blocked sites) and Browserbase (works but expensive at ~$0.05-0.15/session). Exa costs ~$0.002/request and takes 5-15s.
+
+If options are found, variant prices are resolved via `exa.searchAndContents()` with `includeDomains` filtering, finding indexed variant pages on the same domain. Results are filtered by word overlap with the base product name (>= 0.3 threshold) and merged with same-price filtering.
+
+Returns `method: "exa"`. See `plans/19-exa-discovery.md` for the full spec.
 
 #### Tier 3: Browserbase (Last Resort)
 
@@ -143,6 +154,7 @@ POST /api/query
              → shopify.ts                       (options fallback)
              → variant.ts                       (Steps 2/3)
           → scrapePriceWithOptions(url)         [Tier 2 - checkout]
+          → discoverViaExa(url)                [Tier 2.5 - packages/crawling]
           → discoverViaBrowser(url)             [Tier 3 - checkout]
   → packages/api/src/formatters.ts              (format response)
 ```

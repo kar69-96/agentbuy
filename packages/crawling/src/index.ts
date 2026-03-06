@@ -18,8 +18,15 @@ export {
   type QueryDiscoveryProviders,
 } from "./providers.js";
 
+// ---- Exa.ai extraction ----
+export { discoverViaExa } from "./exa-extract.js";
+
+// ---- Variant helpers ----
+export { valuesLikelyMatch, normalizeToken } from "./variant.js";
+
 // ---- Browserbase fallback extraction ----
-export { browserbaseExtract } from "./browserbase-extract.js";
+export { browserbaseExtract, browserbaseExtractWithFailure } from "./browserbase-extract.js";
+export type { BrowserbaseFailure, BrowserbaseExtractResult } from "./browserbase-extract.js";
 
 // ---- Constants ----
 export {
@@ -49,7 +56,8 @@ export {
 
 // ---- Lower-level functions ----
 export { pollFirecrawlJob } from "./poll.js";
-export { firecrawlExtractAsync } from "./extract.js";
+export { firecrawlExtractAsync, firecrawlScrapeJson } from "./extract.js";
+export type { FirecrawlFailure, FirecrawlScrapeResult } from "./extract.js";
 export { firecrawlCrawlAsync } from "./crawl.js";
 export {
   resolveVariantPricesViaFirecrawl,

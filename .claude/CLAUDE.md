@@ -183,6 +183,34 @@ Run these in order after finishing any code task:
 
 > **When:** Writing tests, debugging test failures, or running the test suite. Not needed for non-test work.
 
+### Pre-flight: Start Firecrawl + Browserbase Adapter
+
+Before running any discovery/crawling tests (bulk URL tests, e2e discovery tests, or anything that hits real sites), ensure the Firecrawl server and Browserbase adapter are running:
+
+```bash
+# 1. Start Firecrawl + Browserbase adapter (single command, starts both)
+pnpm firecrawl:start
+
+# 2. Verify they're healthy
+pnpm firecrawl:health                              # Firecrawl on :3002
+curl -sf http://localhost:3003/health && echo OK    # Browserbase adapter on :3003
+```
+
+**Required env vars** (must be set before starting):
+- `GOOGLE_API_KEY_QUERY` or `GOOGLE_API_KEY` — for Firecrawl LLM extraction + Gemini fallback
+- `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID` — for Browserbase adapter (JS rendering, bot-bypass)
+- `EXA_API_KEY` — for Exa.ai Stage 2.5 (optional, tier skipped if not set)
+- `FIRECRAWL_API_KEY` — defaults to `fc-selfhosted` for local Firecrawl
+
+**After testing**, stop the services:
+```bash
+pnpm firecrawl:stop
+```
+
+If the adapter is not running, Firecrawl's Browserbase+Gemini repair path will fail silently (`fetch failed`), and many URLs that would otherwise pass will return null. Unit tests (`pnpm test`) do not require these services — they use mocks.
+
+### General Testing Notes
+
 - Always test on real websites (Shopify → Target → Best Buy → Amazon)
 - All on Base Sepolia with test USDC
 - Each build phase has a test gate — don't proceed until all pass
