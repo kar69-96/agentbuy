@@ -211,7 +211,7 @@ describe("discoverProduct pipeline (real sites)", () => {
       console.log("Firecrawl primary tier succeeded");
     } else if (result.method === "scrape") {
       console.log(
-        "Fell back to scrape — Firecrawl key may be invalid or service unavailable",
+        "Fell back to scrape — Firecrawl may be unavailable",
       );
     } else {
       console.log("Fell back to browserbase Tier 3");

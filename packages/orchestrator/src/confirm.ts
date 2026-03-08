@@ -107,7 +107,7 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       // Build receipt
       const receipt = buildReceipt({
         order,
-        tx_hash: txHash,
+        tx_hash: txHash!,
         x402Result,
       });
 
@@ -145,15 +145,20 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       });
 
       if (!checkoutResult.success) {
-        throw new Error(
-          `Checkout did not confirm (session: ${checkoutResult.sessionId})`,
+        // Use specific error code for payment declines vs generic checkout failures
+        const isDecline = checkoutResult.errorMessage &&
+          (/payment_declined|card_invalid/.test(checkoutResult.errorMessage));
+        const code = isDecline ? ErrorCodes.CHECKOUT_DECLINED : ErrorCodes.CHECKOUT_FAILED;
+        throw new BloonError(
+          code,
+          checkoutResult.errorMessage ?? `Checkout did not confirm (session: ${checkoutResult.sessionId})`,
         );
       }
 
       // Build receipt
       const receipt = buildReceipt({
         order,
-        tx_hash: txHash,
+        tx_hash: txHash!,
         checkoutResult,
       });
 

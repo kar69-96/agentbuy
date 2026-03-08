@@ -65,9 +65,9 @@ export async function createSession(options?: SessionOptions): Promise<Browserba
         ...(options?.proxies && { proxies: true }),
         browserSettings: {
           recordSession: true,
+          logSession: true,
           solveCaptchas: true,
           ...(options?.stealth && { stealth: true }),
-          ...(options?.logSession && { logSession: true }),
         },
         timeout: SESSION_TIMEOUT_MS / 1000,
       }),

@@ -12,6 +12,7 @@ export {
   discoverProduct,
   scrapePriceWithOptions,
   discoverViaBrowser,
+
   extractVariantsFromJsonLd,
   fetchVariantPriceBrowser,
   resolveVariantPricesViaBrowser,
@@ -73,3 +74,32 @@ export {
   mapFieldToCredential,
 } from "./fill.js";
 export type { ObservedField } from "./fill.js";
+
+// ---- Scripted actions (zero-LLM DOM manipulation) ----
+export {
+  scriptedDismissPopups,
+  scriptedFillShipping,
+  scriptedFillCardFields,
+  scriptedFillBilling,
+  scriptedUncheckBillingSameAsShipping,
+  scriptedClickButton,
+  scriptedSelectOption,
+  scriptedFillVerificationCode,
+  detectPageType,
+  extractConfirmationData,
+  extractVisibleTotal,
+  extractErrorMessage,
+} from "./scripted-actions.js";
+export type { PageType, ConfirmationData, ErrorData, ErrorType } from "./scripted-actions.js";
+
+
+// ---- AgentMail (email verification) ----
+export {
+  getOrCreateInbox,
+  getAgentEmail,
+  pollForVerificationCode,
+  resetAgentMail,
+} from "./agentmail.js";
+
+// ---- Agent tools (includes iframe scanner) ----
+export { scanIframesForCardFields } from "./agent-tools.js";

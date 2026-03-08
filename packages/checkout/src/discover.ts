@@ -24,6 +24,7 @@ import { sanitizeShipping } from "./credentials.js";
 import { concurrencyPool } from "./concurrency-pool.js";
 import { CostTracker } from "./cost-tracker.js";
 
+
 // ---- Discovery result ----
 
 export interface DiscoveryResult {
@@ -854,7 +855,7 @@ export async function discoverProduct(
   if (firecrawled?.error === "product_not_found") return firecrawled;
   if (firecrawled) return firecrawled;
 
-  // Fallback: Server-side scrape (free, fast)
+  // Tier 2: Server-side scrape (free, fast)
   const scraped = await scrapePriceWithOptions(url);
   if (scraped) {
     return {
