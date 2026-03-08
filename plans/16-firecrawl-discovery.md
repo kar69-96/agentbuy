@@ -6,31 +6,101 @@ Firecrawl is the **primary** product discovery tier. It runs before server-side 
 
 ```
 FIRECRAWL_API_KEY=fc-...
+FIRECRAWL_BASE_URL=http://localhost:3002   # default: self-hosted
+# or: FIRECRAWL_BASE_URL=https://api.firecrawl.dev  # cloud
 ```
 
-Required. If not set, Firecrawl tier is skipped entirely and discovery falls through to server-side scrape → Browserbase.
+`FIRECRAWL_API_KEY` is required. If not set, Firecrawl tier is skipped entirely and discovery falls through to server-side scrape → Browserbase.
+
+`FIRECRAWL_BASE_URL` defaults to `http://localhost:3002` (self-hosted). Set to `https://api.firecrawl.dev` for cloud.
 
 ## Pipeline Overview
 
 ```
-/extract on product URL (always — 1 API call)
+/scrape on product URL (up to 3 attempts with exponential backoff)
     │
-    ├── No options detected → done (simple product)
+    ├── Confidence >= 0.75 + valid price → accept candidate
+    │     │
+    │     ├── No options detected → done (simple product)
+    │     ├── Options + variant URLs → /scrape on each variant URL → done
+    │     └── Options + NO variant URLs → /crawl (maxDepth: 1) → done
     │
-    ├── Options + variant URLs detected → /extract on each variant URL → done
+    ├── Confidence < 0.75 or missing fields → Browserbase+Gemini repair path
+    │     │
+    │     └── Re-rank all candidates → best wins → continue to variant resolution
     │
-    └── Options detected + NO variant URLs → /crawl (maxDepth: 1) → done
+    └── All attempts fail → return null (falls through to scrape → Browserbase tiers)
 ```
 
-Three paths, mutually exclusive. Every product query starts with Step 1. Steps 2 and 3 only run when needed.
+Every product query starts with Step 1 (up to 3 attempts). If the best candidate doesn't meet the confidence threshold, the Browserbase+Gemini fallback runs before Steps 2/3.
 
-## Step 1: `/extract` on Product URL
+## Step 1: `/scrape` on Product URL (up to 3 attempts)
 
-**Always runs.** Single API call that extracts structured product data from the rendered page.
+**Always runs.** Extracts structured product data from the rendered page via Firecrawl's `/v1/scrape`.
 
-**Endpoint:** `POST https://api.firecrawl.dev/v1/extract`
+**Endpoint:** `POST {FIRECRAWL_BASE_URL}/v1/scrape`
 
-**What it extracts:**
+**Why `/scrape` instead of `/extract`:** The `/v1/extract` endpoint triggers a heavy internal pipeline (schema analysis, multi-entity detection, URL mapping/reranking, SmartScrape, JSON repair) totaling 3-10+ LLM calls per request. Since we always provide an exact URL and a fixed schema, `/v1/scrape` with `formats: ["json"]` + `jsonOptions` does the same single-page extraction with **1 LLM call**, eliminating all unnecessary overhead. This improves rate limit headroom from ~2-3 to ~20 extractions/min on Gemini free tier.
+
+### Retry Strategy
+
+Step 1 runs up to **3 attempts** with exponential backoff:
+
+```
+Attempt 0: immediate
+Attempt 1: wait 2s, retry
+Attempt 2: wait 4s, retry
+```
+
+Each attempt produces a **candidate** that gets scored by the parser ensemble (see below). The loop breaks early if:
+- Best candidate's confidence >= `QUERY_MIN_CONFIDENCE` (default: 0.75) AND price is valid
+- Price is explicitly invalid (additional retries won't help)
+
+### Content Classification
+
+Before extraction, the raw markdown is checked for failure signals:
+
+- **BLOCKED_PATTERNS** (24 patterns in `constants.ts`): Cloudflare challenges, CAPTCHAs, Akamai/PerimeterX/DataDome, Incapsula, DistilNetworks, generic bot detection phrases
+- **NOT_FOUND_PATTERNS** (24 patterns in `constants.ts`): "product not found", "discontinued", "no longer available", 404 indicators
+
+If blocked patterns are detected, `failure_code: "blocked"` is recorded. If not-found patterns match, a `ProductNotFoundError` is thrown.
+
+### Parser Ensemble (Candidate Ranking)
+
+All candidates from Firecrawl attempts (and the optional Browserbase repair) are scored by `chooseBestCandidate()` in `parser-ensemble.ts`. Scoring weights:
+
+| Signal | Weight | Notes |
+|--------|--------|-------|
+| Name present | +0.35 | |
+| Valid price | +0.45 | Must match numeric pattern |
+| Weak/unparseable price | +0.10 | Has price text but not valid format |
+| Options signal | +0.10 | Scaled by ratio of populated option groups |
+| Variant URLs | +0.05 | |
+| Description | +0.03 | |
+| Image URL | +0.01 | |
+| Currency | +0.01 | |
+| Browserbase source | +0.02 | Slight bias toward browser-rendered data |
+
+Maximum possible score: 1.0. Minimum to proceed: must have a valid price.
+
+### Browserbase+Gemini Repair Path
+
+If after all Firecrawl attempts:
+- No valid candidate exists (missing name or price), OR
+- Best candidate has confidence < 0.75 but does have a valid price
+
+...then the Browserbase+Gemini fallback runs:
+
+1. **Fetch rendered HTML** from the Browserbase adapter (`POST localhost:3003/scrape`)
+2. **Convert HTML to markdown** via `htmlToMarkdown()` — tries 9 main-content selectors first (e.g., `main`, `[role='main']`, `.product-detail`), falls back to full page with 19+ boilerplate selectors stripped, caps at 30k chars
+3. **Extract product data** via Gemini 2.5 Flash with structured JSON output schema
+4. **Add result as a candidate** — re-rank all candidates, best wins
+
+### Shopify Fallback for Options
+
+If the winning candidate has no options, the pipeline tries `fetchShopifyOptions(url)` — hits the Shopify `.json` product endpoint. If it's a Shopify store with variant data, options are populated from the API response.
+
+### What it extracts
 
 | Field | Description |
 |-------|-------------|
@@ -44,19 +114,17 @@ Three paths, mutually exclusive. Every product query starts with Step 1. Steps 2
 | `options` | Array of option groups, each with `name`, `values[]`, and optional `prices{}` |
 | `variant_urls` | URLs linking to other variants of the same product |
 
-**Also requests `"links"` format** — returns all URLs on the page. Used for future-proofing and URL pattern validation (e.g., cross-referencing LLM-detected variant URLs against actual page links).
-
 **Decision after Step 1:**
 
 - If `options` is empty → product has no variants. Return result. Done.
 - If `options` has entries AND `variant_urls` is non-empty → go to Step 2.
 - If `options` has entries AND `variant_urls` is empty → go to Step 3.
 
-## Step 2: `/extract` on Each Variant URL
+## Step 2: `/scrape` on Each Variant URL
 
 **Runs when:** Step 1 found option groups (Color, Size, etc.) **and** variant URLs.
 
-For each variant URL, make a separate `/extract` call with the same product schema. Each call returns the product name, price, and selected options for that specific variant.
+For each variant URL, make a separate `/scrape` call with the same product schema + JSON format. Each call returns the product name, price, and selected options for that specific variant.
 
 **Caps:**
 - Max 20 variant URLs per product (to control credit spend)
@@ -135,6 +203,23 @@ Worst case for a product with 20 variant URLs: ~21 credits. Typical Shopify prod
 
 The same schema is used for Step 1, Step 2, and the extraction within Step 3's crawl.
 
+## Failure Priority Tracking
+
+The pipeline tracks the **highest-priority failure** across all attempts. When multiple failures occur, the most actionable one is surfaced:
+
+| Failure Code | Priority | Meaning |
+|--------------|----------|---------|
+| `llm_config` | 100 | Missing FIRECRAWL_API_KEY |
+| `blocked` | 90 | Anti-bot/CAPTCHA detected |
+| `not_found` | 85 | Product page is 404/discontinued |
+| `adapter_502` | 70 | Browserbase adapter returned 502 |
+| `render_timeout` | 65 | Page render timed out |
+| `http_error` | 60 | Non-2xx HTTP response |
+| `extract_empty` | 40 | Extraction returned no usable data |
+| `transport_error` | 30 | Network/fetch failure |
+
+Higher-priority failures overwrite lower-priority ones in the diagnostics.
+
 ## Where Firecrawl Fails (→ Browserbase)
 
 Firecrawl cannot handle:
@@ -144,10 +229,12 @@ Firecrawl cannot handle:
 
 These fall through to Browserbase Tier 3 (headless Chrome + Stagehand agent).
 
+Note: The Browserbase+Gemini repair path within the Firecrawl pipeline (Step 1b) catches some anti-bot cases. The full Tier 3 Browserbase+Stagehand path in `packages/checkout` is more capable but slower — it uses an LLM agent to interact with the page rather than just rendering and extracting.
+
 ## Full Discovery Pipeline (All Tiers)
 
 ```
-1. Firecrawl /extract (primary — rich data + variant pricing)
+1. Firecrawl /scrape (primary — rich data + variant pricing, 1 LLM call)
       ↓ if Firecrawl fails or FIRECRAWL_API_KEY not set
 2. Server-side scrape (free — JSON-LD + meta tags)
       ↓ if scrape fails (bot-blocked, no structured data)
@@ -156,12 +243,60 @@ These fall through to Browserbase Tier 3 (headless Chrome + Stagehand agent).
    BloonError: QUERY_FAILED
 ```
 
+## Self-Hosted Firecrawl
+
+The `@bloon/crawling` package includes the open-source Firecrawl as a git submodule. Self-hosting eliminates cloud credit limits — extraction quality comes from whatever LLM you configure (we reuse the existing `GOOGLE_API_KEY` for Gemini).
+
+**Setup:**
+```bash
+# Initialize the submodule (one-time)
+cd packages/crawling && git submodule update --init
+
+# Start self-hosted Firecrawl (runs on port 3002)
+pnpm firecrawl:start
+
+# Check health
+pnpm firecrawl:health
+
+# Stop
+pnpm firecrawl:stop
+```
+
+**How it works:** The start script installs deps in `packages/crawling/firecrawl/apps/api` and runs the Firecrawl API server directly via Node. It configures the LLM via OpenAI-compatible API pointing to Gemini (`GOOGLE_API_KEY`).
+
+**Trade-offs vs cloud:**
+- No Fire Engine (anti-bot proxies) — not useful for our use case
+- No rate limits or credit caps
+- Same `/v1/scrape` and `/v1/crawl` endpoints
+- LLM quality depends on your configured model (Gemini 2.5 Flash by default)
+
 ## Files
 
 | File | Role |
 |------|------|
-| `packages/checkout/src/discover.ts` | All discovery logic: Firecrawl, scrape, Browserbase |
-| `packages/checkout/src/session.ts` | Browserbase session lifecycle |
-| `packages/checkout/src/cost-tracker.ts` | Credit and session cost instrumentation |
-| `packages/checkout/tests/e2e-discover.test.ts` | E2E tests against real sites |
-| `packages/checkout/tests/variant-price.test.ts` | Unit tests for variant price resolution |
+| `packages/crawling/src/discover.ts` | Discovery orchestrator: 3 Firecrawl attempts + Browserbase repair + variant resolution |
+| `packages/crawling/src/extract.ts` | Firecrawl `/v1/scrape` wrapper with content classification (blocked/not-found patterns) |
+| `packages/crawling/src/browserbase-extract.ts` | Browserbase+Gemini fallback: fetch HTML → markdown → Gemini extraction |
+| `packages/crawling/src/browserbase-adapter.ts` | Browserbase adapter HTTP server (Firecrawl's Playwright microservice protocol) |
+| `packages/crawling/src/parser-ensemble.ts` | Candidate scoring/ranking across extraction sources |
+| `packages/crawling/src/providers.ts` | Pluggable provider abstraction (`QueryDiscoveryProviders` interface) |
+| `packages/crawling/src/crawl.ts` | `/v1/crawl` async wrapper |
+| `packages/crawling/src/variant.ts` | Step 2 + Step 3 variant price resolution |
+| `packages/crawling/src/shopify.ts` | Shopify `.json` endpoint fallback for options |
+| `packages/crawling/src/client.ts` | Config: `getFirecrawlConfig()` (base URL + API key) |
+| `packages/crawling/src/helpers.ts` | Price utilities: `stripCurrencySymbol`, `mapOptions`, `computeWordOverlap`, `isValidPrice` |
+| `packages/crawling/src/poll.ts` | Async job polling |
+| `packages/crawling/src/constants.ts` | Schema, prompt, limits, BLOCKED_PATTERNS, NOT_FOUND_PATTERNS, content selectors |
+| `packages/crawling/src/types.ts` | `FirecrawlExtract`, `FirecrawlConfig` |
+| `packages/crawling/src/index.ts` | Public exports for `@bloon/crawling` package |
+| `packages/crawling/firecrawl/` | Git submodule → github.com/mendableai/firecrawl |
+| `packages/crawling/scripts/start.sh` | Start Browserbase adapter (3003) + Firecrawl API (3002) with env validation |
+| `packages/crawling/scripts/stop.sh` | Stop both processes via PID files or port-based fallback |
+| `packages/crawling/scripts/health.sh` | Health check |
+| `packages/checkout/src/discover.ts` | Scrape + Browserbase+Stagehand discovery (imports `discoverViaFirecrawl` from `@bloon/crawling`) |
+| `packages/checkout/tests/e2e-discover.test.ts` | E2E tests for scrape + browser tiers |
+| `packages/crawling/tests/discover.test.ts` | Unit tests for Firecrawl pipeline |
+| `packages/crawling/tests/bulk-url-test.ts` | Bulk URL discovery benchmarks |
+| `packages/crawling/tests/parser-ensemble.test.ts` | Parser ensemble unit tests |
+| `packages/crawling/tests/e2e.test.ts` | E2E tests against real sites via Firecrawl |
+| `packages/crawling/tests/comparison.test.ts` | Self-hosted vs cloud baseline validation |

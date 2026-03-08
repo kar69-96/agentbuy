@@ -5,6 +5,7 @@ import { discoverViaBrowser } from "../src/discover.js";
 vi.mock("../src/session.js", () => ({
   getBrowserbaseConfig: vi.fn(),
   getModelApiKey: vi.fn(),
+  getQueryModelApiKey: vi.fn(),
   createSession: vi.fn(),
   destroySession: vi.fn(),
 }));
@@ -32,10 +33,11 @@ vi.mock("@browserbasehq/stagehand", () => ({
 }));
 
 // Import mocked modules
-import { getBrowserbaseConfig, getModelApiKey, createSession, destroySession } from "../src/session.js";
+import { getBrowserbaseConfig, getModelApiKey, getQueryModelApiKey, createSession, destroySession } from "../src/session.js";
 
 const mockGetBrowserbaseConfig = vi.mocked(getBrowserbaseConfig);
 const mockGetModelApiKey = vi.mocked(getModelApiKey);
+const mockGetQueryModelApiKey = vi.mocked(getQueryModelApiKey);
 const mockCreateSession = vi.mocked(createSession);
 const mockDestroySession = vi.mocked(destroySession);
 
@@ -44,6 +46,7 @@ describe("discoverViaBrowser", () => {
     vi.clearAllMocks();
     mockGetBrowserbaseConfig.mockReturnValue({ apiKey: "test-key", projectId: "test-project" });
     mockGetModelApiKey.mockReturnValue("test-google-key");
+    mockGetQueryModelApiKey.mockReturnValue("test-google-query-key");
     mockCreateSession.mockResolvedValue({
       id: "session-123",
       connectUrl: "wss://connect.example.com",
@@ -69,9 +72,9 @@ describe("discoverViaBrowser", () => {
     expect(mockCreateSession).not.toHaveBeenCalled();
   });
 
-  it("returns null when GOOGLE_API_KEY is missing", async () => {
-    mockGetModelApiKey.mockImplementation(() => {
-      throw new Error("GOOGLE_API_KEY is required");
+  it("returns null when GOOGLE_API_KEY_QUERY is missing", async () => {
+    mockGetQueryModelApiKey.mockImplementation(() => {
+      throw new Error("GOOGLE_API_KEY_QUERY is required");
     });
 
     const result = await discoverViaBrowser("https://example.com/product");

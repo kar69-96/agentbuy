@@ -63,9 +63,11 @@ curl -X POST http://localhost:3000/api/query \
 | `options` | Variant groups. `prices` is a value→price map, only present when variants have different prices. |
 | `required_fields` | What the agent must provide in `POST /api/buy`. Shipping fields are always included for browser-route products. `selections` appears only if options exist. |
 | `route` | `"x402"` or `"browserbase"` — how the purchase will be executed. |
-| `discovery_method` | Which tier found the data: `"x402"`, `"firecrawl"`, `"scrape"`, or `"browserbase"`. |
+| `discovery_method` | Which tier found the data: `"x402"`, `"firecrawl"`, `"scrape"`, `"exa"`, or `"browserbase"`. |
 
 ## How It Works
+
+> **Detailed pipeline documentation:** See `plans/endpoints/query-endpoint.md` for the full pipeline spec with scoring weights, env vars, failure codes, and code paths.
 
 ### Step 1: Route Detection
 
@@ -76,30 +78,27 @@ The orchestrator fetches the URL and checks if it returns HTTP 402 with x402 pay
 
 ### Step 2: Product Discovery
 
-`discoverProduct(url)` runs a 3-tier pipeline. Each tier is tried in order; the first to succeed wins.
+`discoverProduct(url)` runs a 4-tier pipeline. Each tier is tried in order; the first to succeed wins.
 
 ```
-Tier 1: Firecrawl    → rich extraction via LLM, variant pricing
-Tier 2: Scrape       → free server-side fetch, JSON-LD + meta tags
-Tier 3: Browserbase  → headless Chrome + Stagehand agent
+Tier 1:   Firecrawl    → up to 3 attempts + Browserbase+Gemini repair, candidate ranking, variant pricing
+Tier 2:   Scrape       → free server-side fetch, JSON-LD + meta tags + variant extraction
+Tier 2.5: Exa.ai       → livecrawl + LLM structured extraction (~$0.002/req, 5-15s)
+Tier 3:   Browserbase  → headless Chrome + Stagehand agent + per-variant interaction
 ```
 
 #### Tier 1: Firecrawl (Primary)
 
 Requires `FIRECRAWL_API_KEY`. Skipped if not set.
 
-Uses Firecrawl's `/extract` endpoint to pull structured product data from the rendered page. One API call returns name, price, brand, image, options, variant URLs, and all page links.
+Uses Firecrawl's `/v1/scrape` endpoint with up to **3 attempts** (exponential backoff: 2s, 4s). Each attempt produces a candidate scored by the parser ensemble. The loop breaks early if confidence >= 0.75 with a valid price.
 
-Three sub-paths depending on what's found:
+If confidence is too low or required fields are missing, a **Browserbase+Gemini repair path** renders the page via the Browserbase adapter and extracts product data via Gemini 2.5 Flash. All candidates are re-ranked and the best wins.
 
-**Simple product (no options):**
-Extract returns product info with no variant options. Done.
-
-**Options + variant URLs:**
-The extract found option groups (Color, Size) and URLs pointing to variant pages (e.g., each color has its own URL). Bloon runs `/extract` on each variant URL to get its specific price. Builds a per-variant price map.
-
-**Options + no variant URLs:**
-The extract found option selectors on the page (color swatches, size dropdowns) but no distinct URLs for each variant. Bloon runs `/crawl` from the product URL with `maxDepth: 1` to discover variant pages the LLM couldn't link to directly. Extracts price from each discovered page.
+After the winning candidate is selected:
+- **Shopify fallback**: If no options, tries the Shopify `.json` endpoint
+- **Variant URLs found**: Runs `/v1/scrape` on each variant URL for per-variant pricing
+- **Options but no variant URLs**: Runs `/v1/crawl` (maxDepth: 1) to discover variant pages
 
 See `plans/16-firecrawl-discovery.md` for the full Firecrawl pipeline spec.
 
@@ -111,11 +110,21 @@ Plain HTTP fetch of the product URL. Parses:
 
 Fast (~1-2s), free, no API key needed. Works well on Shopify, most DTC stores. Fails on bot-blocked sites.
 
+#### Tier 2.5: Exa.ai (Search-Based Extraction)
+
+Requires `EXA_API_KEY`. Skipped if not set.
+
+Uses Exa's `getContents()` with livecrawl + structured summary extraction to pull product data. Fills the cost/latency gap between server-side scrape (free but fails on bot-blocked sites) and Browserbase (works but expensive at ~$0.05-0.15/session). Exa costs ~$0.002/request and takes 5-15s.
+
+If options are found, variant prices are resolved via `exa.searchAndContents()` with `includeDomains` filtering, finding indexed variant pages on the same domain. Results are filtered by word overlap with the base product name (>= 0.3 threshold) and merged with same-price filtering.
+
+Returns `method: "exa"`. See `plans/19-exa-discovery.md` for the full spec.
+
 #### Tier 3: Browserbase (Last Resort)
 
-Launches a headless Chrome session via Browserbase. Stagehand LLM agent navigates the page, extracts product info and variant options from the rendered DOM.
+Launches a headless Chrome session via Browserbase. Stagehand LLM agent (Gemini 2.5 Flash) navigates the page, extracts product info and variant options from the rendered DOM.
 
-For per-variant pricing, the agent selects each variant (clicking swatches, dropdowns) and reports the updated price. Uses the Stagehand Agent API with a system prompt that distinguishes variant selectors from quantity dropdowns.
+For per-variant pricing, the agent selects each variant (clicking swatches, dropdowns) and reports the updated price. Uses the Stagehand Agent API with a system prompt that distinguishes variant selectors from quantity dropdowns. Caps at 3 variants per group, 10 total tasks.
 
 Slowest tier (~30-120s), most expensive (Browserbase session + LLM API calls), but handles anti-bot sites (Amazon, Best Buy) and pages with no structured data.
 
@@ -133,14 +142,21 @@ The orchestrator assembles the `QueryResponse` with product info, options, requi
 
 ```
 POST /api/query
-  → packages/api/src/routes/query.ts      (validate input)
-  → packages/orchestrator/src/query.ts     (orchestrate)
-    → packages/x402/src/detect.ts          (route detection)
-    → packages/checkout/src/discover.ts     (product discovery)
-      → discoverViaFirecrawl()             (Tier 1)
-      → scrapePriceWithOptions()           (Tier 2)
-      → discoverViaBrowser()              (Tier 3)
-  → packages/api/src/formatters.ts         (format response)
+  → packages/api/src/routes/query.ts           (validate input)
+  → packages/orchestrator/src/query.ts          (orchestrate)
+    → packages/x402/src/detect.ts               (route detection)
+    → packages/checkout/src/discover.ts
+       → discoverProduct(url)                   (main entry point)
+          → discoverViaFirecrawl(url)           [Tier 1 - packages/crawling]
+             → extract.ts                       (Firecrawl /v1/scrape, up to 3 attempts)
+             → parser-ensemble.ts               (candidate ranking)
+             → browserbase-extract.ts           (Browserbase+Gemini repair)
+             → shopify.ts                       (options fallback)
+             → variant.ts                       (Steps 2/3)
+          → scrapePriceWithOptions(url)         [Tier 2 - checkout]
+          → discoverViaExa(url)                [Tier 2.5 - packages/crawling]
+          → discoverViaBrowser(url)             [Tier 3 - checkout]
+  → packages/api/src/formatters.ts              (format response)
 ```
 
 ## Error Cases

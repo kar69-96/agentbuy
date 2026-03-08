@@ -42,6 +42,14 @@ export function getModelApiKey(): string {
   return key;
 }
 
+export function getQueryModelApiKey(): string {
+  const key = process.env.GOOGLE_API_KEY_QUERY;
+  if (!key) {
+    throw new Error("GOOGLE_API_KEY_QUERY is required");
+  }
+  return key;
+}
+
 export async function createSession(options?: SessionOptions): Promise<BrowserbaseSession> {
   const { apiKey, projectId } = getBrowserbaseConfig();
 

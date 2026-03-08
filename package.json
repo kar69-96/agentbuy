@@ -8,7 +8,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:checkout": "tsx tests/browserbase-refinement/test-checkout.ts",
-    "test:checkout:loop": "tsx tests/browserbase-refinement/test-checkout-loop.ts"
+    "test:checkout:loop": "tsx tests/browserbase-refinement/test-checkout-loop.ts",
+    "firecrawl:start": "bash packages/crawling/scripts/start.sh",
+    "firecrawl:stop": "bash packages/crawling/scripts/stop.sh",
+    "firecrawl:health": "bash packages/crawling/scripts/health.sh"
   },
   "devDependencies": {
     "@bloon/api": "workspace:*",

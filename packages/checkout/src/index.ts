@@ -11,7 +11,6 @@ export {
   extractMetaTag,
   discoverProduct,
   scrapePriceWithOptions,
-  discoverViaFirecrawl,
   discoverViaBrowser,
 
   extractVariantsFromJsonLd,
@@ -23,8 +22,11 @@ export {
 export type {
   DiscoveryResult,
   DiscoveryResultWithOptions,
-  FullDiscoveryResult,
 } from "./discover.js";
+
+// Re-export Firecrawl discovery from @bloon/crawling
+export { discoverViaFirecrawl } from "@bloon/crawling";
+export type { FullDiscoveryResult } from "@bloon/crawling";
 
 // ---- Concurrency pool ----
 export { concurrencyPool } from "./concurrency-pool.js";
@@ -51,6 +53,7 @@ export {
   destroySession,
   getBrowserbaseConfig,
   getModelApiKey,
+  getQueryModelApiKey,
 } from "./session.js";
 export type { BrowserbaseSession, SessionOptions } from "./session.js";
 

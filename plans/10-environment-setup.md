@@ -41,6 +41,30 @@ NETWORK=base-sepolia
 # ---- Server ----
 PORT=3000
 
+# ---- Firecrawl Discovery Pipeline ----
+FIRECRAWL_BASE_URL=http://localhost:3002   # Self-hosted default. Set to https://api.firecrawl.dev for cloud.
+QUERY_MIN_CONFIDENCE=0.75                  # Min confidence to accept Firecrawl candidate without Browserbase fallback
+QUERY_FIRECRAWL_TIMEOUT_MS=90000           # Per-attempt timeout for Firecrawl /v1/scrape
+QUERY_MAX_VARIANT_URLS=12                  # Max variant URLs to extract in Step 2
+
+# ---- Browserbase Adapter (Firecrawl's Playwright microservice) ----
+ADAPTER_PORT=3003                          # Port the Browserbase adapter listens on
+ADAPTER_CONCURRENCY=8                      # Max concurrent Browserbase sessions in the adapter
+ADAPTER_SESSION_RATE=4                     # Max session creations per second (token bucket)
+ADAPTER_QUEUE_TIMEOUT_MS=15000             # Queue timeout waiting for a concurrency slot
+ADAPTER_RATE_QUEUE_TIMEOUT_MS=12000        # Queue timeout waiting for a rate limit token
+
+# ---- Browserbase Fallback Extraction (Gemini) ----
+BB_EXTRACT_CONCURRENCY=5                   # Max concurrent Browserbase fallback extractions
+BB_EXTRACT_QUEUE_TIMEOUT_MS=15000          # Queue timeout for fallback extraction slots
+GEMINI_EXTRACT_TIMEOUT_MS=20000            # Timeout for Gemini structured extraction call
+GEMINI_EXTRACT_RETRIES=2                   # Number of Gemini extraction retries
+
+# ---- Browserbase + Stagehand Variant Resolution (Tier 3) ----
+QUERY_MAX_VARIANTS_PER_GROUP=3             # Max variants to resolve per option group
+QUERY_MAX_TOTAL_VARIANT_TASKS=10           # Max total variant resolution tasks
+QUERY_VARIANT_CONCURRENCY=3               # Concurrent Browserbase sessions for variant resolution
+
 # ---- Bloon Master Wallet (auto-generated on first run if not set) ----
 BLOON_MASTER_PRIVATE_KEY=0x...
 ```

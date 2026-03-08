@@ -107,7 +107,9 @@ Call this first to discover what a product needs before buying. No wallet requir
 - `options` lists product variants (Color, Size) with available values and per-variant prices if they differ
 - `required_fields` tells you what shipping fields and selections are needed
 - If `selections` appears in required_fields, include matching key-value pairs in your buy request
-- `discovery_method` is one of: `"x402"`, `"firecrawl"`, `"scrape"`, `"browserbase"`
+- `discovery_method` is one of: `"x402"`, `"firecrawl"`, `"browserbase"`, `"scrape"`
+- Discovery pipeline: Firecrawl (primary, up to 3 attempts with Browserbase+Gemini repair) → Server-side scrape (JSON-LD/meta tags) → Browserbase+Stagehand (headless Chrome agent)
+- If `error: "product_not_found"` is returned, the product page is 404 or discontinued
 
 ### POST /api/buy
 
@@ -174,6 +176,7 @@ HTML page (not JSON). Shows QR code + live USDC balance. For humans, not agents.
 | `CHECKOUT_FAILED` | 502 | Site issue, see error message |
 | `INVALID_SELECTION` | 400 | Bad selections format, check values |
 | `QUERY_FAILED` | 502 | Product discovery failed, try different URL |
+| `PRODUCT_NOT_FOUND` | 404 | Product page is 404 or discontinued |
 
 ## What the Agent Never Sees
 

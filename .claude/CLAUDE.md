@@ -8,7 +8,7 @@ Bloon is a REST API (TypeScript/Hono) that lets AI agents purchase anything on t
 
 ## Project Status
 
-Pre-implementation. Full specification lives in `plans/`. No source code exists yet. Closed source.
+Active development. Specification lives in `plans/`. The `crawling` and `checkout` packages have working discovery pipelines. Closed source.
 
 ## Architecture
 
@@ -61,7 +61,10 @@ These are independent — knowing one doesn't reveal the other.
 - **Wallets:** viem 2.x (NOT Coinbase CDP)
 - **x402 Payments:** @x402/fetch
 - **Browser Automation:** @browserbasehq/stagehand + Browserbase
-- **Browser LLM:** Claude Sonnet 4 (via Stagehand)
+- **Browser LLM (Checkout):** Claude Sonnet 4 (via Stagehand)
+- **Discovery LLM:** Gemini 2.5 Flash (Firecrawl extraction + Browserbase fallback)
+- **HTML Processing:** cheerio + turndown (Browserbase fallback HTML→Markdown)
+- **Gemini SDK:** @google/generative-ai (structured extraction)
 - **QR Codes:** qrcode (npm)
 - **Chain:** USDC on Base (Sepolia for testnet, mainnet for prod)
 - **Storage:** JSON files in `~/.bloon/` (chmod 600)
@@ -72,10 +75,22 @@ These are independent — knowing one doesn't reveal the other.
 
 ```
 packages/
-├── core/        # Types, fees, routing logic, store (JSON persistence)
+├── core/        # Types, fees, routing logic, store (JSON persistence), concurrency pool
 ├── wallet/      # viem wallet create, balance, QR, USDC transfer
 ├── x402/        # x402 detection + payment via @x402/fetch
-├── checkout/    # Browserbase sessions, Stagehand, credential fills, domain cache
+├── crawling/    # Product discovery: Firecrawl primary + Browserbase+Gemini fallback
+│   ├── src/
+│   │   ├── discover.ts              # Discovery orchestrator (3 attempts + repair path)
+│   │   ├── extract.ts               # Firecrawl /v1/scrape wrapper
+│   │   ├── browserbase-adapter.ts   # HTTP server: Playwright microservice (port 3003)
+│   │   ├── browserbase-extract.ts   # Browserbase+Gemini fallback extraction
+│   │   ├── parser-ensemble.ts       # Multi-source candidate scoring/ranking
+│   │   ├── providers.ts             # Pluggable provider abstraction
+│   │   ├── variant.ts               # Variant price resolution (Steps 2/3)
+│   │   ├── constants.ts             # Patterns, schemas, selectors, limits
+│   │   └── ...                      # client, crawl, helpers, poll, shopify, types
+│   └── scripts/                     # start.sh, stop.sh, health.sh
+├── checkout/    # Browserbase sessions, Stagehand, credential fills, domain cache, discovery orchestration
 └── api/         # Hono server, routes, funding page HTML
 ```
 
@@ -168,6 +183,34 @@ Run these in order after finishing any code task:
 
 > **When:** Writing tests, debugging test failures, or running the test suite. Not needed for non-test work.
 
+### Pre-flight: Start Firecrawl + Browserbase Adapter
+
+Before running any discovery/crawling tests (bulk URL tests, e2e discovery tests, or anything that hits real sites), ensure the Firecrawl server and Browserbase adapter are running:
+
+```bash
+# 1. Start Firecrawl + Browserbase adapter (single command, starts both)
+pnpm firecrawl:start
+
+# 2. Verify they're healthy
+pnpm firecrawl:health                              # Firecrawl on :3002
+curl -sf http://localhost:3003/health && echo OK    # Browserbase adapter on :3003
+```
+
+**Required env vars** (must be set before starting):
+- `GOOGLE_API_KEY_QUERY` or `GOOGLE_API_KEY` — for Firecrawl LLM extraction + Gemini fallback
+- `BROWSERBASE_API_KEY` + `BROWSERBASE_PROJECT_ID` — for Browserbase adapter (JS rendering, bot-bypass)
+- `EXA_API_KEY` — for Exa.ai Stage 2.5 (optional, tier skipped if not set)
+- `FIRECRAWL_API_KEY` — defaults to `fc-selfhosted` for local Firecrawl
+
+**After testing**, stop the services:
+```bash
+pnpm firecrawl:stop
+```
+
+If the adapter is not running, Firecrawl's Browserbase+Gemini repair path will fail silently (`fetch failed`), and many URLs that would otherwise pass will return null. Unit tests (`pnpm test`) do not require these services — they use mocks.
+
+### General Testing Notes
+
 - Always test on real websites (Shopify → Target → Best Buy → Amazon)
 - All on Base Sepolia with test USDC
 - Each build phase has a test gate — don't proceed until all pass
@@ -197,9 +240,11 @@ All specification docs are in `plans/`:
 | `13-error-handling.md` | Error codes, HTTP statuses, recovery |
 | `14-phased-build-plan.md` | 7 phases with test gates |
 | `15-coinbase-onramp.md` | Coinbase Onramp Guest Checkout integration spec |
-| `16-firecrawl-discovery.md` | Firecrawl product discovery pipeline (3-step: extract → variant extract → crawl) |
+| `16-firecrawl-discovery.md` | Firecrawl pipeline: retry strategy, confidence thresholds, Browserbase repair, candidate ranking, failure tracking |
 | `17-query-endpoint.md` | Query endpoint deep dive: route detection → 3-tier discovery → response |
 | `18-agentmail.md` | AgentMail integration for checkout email verification codes |
+| `18-firecrawl-server.md` | Running self-hosted Firecrawl + Browserbase adapter (start/stop, ports, config) |
+| `endpoints/query-endpoint.md` | Full query endpoint pipeline: all stages, env vars, scoring weights, failure codes |
 | `skill.md` | Agent-facing API quick reference (lives in `/docs/skill.md`) |
 
 ## Documentation Sync
