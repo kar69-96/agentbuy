@@ -1,6 +1,6 @@
 import type { ProductOption } from "@bloon/core";
 import { getFirecrawlConfig } from "./client.js";
-import { stripCurrencySymbol, mapOptions, isValidPrice } from "./helpers.js";
+import { stripCurrencySymbol, mapOptions, isValidPrice, cleanExtractField } from "./helpers.js";
 import { chooseBestCandidate, type CandidateInput } from "./parser-ensemble.js";
 import { defaultQueryDiscoveryProviders } from "./providers.js";
 import {
@@ -257,22 +257,19 @@ export async function discoverViaFirecrawlWithDiagnostics(
       variantMs += Date.now() - variantStart;
     }
 
-    const clean = (v: string | undefined): string | undefined =>
-      v && v !== "null" && v !== "undefined" ? v : undefined;
-
     return {
       result: {
       name: extract.name!,
       price: stripCurrencySymbol(extract.price!),
-      image_url: clean(extract.image_url),
+      image_url: cleanExtractField(extract.image_url),
       method: best.source === "browserbase" ? "browserbase" : "firecrawl",
       options,
-      original_price: clean(extract.original_price)
+      original_price: cleanExtractField(extract.original_price)
         ? stripCurrencySymbol(extract.original_price!)
         : undefined,
-      currency: clean(extract.currency),
-      description: clean(extract.description),
-      brand: clean(extract.brand),
+      currency: cleanExtractField(extract.currency),
+      description: cleanExtractField(extract.description),
+      brand: cleanExtractField(extract.brand),
       },
       diagnostics: {
         method: best.source === "browserbase" ? "browserbase" : "firecrawl",

@@ -4,24 +4,32 @@
 
 REST API on localhost. Any URL → USDC purchase → receipt.
 
-- Hono API server with 4 endpoints + HTML funding page
+- Hono API server with 5 JSON endpoints + HTML funding page
+- `POST /api/query` — product discovery with 4-tier pipeline (Firecrawl → Exa.ai → scrape → Browserbase)
+- `POST /api/buy` + `POST /api/confirm` — two-phase purchase with variant selections
 - No auth — wallet_id is the credential
 - Two payment routes: x402 and browser checkout (2% flat fee)
 - viem wallets on Base Sepolia
-- Private funding page per wallet with Coinbase Onramp + QR code + live balance
-- Coinbase Onramp Guest Checkout — debit card / Apple Pay, 0% USDC fees on Base, no KYC managed by Bloon
+- Private funding page per wallet with QR code + live balance
+- 4-tier product discovery: Firecrawl (primary, 3 retries + Browserbase+Gemini repair) → Exa.ai (Stage 2.5, parallel) → Server-side scrape (JSON-LD/meta tags) → Browserbase+Stagehand
+- Variant option discovery with per-variant pricing
 - Placeholder credential system (LLM never sees card numbers)
+- 12-step browser checkout with Stagehand agent + custom tools (fillShippingInfo, fillCardFields, fillBillingAddress)
 - Fresh Browserbase sessions with domain-level page caching
-- JSON file storage (~/.bloon/)
+- `orchestrator` package separates business logic from transport layer
+- JSON file storage (~/.bloon/) with atomic writes
 - $25 per-transaction cap
 - Closed source
+
 ---
 
-## v1.5 — Intelligence & Security
+## v1.5 — Security & Onramp
 
+- **Coinbase Onramp** — Guest Checkout on funding page (debit card / Apple Pay, 0% USDC fees on Base)
 - **API key auth** — optional Bearer token for wallets (backwards-compatible)
 - **Wallet key encryption** — encrypt private keys at rest in ~/.bloon/
 - **Rate limiting** — per wallet_id, configurable
+- **Exa.ai product search** — `POST /api/search` lets agents search by description instead of URL (Exa is already used for discovery; this adds search-first workflows)
 - **Webhook notifications** — POST to a callback URL on order status changes
 - **Multi-item orders** — buy multiple products in one flow
 - **Better error recovery** — automatic retry for transient failures
@@ -31,7 +39,6 @@ REST API on localhost. Any URL → USDC purchase → receipt.
 
 ## v2.0 — Platform
 
-- **Exa.ai product search** — agents can search by description, not just URL
 - **MCP wrapper** — expose the REST API as an MCP server so agents in Claude Desktop / Cursor can use Bloon natively
 - **Multi-network** — support Ethereum mainnet, Arbitrum, Optimism, Polygon
 - **Multi-currency** — accept ETH, DAI, USDT in addition to USDC
@@ -57,7 +64,7 @@ REST API on localhost. Any URL → USDC purchase → receipt.
 
 | Version | Focus | Key Addition |
 |---------|-------|-------------|
-| v1.0 | Core API | Any URL → USDC → receipt |
-| v1.5 | Intelligence | Exa.ai search, API keys, encryption |
+| v1.0 | Core API | Any URL → query → buy → confirm → receipt |
+| v1.5 | Security & Onramp | Coinbase Onramp, API keys, encryption, Exa search |
 | v2.0 | Platform | MCP wrapper, multi-network, dashboard |
 | v3.0 | Scale | Multi-tenant, SDKs, subscriptions |

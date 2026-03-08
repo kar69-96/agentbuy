@@ -15,12 +15,14 @@
 Tests live in a `tests/` folder within each package, **not** in `src/`. End-to-end tests live at the repo root.
 
 ```
-packages/core/tests/        ← Phase 1 (fees, store) + Phase 5 (buy, confirm, router)
-packages/wallet/tests/      ← Phase 2 (create, balance, qr, transfer)
-packages/x402/tests/        ← Phase 3 (detect, pay)
-packages/checkout/tests/    ← Phase 4 (session, placeholders, discover, checkout, cache)
-packages/api/tests/         ← Phase 6 (routes, server, funding)
-tests/e2e/                  ← Phase 7 (full flow scenarios A–E)
+packages/core/tests/           ← Phase 1 (fees, store, concurrency pool)
+packages/wallet/tests/         ← Phase 2 (create, balance, qr, transfer, gas)
+packages/x402/tests/           ← Phase 3 (detect, pay)
+packages/checkout/tests/       ← Phase 4 (session, credentials, discover, fill, cache, confirm)
+packages/crawling/tests/       ← Product discovery (Firecrawl, Exa, Browserbase, variants)
+packages/orchestrator/tests/   ← Phase 5 (buy, confirm, router, query)
+packages/api/tests/            ← Phase 6 (routes, server, funding)
+tests/e2e/                     ← Phase 7 (full flow scenarios A–E)
 ```
 
 Vitest discovers all tests via:
@@ -156,12 +158,13 @@ After every browser checkout test, verify:
 
 | Phase | Test Directory | Test Files | Key Tests |
 |-------|---------------|------------|-----------|
-| 1 | `packages/core/tests/` | `fees.test.ts`, `store.test.ts` | Types compile, store CRUD, fee math |
-| 2 | `packages/wallet/tests/` | `create.test.ts`, `balance.test.ts`, `qr.test.ts`, `transfer.test.ts` | Create, balance, QR, transfer |
+| 1 | `packages/core/tests/` | `fees.test.ts`, `store.test.ts`, `concurrency-pool.test.ts` | Types compile, store CRUD, fee math, async pool |
+| 2 | `packages/wallet/tests/` | `create.test.ts`, `balance.test.ts`, `qr.test.ts`, `transfer.test.ts`, `gas.test.ts` | Create, balance, QR, transfer, gas |
 | 3 | `packages/x402/tests/` | `detect.test.ts`, `pay.test.ts` | Detect route, pay endpoint |
-| 4 | `packages/checkout/tests/` | `session.test.ts`, `placeholders.test.ts`, `discover.test.ts`, `checkout.test.ts`, `cache.test.ts` | Session, placeholders, discovery, full checkout |
-| 5 | `packages/core/tests/` | `buy.test.ts`, `confirm.test.ts`, `router.test.ts` | Buy + confirm orchestration, both routes |
-| 6 | `packages/api/tests/` | `routes.test.ts`, `server.test.ts`, `funding.test.ts` | Server starts, all endpoints work, funding page |
-| 7 | `tests/e2e/` | `x402.test.ts`, `browser.test.ts`, `errors.test.ts` | End-to-end scenarios A through E |
+| 4a | `packages/checkout/tests/` | `session.test.ts`, `credentials.test.ts`, `discover.test.ts`, `fill.test.ts`, `cache.test.ts`, `confirm.test.ts` | Session, credentials, discovery, fill, cache |
+| 4b | `packages/crawling/tests/` | Firecrawl, Exa, Browserbase, variant tests | Discovery pipeline, variant resolution |
+| 5 | `packages/orchestrator/tests/` | `buy.test.ts`, `confirm.test.ts`, `query.test.ts` | Buy + confirm + query orchestration |
+| 6 | `packages/api/tests/` | Route tests, server tests | Server starts, all endpoints work, funding page |
+| 7 | `tests/e2e/` | End-to-end scenario tests | Full flow scenarios |
 
 See `14-phased-build-plan.md` for detailed test gates per phase.

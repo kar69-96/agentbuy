@@ -12,6 +12,7 @@ REST API that lets AI agents purchase anything on the internet using USDC on Bas
 |--------|------|---------|
 | `POST` | `/api/wallets` | Create a wallet, get `wallet_id` + `funding_url` |
 | `GET` | `/api/wallets/:wallet_id` | Balance, transaction history, wallet details |
+| `POST` | `/api/query` | Discover product info, options, and required fields (no wallet needed) |
 | `POST` | `/api/buy` | Get a purchase quote for any URL |
 | `POST` | `/api/confirm` | Execute purchase, transfer USDC, return receipt |
 | `GET` | `/fund/:token` | HTML funding page with QR code + live balance (for humans) |
@@ -44,9 +45,12 @@ REST API that lets AI agents purchase anything on the internet using USDC on Bas
   - Live USDC balance (polls every 10 seconds)
 - The `funding_url` is separate from the `wallet_id` — leaking the funding URL only lets someone send you money
 
-### Purchases
+### Product Discovery (`POST /api/query`)
 
 - URL-only (v1) — agent provides a direct product URL
+- 4-tier discovery pipeline: x402 detection → Firecrawl (primary, up to 3 attempts + Browserbase+Gemini repair) → Exa.ai (Stage 2.5, parallel) → Server-side scrape (JSON-LD/meta tags) → Browserbase+Stagehand (headless Chrome)
+- Returns product name, price, image, variant options (color, size), and required fields (shipping, selections)
+- `POST /api/query` is the recommended first step — discover what a product needs before buying
 - Product search by description (Exa.ai) planned for v1.5
 
 ### Browser Checkout
@@ -101,8 +105,9 @@ An AI agent can:
 
 1. `POST /api/wallets` → get a wallet_id + funding_url
 2. Human opens funding_url → scans QR → sends test USDC on Base Sepolia
-3. `POST /api/buy` with a product URL → get a quote
-4. `POST /api/confirm` → purchase executes via browser checkout, receipt returned
-5. `POST /api/buy` with an x402 URL → purchase executes, service response returned
-6. `GET /api/wallets/:id` → full balance and transaction history
-7. All testable with curl. No SDK, no client library, no auth.
+3. `POST /api/query` with a product URL → discover product info, options, and required fields
+4. `POST /api/buy` with a product URL + shipping + selections → get a quote
+5. `POST /api/confirm` → purchase executes via browser checkout, receipt returned
+6. `POST /api/buy` with an x402 URL → purchase executes, service response returned
+7. `GET /api/wallets/:id` → full balance and transaction history
+8. All testable with curl. No SDK, no client library, no auth.

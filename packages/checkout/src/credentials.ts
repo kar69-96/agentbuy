@@ -14,6 +14,24 @@ export function isCdpField(fieldName: string): boolean {
   return CDP_FIELDS.has(fieldName);
 }
 
+// ---- Phone formatting ----
+
+export function formatPhone(phone: string, country: string): string {
+  const digits = phone.replace(/\D/g, "");
+  const upper = country.toUpperCase();
+
+  // US/CA: format as (xxx) xxx-xxxx
+  if ((upper === "US" || upper === "CA") && digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  if ((upper === "US" || upper === "CA") && digits.length === 11 && digits[0] === "1") {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+
+  // Others: return raw digits with country prefix if not already present
+  return digits;
+}
+
 // ---- Sanitization (prevent prompt injection via Stagehand variables) ----
 
 const UNSAFE_CHARS = /[<>"'&;]/g;
@@ -62,7 +80,7 @@ export function buildCredentials(shipping: ShippingInfo): CredentialsMap {
     x_shipping_zip: safe.zip,
     x_shipping_country: safe.country,
     x_shipping_email: safe.email,
-    x_shipping_phone: safe.phone,
+    x_shipping_phone: formatPhone(safe.phone, safe.country),
   };
 }
 

@@ -10,9 +10,11 @@ Things the human operator needs to set up or provide before/during the build.
 |-----------|--------|-------|
 | Node.js 20+ | Required | Runtime |
 | pnpm 9+ | Required | `npm install -g pnpm` |
-| Google API key | Required | For Gemini 2.5 Flash (Stagehand LLM) |
+| Google API key (`GOOGLE_API_KEY`) | Required | For Gemini (Stagehand checkout LLM) |
+| Google API key (`GOOGLE_API_KEY_QUERY`) | Required | For Gemini 2.5 Flash (Firecrawl extraction + Browserbase fallback in discovery). Can be same as GOOGLE_API_KEY. |
 | Browserbase account | Required | API key + project ID for cloud browser sessions (Tier 3 discovery + checkout) |
-| Firecrawl API key | Optional | Enables Firecrawl as primary discovery tier. Without it, falls back to scrape → Browserbase. |
+| Firecrawl API key | Optional | Enables Firecrawl as primary discovery tier. Defaults to `fc-selfhosted` for local. Without it, falls back to scrape → Browserbase. |
+| Exa.ai API key (`EXA_API_KEY`) | Optional | Enables Exa.ai Stage 2.5 discovery (parallel with Firecrawl). Skipped if not set. |
 | Base Sepolia RPC URL | Required | Alchemy or Infura. Free tier works. |
 | Credit card for testing | Required | Real or test card info in .env |
 | Shipping address for testing | Recommended | Provide in each buy request — no .env default |

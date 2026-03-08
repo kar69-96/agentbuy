@@ -185,6 +185,17 @@ export interface DomainCache {
   updated_at: string;
 }
 
+// ---- Checkout Error Classification ----
+
+export type CheckoutErrorCategory =
+  | "bot_detected"
+  | "form_fill_failed"
+  | "payment_rejected"
+  | "navigation_failed"
+  | "captcha_unsolved"
+  | "session_timeout"
+  | "unknown";
+
 // ---- x402 ----
 
 export interface X402Requirements {

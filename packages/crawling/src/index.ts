@@ -52,6 +52,8 @@ export {
   mapOptions,
   computeWordOverlap,
   isValidPrice,
+  cleanExtractField,
+  isRedirectToOtherPage,
 } from "./helpers.js";
 
 // ---- Lower-level functions ----

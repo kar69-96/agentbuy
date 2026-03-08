@@ -20,6 +20,7 @@ import {
   BOILERPLATE_SELECTORS,
   classifyContent,
 } from "./constants.js";
+import { isRedirectToOtherPage } from "./helpers.js";
 
 const ADAPTER_PORT = parseInt(process.env.ADAPTER_PORT ?? "3003", 10);
 const ADAPTER_BASE = `http://localhost:${ADAPTER_PORT}`;
@@ -52,12 +53,7 @@ export interface BrowserbaseExtractResult {
   failure: BrowserbaseFailure | null;
 }
 
-// Legacy global accessor — prefer the per-call `failure` field.
 let lastBrowserbaseFailure: BrowserbaseFailure | null = null;
-
-export function getLastBrowserbaseFailure(): BrowserbaseFailure | null {
-  return lastBrowserbaseFailure;
-}
 
 // ---- Step 1: Fetch rendered HTML from Browserbase adapter ----
 
@@ -139,21 +135,15 @@ export async function fetchRenderedHtml(
 }
 
 // ---- Step 2: HTML → Markdown ----
-// Create a fresh TurndownService per call to avoid shared mutable state
-// across concurrent requests.
 
-function createTurndown(): TurndownService {
-  const td = new TurndownService({
-    headingStyle: "atx",
-    codeBlockStyle: "fenced",
-  });
-  td.remove(["img", "iframe"]);
-  return td;
-}
+const turndown = new TurndownService({
+  headingStyle: "atx",
+  codeBlockStyle: "fenced",
+});
+turndown.remove(["img", "iframe"]);
 
 export function htmlToMarkdown(html: string): string {
   const $ = load(html);
-  const turndown = createTurndown();
 
   // Strip non-content tags
   $("script, style, noscript, svg, meta, link").remove();
@@ -269,31 +259,6 @@ export async function browserbaseExtract(
 ): Promise<FirecrawlExtract | null> {
   const { extract } = await browserbaseExtractWithFailure(url, timeoutMs);
   return extract;
-}
-
-// ---- Redirect detection ----
-
-/**
- * Returns true if the final URL looks like a different product or a generic
- * page (home, search, 404-catch-all) compared to the original request URL.
- */
-function isRedirectToOtherPage(originalUrl: string, finalUrl: string): boolean {
-  if (!finalUrl || originalUrl === finalUrl) return false;
-  try {
-    const orig = new URL(originalUrl);
-    const final = new URL(finalUrl);
-    // Different domain = definitely redirected
-    if (orig.hostname !== final.hostname) return true;
-    // Redirected to homepage or search
-    if (final.pathname === "/" || final.pathname.startsWith("/search")) return true;
-    // Path collapsed significantly (product page → category page)
-    const origSegments = orig.pathname.split("/").filter(Boolean);
-    const finalSegments = final.pathname.split("/").filter(Boolean);
-    if (origSegments.length >= 3 && finalSegments.length <= 1) return true;
-    return false;
-  } catch {
-    return false;
-  }
 }
 
 // ---- Structured data extraction from rendered HTML ----

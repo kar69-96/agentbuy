@@ -7,7 +7,7 @@
 import Exa from "exa-js";
 import type { ProductOption } from "@bloon/core";
 import type { FullDiscoveryResult } from "./discover.js";
-import { stripCurrencySymbol, isValidPrice, mapOptions, computeWordOverlap } from "./helpers.js";
+import { stripCurrencySymbol, isValidPrice, mapOptions, computeWordOverlap, cleanExtractField, isRedirectToOtherPage } from "./helpers.js";
 import { valuesLikelyMatch } from "./variant.js";
 import { ProductNotFoundError } from "./constants.js";
 
@@ -106,46 +106,6 @@ function parseOptionsString(optionsStr: string | undefined): ParsedOptions[] {
   }
 }
 
-function clean(v: string | undefined): string | undefined {
-  return v && v !== "null" && v !== "undefined" ? v : undefined;
-}
-
-/**
- * Detects when Exa returned a different page than requested (redirect/stale index).
- * Compares normalized paths — ignores trailing slashes and query params.
- */
-function isRedirectedResult(requestedUrl: string, resultUrl: string | undefined): boolean {
-  if (!resultUrl) return false;
-  try {
-    const req = new URL(requestedUrl);
-    const res = new URL(resultUrl);
-    // Different domain = definitely wrong page
-    if (req.hostname !== res.hostname) return true;
-    // Normalize paths: strip trailing slash
-    const reqPath = req.pathname.replace(/\/$/, "");
-    const resPath = res.pathname.replace(/\/$/, "");
-    // Redirected to homepage or search
-    if (resPath === "" || resPath.startsWith("/search")) return true;
-    // If paths differ significantly, it's a redirect
-    if (reqPath !== resPath) {
-      // Allow minor differences (e.g. /products/foo vs /products/foo?variant=123)
-      // but flag major path changes
-      const reqSegments = reqPath.split("/").filter(Boolean);
-      const resSegments = resPath.split("/").filter(Boolean);
-      // If both have product identifiers, check if the last segment changed
-      if (reqSegments.length >= 2 && resSegments.length >= 2) {
-        if (reqSegments[reqSegments.length - 1] !== resSegments[resSegments.length - 1]) {
-          return true;
-        }
-      }
-      // Product page → homepage/category
-      if (reqSegments.length >= 2 && resSegments.length <= 1) return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
 
 // ---- Variant resolution via Exa search ----
 
@@ -265,8 +225,8 @@ export async function discoverViaExa(
       return null;
     }
 
-    // Fix 4: Detect redirects — Exa may have crawled a different page
-    if (isRedirectedResult(url, result.url)) {
+    // Detect redirects — Exa may have crawled a different page
+    if (isRedirectToOtherPage(url, result.url)) {
       console.log(`  [exa-extract] Redirect detected: requested ${url} but got ${result.url}`);
       return null;
     }
@@ -322,15 +282,15 @@ export async function discoverViaExa(
     return {
       name: parsed.name,
       price: stripCurrencySymbol(parsed.price),
-      image_url: clean(parsed.image_url),
+      image_url: cleanExtractField(parsed.image_url),
       method: "exa",
       options,
-      original_price: clean(parsed.original_price)
+      original_price: cleanExtractField(parsed.original_price)
         ? stripCurrencySymbol(parsed.original_price!)
         : undefined,
-      currency: clean(parsed.currency),
-      description: clean(parsed.product_description),
-      brand: clean(parsed.brand),
+      currency: cleanExtractField(parsed.currency),
+      description: cleanExtractField(parsed.product_description),
+      brand: cleanExtractField(parsed.brand),
     };
   } catch (err) {
     if (err instanceof ProductNotFoundError) throw err;

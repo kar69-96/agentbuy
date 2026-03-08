@@ -1,15 +1,11 @@
 import { firecrawlScrapeJson, type FirecrawlFailure } from "./extract.js";
-import { browserbaseExtractWithFailure, type BrowserbaseFailure } from "./browserbase-extract.js";
+import { browserbaseExtractWithFailure } from "./browserbase-extract.js";
+import type { BrowserbaseExtractResult } from "./browserbase-extract.js";
 import type { FirecrawlConfig, FirecrawlExtract } from "./types.js";
 
 export interface FirecrawlExtractResult {
   extract: FirecrawlExtract | null;
   failure: FirecrawlFailure | null;
-}
-
-export interface BrowserbaseExtractResult {
-  extract: FirecrawlExtract | null;
-  failure: BrowserbaseFailure | null;
 }
 
 export interface QueryDiscoveryProviders {

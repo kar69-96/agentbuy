@@ -853,25 +853,27 @@ export async function discoverProduct(
   // Primary: Firecrawl (rich data + per-variant pricing)
   const firecrawled = await discoverViaFirecrawl(url);
   if (firecrawled?.error === "product_not_found") return firecrawled;
-  if (firecrawled) return firecrawled;
+  if (firecrawled) return maybeResolveVariantPrices(url, firecrawled);
 
   // Tier 2: Server-side scrape (free, fast)
   const scraped = await scrapePriceWithOptions(url);
   if (scraped) {
-    return {
+    const result: FullDiscoveryResult = {
       name: scraped.name,
       price: scraped.price,
       image_url: scraped.image_url,
       method: scraped.method,
       options: scraped.options,
     };
+    return maybeResolveVariantPrices(url, result);
   }
 
   // Stage 2.5: Exa (already running in parallel — just await the result)
   const exaResult = await exaPromise;
-  if (exaResult) return exaResult;
+  if (exaResult) return maybeResolveVariantPrices(url, exaResult);
 
   // Tier 3: Browserbase headless Chrome + LLM extract
+  // (discoverViaBrowser already calls resolveVariantPricesViaBrowser internally)
   const browsered = await discoverViaBrowser(url);
   if (browsered) return browsered;
 
@@ -879,4 +881,29 @@ export async function discoverProduct(
     ErrorCodes.QUERY_FAILED,
     `Product discovery failed for ${url}: no structured data found`,
   );
+}
+
+/**
+ * If a discovery result has options without variant prices, resolve them
+ * via concurrent Browserbase sessions (Stagehand agent clicks each variant).
+ */
+async function maybeResolveVariantPrices(
+  url: string,
+  result: FullDiscoveryResult,
+): Promise<FullDiscoveryResult> {
+  const options = result.options;
+  if (!options || options.length === 0) return result;
+
+  // Check if any option group is missing prices
+  const needsPriceResolution = options.some(
+    (opt) => !opt.prices || Object.keys(opt.prices).length === 0,
+  );
+  if (!needsPriceResolution) return result;
+
+  try {
+    const resolved = await resolveVariantPricesViaBrowser(url, options);
+    return { ...result, options: resolved };
+  } catch {
+    return result;
+  }
 }

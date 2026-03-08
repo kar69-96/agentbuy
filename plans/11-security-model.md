@@ -27,6 +27,8 @@ No API keys. No registration. No auth headers.
 | Browserbase session hijack | LOW | Sessions are ephemeral, destroyed after each checkout. |
 | Wallet creation spam | LOW | Empty wallets cost nothing. No rate limiting needed for v1. |
 | Someone discovers /fund/:token | LOW | Token is unguessable. Worst case: they fund your wallet. |
+| Agent-supplied data in forms | MEDIUM | Shipping info sanitized before passing as Stagehand variables. Card fields filled via CDP, not Stagehand. |
+| LLM extraction hallucination | LOW | Parser ensemble scores candidates. Confidence threshold (0.75). Multiple extraction sources cross-validated. |
 
 ## Credential Flow
 
@@ -36,7 +38,7 @@ No API keys. No registration. No auth headers.
   ├─ CARD_*, BILLING_*, SHIPPING_*
   │     │
   │     ▼
-  │   checkout/placeholders.ts → { x_card_number: "4111...", ... }
+  │   checkout/credentials.ts → { x_card_number: "4111...", ... }
   │     │
   │     ▼  Card fields: Playwright CDP fill (bypasses LLM)
   │     ▼  Non-card fields: Stagehand variables (not shared with LLM)

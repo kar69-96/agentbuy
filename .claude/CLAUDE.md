@@ -16,10 +16,11 @@ Active development. Specification lives in `plans/`. The `crawling` and `checkou
 
 ### REST API (Hono) — NOT MCP
 
-Bloon is API-first. MCP wrapper is planned for v2. The API has 4 JSON endpoints + 1 HTML page:
+Bloon is API-first. MCP wrapper is planned for v2. The API has 5 JSON endpoints + 1 HTML page:
 
 - `POST /api/wallets` — create wallet, get `wallet_id` + `funding_url`
 - `GET /api/wallets/:wallet_id` — balance + transaction history
+- `POST /api/query` — discover product info, options, required fields (no wallet needed)
 - `POST /api/buy` — get purchase quote for any URL (does NOT spend)
 - `POST /api/confirm` — execute purchase, get receipt
 - `GET /fund/:token` — HTML page with QR code + live balance (for humans)
@@ -75,12 +76,14 @@ These are independent — knowing one doesn't reveal the other.
 
 ```
 packages/
-├── core/        # Types, fees, routing logic, store (JSON persistence), concurrency pool
-├── wallet/      # viem wallet create, balance, QR, USDC transfer
-├── x402/        # x402 detection + payment via @x402/fetch
-├── crawling/    # Product discovery: Firecrawl primary + Browserbase+Gemini fallback
+├── core/           # Types, fees, store (JSON persistence), config, concurrency pool
+├── orchestrator/   # Business logic: query(), buy(), confirm(), routeOrder(), buildReceipt()
+├── wallet/         # viem wallet create, balance, QR, USDC transfer, gas
+├── x402/           # x402 detection + payment via @x402/fetch
+├── crawling/       # Product discovery: Firecrawl + Exa.ai + Browserbase+Gemini fallback
 │   ├── src/
 │   │   ├── discover.ts              # Discovery orchestrator (3 attempts + repair path)
+│   │   ├── exa.ts                   # Exa.ai Stage 2.5 extraction (parallel)
 │   │   ├── extract.ts               # Firecrawl /v1/scrape wrapper
 │   │   ├── browserbase-adapter.ts   # HTTP server: Playwright microservice (port 3003)
 │   │   ├── browserbase-extract.ts   # Browserbase+Gemini fallback extraction
@@ -90,8 +93,8 @@ packages/
 │   │   ├── constants.ts             # Patterns, schemas, selectors, limits
 │   │   └── ...                      # client, crawl, helpers, poll, shopify, types
 │   └── scripts/                     # start.sh, stop.sh, health.sh
-├── checkout/    # Browserbase sessions, Stagehand, credential fills, domain cache, discovery orchestration
-└── api/         # Hono server, routes, funding page HTML
+├── checkout/       # Browserbase sessions, Stagehand, credential fills, domain cache, discovery
+└── api/            # Hono server, routes, formatters, error handler, funding page HTML
 ```
 
 ## Key Design Decisions
@@ -102,7 +105,7 @@ packages/
 - **No auth** — wallet_id is the credential. Acceptable for single operator + testnet. API key auth in v1.5.
 - **viem wallets** — no Coinbase CDP dependency. Direct key generation + USDC transfers.
 - **Private funding page** — `/fund/:token` with QR code + live balance polling. One link onboarding.
-- **URL-only purchases** — no product search in v1. Exa.ai deferred to v1.5.
+- **URL-only purchases** — no product search in v1. Exa.ai is integrated for discovery (Stage 2.5) but search-by-description deferred to v1.5.
 - **Fresh Browserbase sessions** — destroyed after each checkout. Domain-level page caching (cookies/localStorage) for repeat flows.
 - **Shipping per-purchase** — custom shipping in buy request. No defaults. Returns `SHIPPING_REQUIRED` if missing for physical items.
 - **$25 max per transaction** (v1)
@@ -244,6 +247,9 @@ All specification docs are in `plans/`:
 | `17-query-endpoint.md` | Query endpoint deep dive: route detection → 3-tier discovery → response |
 | `18-agentmail.md` | AgentMail integration for checkout email verification codes |
 | `18-firecrawl-server.md` | Running self-hosted Firecrawl + Browserbase adapter (start/stop, ports, config) |
+| `19-exa-discovery.md` | Exa.ai Stage 2.5 discovery: pipeline position, implementation, env vars |
+| `20-orchestrator.md` | Orchestrator package: query/buy/confirm business logic, routing, receipts |
+| `21-discovery-pipeline.md` | Unified discovery pipeline reference: all 4 tiers, failure codes, env vars, files |
 | `endpoints/query-endpoint.md` | Full query endpoint pipeline: all stages, env vars, scoring weights, failure codes |
 | `skill.md` | Agent-facing API quick reference (lives in `/docs/skill.md`) |
 

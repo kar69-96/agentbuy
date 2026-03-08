@@ -25,13 +25,7 @@ export interface FirecrawlScrapeResult {
   failure: FirecrawlFailure | null;
 }
 
-// Legacy global accessor — only used by code that hasn't migrated yet.
-// Prefer the per-call `failure` field on FirecrawlScrapeResult.
 let lastFirecrawlFailure: FirecrawlFailure | null = null;
-
-export function getLastFirecrawlFailure(): FirecrawlFailure | null {
-  return lastFirecrawlFailure;
-}
 
 async function firecrawlScrapeJson(
   url: string,

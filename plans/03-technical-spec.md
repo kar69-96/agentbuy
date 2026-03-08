@@ -26,22 +26,37 @@ MCP wrapper planned for v2 — thin layer that calls the REST API.
 │               packages/api (Hono)                    │
 │                                                      │
 │  POST /api/wallets     GET /api/wallets/:id          │
-│  POST /api/buy         POST /api/confirm             │
-│  GET  /fund/:token     (HTML funding page)           │
+│  POST /api/query       POST /api/buy                 │
+│  POST /api/confirm     GET /fund/:token              │
 └────┬─────────────────────────────────────────────────┘
      │
 ┌────▼─────────────────────────────────────────────────┐
-│               packages/core                           │
-│  Types, Store, Router, Fees, Receipts                 │
-│  buy() orchestrator, confirm() orchestrator           │
-└────┬──────────────┬──────────────┬───────────────────┘
-     │              │              │
-┌────▼───┐   ┌─────▼────┐   ┌────▼────────────────┐
-│ wallet │   │   x402   │   │    checkout          │
+│            packages/orchestrator                      │
+│  query(), buy(), confirm(), routeOrder()              │
+│  Receipt builder, business logic glue                 │
+└────┬──────────┬──────────────┬───────────────────────┘
+     │          │              │
+     │   ┌──────▼──────────────▼──────────────────┐
+     │   │          packages/checkout              │
+     │   │  discoverPrice, discoverProduct         │
+     │   │  runCheckout (12-step Stagehand agent)  │
+     │   │  Credentials, Domain Cache, Session     │
+     │   └──────┬─────────────────────────────────┘
+     │          │
+     │   ┌──────▼──────────────────────────────────┐
+     │   │          packages/crawling               │
+     │   │  discoverViaFirecrawl (primary)          │
+     │   │  discoverViaExa (Stage 2.5, parallel)    │
+     │   │  browserbaseExtract (repair path)        │
+     │   │  Variant resolution, Parser ensemble     │
+     │   └─────────────────────────────────────────┘
+     │
+┌────▼───┐   ┌──────────┐   ┌──────────────────────┐
+│ wallet │   │   x402   │   │      core            │
 │        │   │          │   │                      │
-│ viem   │   │ @x402/   │   │ Stagehand (Son 4)    │
-│ QR     │   │ fetch    │   │ Browserbase          │
-│ balance│   │          │   │ Placeholders + Cache │
+│ viem   │   │ @x402/   │   │ Types, Store, Fees   │
+│ QR     │   │ fetch    │   │ Config, ErrorCodes   │
+│ balance│   │ detect   │   │ ConcurrencyPool      │
 └────────┘   └──────────┘   └──────────────────────┘
 ```
 
@@ -51,32 +66,41 @@ MCP wrapper planned for v2 — thin layer that calls the REST API.
 bloon/
 ├── packages/
 │   ├── core/src/
-│   │   ├── types.ts        # All TypeScript interfaces
-│   │   ├── store.ts        # JSON file persistence (~/.bloon/)
+│   │   ├── types.ts              # All TypeScript interfaces + error codes
+│   │   ├── store.ts              # JSON file persistence (~/.bloon/) with atomic writes
+│   │   ├── fees.ts               # 2% flat fee (BigInt arithmetic)
+│   │   ├── config.ts             # Load .env + config.json
+│   │   ├── concurrency-pool.ts   # Generic async task queue (order-preserving)
+│   │   └── index.ts
+│   │
+│   ├── orchestrator/src/
 │   │   ├── router.ts       # x402 detection + route selection
-│   │   ├── receipts.ts     # Uniform receipt generation
-│   │   ├── fees.ts         # 2% flat fee
-│   │   ├── config.ts       # Load .env + config.json
-│   │   ├── buy.ts          # Buy orchestrator
-│   │   ├── confirm.ts      # Confirm orchestrator
+│   │   ├── query.ts        # Product discovery orchestrator
+│   │   ├── buy.ts          # Buy orchestrator (quote generation)
+│   │   ├── confirm.ts      # Confirm orchestrator (payment + execution)
+│   │   ├── receipts.ts     # Unified receipt builder (x402 + browserbase)
 │   │   └── index.ts
 │   │
 │   ├── wallet/src/
-│   │   ├── create.ts       # viem key generation
+│   │   ├── create.ts       # viem key generation + gas funding
 │   │   ├── balance.ts      # On-chain USDC balance
 │   │   ├── transfer.ts     # USDC transfers (ERC-20)
 │   │   ├── qr.ts           # QR code → base64 PNG
+│   │   ├── gas.ts          # ETH gas transfer from master wallet
+│   │   ├── client.ts       # Cached viem PublicClient
+│   │   ├── usdc-abi.ts     # USDC contract ABI
 │   │   └── index.ts
 │   │
 │   ├── x402/src/
-│   │   ├── detect.ts       # HEAD probe for 402
+│   │   ├── detect.ts       # HEAD probe for 402 + parse x402 v2 format
 │   │   ├── pay.ts          # @x402/fetch from Bloon wallet
 │   │   └── index.ts
 │   │
 │   ├── crawling/src/
-│   │   ├── discover.ts              # Discovery orchestrator (3 attempts + Browserbase repair)
+│   │   ├── discover.ts              # Discovery orchestrator (3 attempts + repair path)
+│   │   ├── exa.ts                   # Exa.ai Stage 2.5 extraction (parallel)
 │   │   ├── extract.ts               # Firecrawl /v1/scrape wrapper + content classification
-│   │   ├── browserbase-adapter.ts   # HTTP server: Firecrawl Playwright microservice (port 3003)
+│   │   ├── browserbase-adapter.ts   # HTTP server: Playwright microservice (port 3003)
 │   │   ├── browserbase-extract.ts   # Browserbase+Gemini fallback extraction
 │   │   ├── parser-ensemble.ts       # Multi-source candidate scoring/ranking
 │   │   ├── providers.ts             # Pluggable provider abstraction
@@ -91,22 +115,30 @@ bloon/
 │   │   └── index.ts
 │   │
 │   ├── checkout/src/
-│   │   ├── session.ts      # Browserbase session + domain cache inject
-│   │   ├── stagehand.ts     # Stagehand init + act/observe/extract
-│   │   ├── placeholders.ts # Credential mapping (.env → x_* keys)
-│   │   ├── discover.ts     # Scrape + Browserbase+Stagehand discovery (orchestrates all tiers)
-│   │   ├── complete.ts     # Fill forms, submit, extract confirmation
-│   │   ├── cache.ts        # Domain page cache (cookies/localStorage)
+│   │   ├── task.ts          # 12-step checkout orchestration (Stagehand agent)
+│   │   ├── session.ts       # Browserbase session create/destroy + domain cache inject
+│   │   ├── credentials.ts   # Credential mapping (.env → x_* keys, CDP vs Stagehand split)
+│   │   ├── fill.ts          # Card field CDP fill (iframe-aware) + form field evaluation
+│   │   ├── discover.ts      # Price discovery tiers (scrape → cart → browser) + variant resolution
+│   │   ├── confirm.ts       # Confirmation page detection
+│   │   ├── agent-tools.ts   # Stagehand agent tools (fillShippingInfo, fillCardFields, fillBillingAddress)
+│   │   ├── cache.ts         # Domain page cache (cookies/localStorage per domain)
+│   │   ├── cost-tracker.ts  # LLM call + session cost tracking
+│   │   ├── step-tracker.ts  # 13-step checkout progress tracking
+│   │   ├── concurrency-pool.ts  # Checkout-specific concurrency pool
 │   │   └── index.ts
 │   │
 │   └── api/src/
-│       ├── server.ts       # Hono app + middleware
+│       ├── server.ts        # Hono app + route wiring + error handler
+│       ├── formatters.ts    # Response formatters (wallet, query, buy, confirm)
+│       ├── error-handler.ts # BloonError → HTTP status mapping
 │       ├── routes/
-│       │   ├── wallets.ts  # POST /api/wallets, GET /api/wallets/:id
-│       │   ├── buy.ts      # POST /api/buy
-│       │   ├── confirm.ts  # POST /api/confirm
-│       │   └── fund.ts     # GET /fund/:token (HTML page)
-│       └── index.ts        # Entry point: start server on :3000
+│       │   ├── wallets.ts   # POST /api/wallets, GET /api/wallets/:id
+│       │   ├── query.ts     # POST /api/query
+│       │   ├── buy.ts       # POST /api/buy
+│       │   ├── confirm.ts   # POST /api/confirm
+│       │   └── fund.ts      # GET /fund/:token (HTML page)
+│       └── index.ts         # Entry point: start server on :3000
 │
 ├── .env.example
 ├── package.json
@@ -130,6 +162,7 @@ bloon/
 | LLM (Checkout) | @anthropic-ai/sdk | Sonnet 4 for Stagehand checkout |
 | LLM (Discovery) | Gemini 2.5 Flash | Firecrawl extraction + Browserbase fallback |
 | Product Discovery | Firecrawl (self-hosted) | Primary extraction tier via /v1/scrape |
+| Product Discovery | Exa.ai (exa-js) | Stage 2.5 parallel extraction (fills gap between scrape and Browserbase) |
 | HTML Processing | cheerio + turndown | HTML→Markdown for Browserbase fallback |
 | Gemini SDK | @google/generative-ai | Structured extraction in Browserbase fallback |
 
@@ -204,6 +237,13 @@ Not open source. Deployed and operated by you.
 - Requires `FIRECRAWL_API_KEY` env var. If not set, skipped entirely.
 - See `plans/16-firecrawl-discovery.md` for the full pipeline spec
 
+**Browser route — Tier 1.5: Exa.ai (parallel, best-effort)**
+- Runs in parallel with Firecrawl — whichever succeeds first wins
+- Uses Exa.ai `/contents` endpoint with structured extraction schema
+- Handles bot-blocked sites that Firecrawl can't reach
+- Requires `EXA_API_KEY` env var. Skipped if not set.
+- See `plans/19-exa-discovery.md` for details
+
 **Browser route — Tier 2: HTML Scrape (fast, free)**
 - Server-side HTTP fetch of the product URL
 - Parse structured data: JSON-LD (`@type: Product`), Open Graph meta tags, `<meta property="product:price:amount">`
@@ -217,7 +257,7 @@ Not open source. Deployed and operated by you.
 - Used for anti-bot sites (Amazon, Best Buy) and pages without structured data
 - Most expensive tier (Browserbase session + LLM API calls per variant)
 
-The `discovery_method` field in the response tells the agent (and us) which tier was used: `"x402"`, `"firecrawl"`, `"scrape"`, or `"browserbase"`.
+The `discovery_method` field in the response tells the agent (and us) which tier was used: `"x402"`, `"firecrawl"`, `"exa"`, `"scrape"`, or `"browserbase"`.
 
 At confirm time, the browser route runs a **fresh** Browserbase session to do the actual checkout. If the final cart total at checkout time differs from the quoted total by more than $1 or 5% (whichever is smaller), the checkout aborts with `PRICE_MISMATCH` before payment — no funds at risk.
 

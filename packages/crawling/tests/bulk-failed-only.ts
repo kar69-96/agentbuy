@@ -20,7 +20,7 @@ const failedUrls = [
   { url: "https://en.pitviper.es/products/the-actualbush-original-2-0", category: "Shopify / Sunglasses" },
   { url: "https://www.brooklinen.com/products/classic-core-sheet-set", category: "Shopify / Bedding" },
   { url: "https://www.mvmt.com/products/classic-black-tan", category: "Shopify / Watches" },
-  { url: "https://www.nativecos.com/products/coconut-vanilla-deodorant", category: "Shopify / Personal care" },
+  { url: "https://www.nativecos.com/products/deodorant-stick", category: "Native / Personal care" },
   { url: "https://www.hydroflask.com/32-oz-wide-mouth", category: "Shopify / Bottles" },
 
   // Fashion / Apparel
@@ -43,14 +43,14 @@ const failedUrls = [
 
   // Beauty / Skincare
   { url: "https://www.sephora.com/product/the-porefessional-face-primer-P264900", category: "Sephora / Makeup" },
-  { url: "https://www.ulta.com/p/dream-cream-body-lotion-pimprod2003346", category: "Ulta / Skincare" },
+  { url: "https://www.ulta.com/p/moisturizing-cream-body-face-moisturizer-xlsImpprod3530069", category: "Ulta / Skincare" },
   { url: "https://theordinary.com/en-us/hyaluronic-acid-2-b5-hydrating-serum-100098.html", category: "The Ordinary / Skincare" },
   { url: "https://glossier.com/products/boy-brow", category: "Glossier / Makeup" },
 
   // Sporting goods / Outdoor
   { url: "https://www.rei.com/product/171554/patagonia-better-sweater-fleece-jacket-mens", category: "REI / Outdoor" },
   { url: "https://www.yeti.com/drinkware/bottles/21071501392.html", category: "Yeti / Drinkware" },
-  { url: "https://www.thenorthface.com/en-us/mens/mens-jackets-and-vests/mens-fleece-c210237/m-denali-jacket-pNF0A7UR2", category: "North Face / Jacket" },
+  { url: "https://www.thenorthface.com/en-us/p/mens/mens-jackets-and-vests-211702/mens-terra-peak-jacket-NF0A88U2", category: "North Face / Jacket" },
 
   // Books / Media
   { url: "https://www.barnesandnoble.com/w/project-hail-mary-andy-weir/1137396811", category: "B&N / Book" },
@@ -59,18 +59,18 @@ const failedUrls = [
   { url: "https://www.chewy.com/dp/54226", category: "Chewy / Pet food" },
 
   // Specialty / DTC
-  { url: "https://www.casper.com/mattresses/original/", category: "Casper / Mattress" },
+  { url: "https://casper.com/products/original-foam-v1", category: "Casper / Mattress" },
   { url: "https://www.away.com/suitcases/the-carry-on", category: "Away / Luggage" },
   { url: "https://www.aesop.com/us/p/skin/hydrate/camellia-nut-facial-hydrating-cream/", category: "Aesop / Skincare" },
-  { url: "https://www.dyson.com/vacuum-cleaners/cordless/v15/detect-absolute-yellow-iron", category: "Dyson / Vacuum" },
+  { url: "https://www.dyson.com/vacuum-cleaners/cordless/v15/detect-yellow", category: "Dyson / Vacuum" },
 
   // Supplements / Health
   { url: "https://www.iherb.com/pr/nature-s-way-alive-once-daily-multi-vitamin-ultra-potency-60-tablets/14811", category: "iHerb / Vitamins" },
   { url: "https://athleticgreens.com/en", category: "AG1 / Supplements" },
 
   // Marketplace
-  { url: "https://www.etsy.com/listing/1020399732/custom-name-necklace-personalized", category: "Etsy / Jewelry" },
-  { url: "https://www.walmart.com/ip/Crayola-96ct-Crayons/17801992", category: "Walmart / Toys" },
+  { url: "https://www.etsy.com/listing/1230170206/personalized-18k-gold-square-pendant", category: "Etsy / Jewelry" },
+  { url: "https://www.walmart.com/ip/LEGO-Star-Wars-Revenge-Sith-ARC-170-Starfighter-Spaceship-Building-Toy-Kids-Star-Wars-Toy-Boys-Girls-Ages-9-Gift-Idea-Birthdays-75402/6772304218", category: "Walmart / Toys" },
   { url: "https://www.costco.com/kirkland-signature-organic-extra-virgin-olive-oil%2C-2-l.product.100334841.html", category: "Costco / Grocery" },
 ];
 

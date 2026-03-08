@@ -42,6 +42,43 @@ export function isValidPrice(price: string): boolean {
   return Number.isFinite(num) && num > 0;
 }
 
+export function cleanExtractField(v: string | undefined): string | undefined {
+  if (!v) return undefined;
+  const trimmed = v.trim();
+  if (!trimmed || trimmed === "null" || trimmed === "undefined") return undefined;
+  return trimmed;
+}
+
+/**
+ * Returns true if `finalUrl` looks like a different page (homepage, search,
+ * different product) compared to `originalUrl`.  Used to detect redirects
+ * in both Browserbase and Exa discovery paths.
+ */
+export function isRedirectToOtherPage(originalUrl: string, finalUrl: string | undefined): boolean {
+  if (!finalUrl || originalUrl === finalUrl) return false;
+  try {
+    const orig = new URL(originalUrl);
+    const final = new URL(finalUrl);
+    if (orig.hostname !== final.hostname) return true;
+    const origPath = orig.pathname.replace(/\/$/, "");
+    const finalPath = final.pathname.replace(/\/$/, "");
+    if (finalPath === "" || finalPath.startsWith("/search")) return true;
+    if (origPath !== finalPath) {
+      const origSegments = origPath.split("/").filter(Boolean);
+      const finalSegments = finalPath.split("/").filter(Boolean);
+      if (origSegments.length >= 2 && finalSegments.length >= 2) {
+        if (origSegments[origSegments.length - 1] !== finalSegments[finalSegments.length - 1]) {
+          return true;
+        }
+      }
+      if (origSegments.length >= 2 && finalSegments.length <= 1) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function computeWordOverlap(a: string, b: string): number {
   const wordsA = new Set(
     a

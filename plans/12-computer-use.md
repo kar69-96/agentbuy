@@ -51,15 +51,18 @@ This is the same dual-channel pattern used in AgentPay's `StagehandProxy`.
 
 ```
 packages/checkout/src/
-├── session.ts        # Browserbase session create/connect/destroy
-├── stagehand.ts      # Stagehand initialization + act/observe/extract wrappers
-├── credentials.ts    # .env → credential map, field name → accessor
-├── fill.ts           # Playwright CDP credential fill (card fields)
-├── task.ts           # Checkout orchestration logic (step-by-step)
-├── discover.ts       # Price discovery (Tier 1 scrape, Tier 2 full cart)
-├── confirm.ts        # Confirmation detection (text signal matching)
-├── cache.ts          # Domain cookie/localStorage extract/inject
-└── index.ts          # Public exports
+├── task.ts              # 12-step checkout orchestration (Stagehand agent)
+├── session.ts           # Browserbase session create/destroy + domain cache inject
+├── credentials.ts       # .env → credential map, CDP vs Stagehand split
+├── fill.ts              # Card field CDP fill (iframe-aware) + form field evaluation
+├── agent-tools.ts       # Stagehand agent tools (fillShippingInfo, fillCardFields, fillBillingAddress)
+├── discover.ts          # Price discovery tiers (scrape → cart → browser) + variant resolution
+├── confirm.ts           # Confirmation page detection (text signal matching)
+├── cache.ts             # Domain cookie/localStorage extract/inject
+├── cost-tracker.ts      # LLM call + Browserbase session cost tracking
+├── step-tracker.ts      # 13-step checkout progress tracking
+├── concurrency-pool.ts  # Checkout-specific concurrency pool
+└── index.ts             # Public exports
 ```
 
 ---

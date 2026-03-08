@@ -1,6 +1,9 @@
 // ---- Checkout orchestration ----
 export { runCheckout, CHECKOUT_STEPS } from "./task.js";
-export type { CheckoutResult, CheckoutInput, CheckoutStep } from "./task.js";
+export type { CheckoutResult, CheckoutInput, CheckoutStep, CheckoutCheckpoints } from "./task.js";
+
+// ---- CAPTCHA handling ----
+export { waitForCaptchaSolve } from "./captcha.js";
 
 // ---- Price discovery ----
 export {
@@ -45,6 +48,7 @@ export {
   sanitizeShipping,
   getStagehandVariables,
   getCdpCredentials,
+  formatPhone,
 } from "./credentials.js";
 
 // ---- Session management ----
@@ -54,6 +58,7 @@ export {
   getBrowserbaseConfig,
   getModelApiKey,
   getQueryModelApiKey,
+  getAnthropicApiKey,
 } from "./session.js";
 export type { BrowserbaseSession, SessionOptions } from "./session.js";
 
@@ -72,6 +77,7 @@ export {
   fillCardField,
   fillAllCardFields,
   mapFieldToCredential,
+  scanAllFramesForCardFields,
 } from "./fill.js";
 export type { ObservedField } from "./fill.js";
 

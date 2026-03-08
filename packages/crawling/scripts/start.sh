@@ -85,6 +85,7 @@ fi
 export PORT="${FIRECRAWL_PORT:-3002}"
 export USE_DB_AUTHENTICATION=false
 export MODEL_NAME="${FIRECRAWL_MODEL:-gemini-2.5-flash}"
+export MODEL_PROVIDER="${FIRECRAWL_LLM_PROVIDER_SDK:-google}"
 
 # Provider matrix for Firecrawl generic-ai:
 # - Google-native Gemini

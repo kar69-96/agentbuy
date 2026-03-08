@@ -7,10 +7,11 @@ Features explicitly deferred from v1 to keep scope tight.
 ## v1.5 Candidates
 
 ### Exa.ai Product Search
-- Agents describe what they want ("wireless mouse under $20") instead of providing a URL
-- Exa.ai returns product URLs → Bloon handles the purchase
+- Exa.ai is already integrated as Stage 2.5 in the discovery pipeline (URL → product info extraction)
+- This v1.5 addition is **search-first**: agents describe what they want ("wireless mouse under $20") instead of providing a URL
+- Exa.ai `/search` returns product URLs → Bloon handles the purchase
 - New endpoint: `POST /api/search` with `query` and `wallet_id`
-- Requires `EXA_API_KEY` in .env
+- Requires `EXA_API_KEY` in .env (already used for discovery)
 
 ### API Key Authentication
 - Optional `Authorization: Bearer <key>` header on all endpoints
@@ -50,7 +51,7 @@ Features explicitly deferred from v1 to keep scope tight.
 ### MCP Wrapper
 - Thin MCP server that calls the REST API internally
 - Exposes Bloon tools natively in Claude Desktop, Cursor, etc.
-- Same 4 operations: create_wallet, check_balance, buy, confirm
+- Same 5 operations: create_wallet, check_balance, query, buy, confirm
 - REST API remains the source of truth
 
 ### Spending Dashboard & Frontend

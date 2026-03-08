@@ -174,7 +174,12 @@ HTML page (not JSON). Shows QR code + live USDC balance. For humans, not agents.
 | `TRANSFER_FAILED` | 500 | Retry safe, no funds moved |
 | `X402_PAYMENT_FAILED` | 502 | Check Bloon wallet funds |
 | `CHECKOUT_FAILED` | 502 | Site issue, see error message |
+| `PRICE_EXTRACTION_FAILED` | 502 | Could not extract price from page |
 | `INVALID_SELECTION` | 400 | Bad selections format, check values |
+| `INVALID_URL` | 400 | Not a valid HTTP(S) URL |
+| `MISSING_FIELD` | 400 | Required field missing from request |
+| `ORDER_INVALID_STATUS` | 400 | Order can't be confirmed (wrong status) |
+| `GAS_TRANSFER_FAILED` | 500 | ETH gas transfer failed |
 | `QUERY_FAILED` | 502 | Product discovery failed, try different URL |
 | `PRODUCT_NOT_FOUND` | 404 | Product page is 404 or discontinued |
 

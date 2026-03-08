@@ -78,7 +78,7 @@ Browserbase + Stagehand + Playwright CDP credential fills + domain cache. Larges
 
 ### Deliverables
 
-checkout/session.ts, checkout/placeholders.ts, checkout/discover.ts, checkout/complete.ts, checkout/executor.ts, checkout/cache.ts
+checkout/task.ts, checkout/session.ts, checkout/credentials.ts, checkout/fill.ts, checkout/agent-tools.ts, checkout/discover.ts, checkout/confirm.ts, checkout/cache.ts, checkout/cost-tracker.ts, checkout/step-tracker.ts
 
 ### Test Gate — Ordered
 
@@ -127,11 +127,11 @@ checkout/session.ts, checkout/placeholders.ts, checkout/discover.ts, checkout/co
 
 ## Phase 5: Buy & Confirm Orchestration (1 hr)
 
-Wire routing, fees, USDC transfer, and execution into buy() and confirm().
+Wire routing, fees, USDC transfer, and execution into buy(), confirm(), and query(). Lives in a separate `packages/orchestrator` package to avoid circular dependencies between core, checkout, x402, and wallet.
 
 ### Deliverables
 
-core/buy.ts, core/confirm.ts, core/router.ts (updated), core/receipts.ts
+orchestrator/router.ts, orchestrator/query.ts, orchestrator/buy.ts, orchestrator/confirm.ts, orchestrator/receipts.ts
 
 ### Test Gate
 
@@ -158,7 +158,7 @@ Hono routes, funding HTML page, wire everything up.
 
 ### Deliverables
 
-api/server.ts, api/routes/wallets.ts, api/routes/buy.ts, api/routes/confirm.ts, api/routes/fund.ts, api/index.ts
+api/server.ts, api/formatters.ts, api/error-handler.ts, api/routes/wallets.ts, api/routes/query.ts, api/routes/buy.ts, api/routes/confirm.ts, api/routes/fund.ts, api/index.ts
 
 ### Test Gate
 
@@ -166,6 +166,7 @@ api/server.ts, api/routes/wallets.ts, api/routes/buy.ts, api/routes/confirm.ts, 
 [ ] Server starts: node packages/api/dist/index.js → listening on :3000
 [ ] curl POST /api/wallets → returns wallet_id + funding_url
 [ ] curl GET /api/wallets/:id → returns balance
+[ ] curl POST /api/query → returns product info, options, required_fields
 [ ] curl POST /api/buy → returns quote
 [ ] curl POST /api/confirm → executes + returns receipt
 [ ] No auth headers required on any endpoint

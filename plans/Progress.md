@@ -4,16 +4,51 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-03-06
+**Last updated:** 2026-03-08
 
 ### E2E Checkout Results (17 tests, `tests/buy/checkout.test.ts`)
 
 Framework: 12 passed, 5 failed (all 5 failures are 180s timeouts — the checkouts succeeded but took >180s)
 
 - TypeScript: all packages compile cleanly (`pnpm build` passes)
-- Unit tests: **75 passed** (crawling package: 23 exa-extract + 52 discover/browserbase)
-- Exa unit tests: 23/23 passed
-- Build: clean after all three pipeline fixes
+- Vitest (checkout unit tests): **4/4 files pass, 38/38 tests pass** (cache, credentials, confirm, fill)
+- Vitest (session): **1/1 file pass, 4/4 tests pass**
+- All checkout-related tests pass after checkout flow hardening implementation
+
+### Checkout Flow Hardening (Phases 1-5 implemented)
+
+All 5 phases implemented in a single pass:
+
+| Phase | Status | Changes |
+|-------|--------|---------|
+| Phase 1: Anti-Bot & Session Hardening | Done | Always-on stealth/proxies/solveCaptchas, CAPTCHA wait utility, smart navigation wait, proxy geo-matching |
+| Phase 2: Form Filling Robustness | Done | 3-tier shipping fill (DOM→observe→act), enhanced card selectors, split expiry, address autocomplete dismissal, custom dropdown fallback, phone formatting |
+| Phase 3: Hybrid Mode & Multi-Site | Done | Hybrid mode (DOM+CUA), Sonnet 4 model, multi-page checkout tracking, createAccount tool, selectShipping tool, express pay removal, dynamic step budgets |
+| Phase 4: Action Caching & Cost Optimization | Done | Stagehand cacheDir per domain, expanded DOM pruning (SVG, video, footer, ads, chat widgets) |
+| Phase 5: Recovery & Diagnostics | Done | Error classification (7 categories), diagnostic screenshots on failure, checkpoint URL tracking, consecutive failure detection |
+
+### Known Pre-existing Failures (not affected by this change)
+
+| File | Tests Failed | Root Cause |
+|------|-------------|------------|
+| `wallet/gas-network.test.ts` | 2 | Funder wallet has insufficient ETH on Base Sepolia |
+| `e2e/x402-flow.test.ts` | 2 | Wallet creation returns 500 (same gas issue) |
+| `e2e/browser-flow.test.ts` | 1 | Browser checkout flow failure (flaky) |
+| `e2e/wikipedia-donation.test.ts` | 1 | Donation flow failure |
+| `crawling/e2e.test.ts` | 1 | Gymshark URL is 404 |
+| `checkout/e2e-discover.test.ts` | 3 | Stagehand/Browserbase network flakiness |
+
+### Bulk URL Test (61 URLs, concurrency 3)
+
+- **Passed: 37 (61%)** — up from 29 (48%) after URL refresh + API keys
+- **404s: 4** — Gymshark, Chubbies, CB2, eBay (down from 22)
+- **Null/blocked: 20** — blocked (7), HTTP 500 (5), extract_empty (5), timeout/redirect/502 (3)
+- **Methods:** firecrawl=28, browserbase=9
+- **Timing:** avg 44.8s, P50 39.8s, P95 84.5s
+
+### Refreshed 22 dead URLs (2026-03-08)
+
+Replaced 22 dead/404 URLs across `bulk-url-test.ts`, `bulk-url-pipeline-test.ts`, and `bulk-failed-only.ts`. Replaced Instacart (no stable product URLs) with Vitacost. Notable new successes: Bose, Sony, Anker, Levi's, North Face, Casper, Everlane, Dyson, Decathlon, Muji, Walmart.
 
 ### Pipeline Fixes (2026-03-06)
 

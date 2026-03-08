@@ -28,33 +28,33 @@ type OrderStatus =
 
 type PaymentRoute = "x402" | "browserbase";
 
+interface ProductInfo {
+  name: string;
+  url: string;
+  price: string;                // e.g., "17.99"
+  source: string;               // e.g., "amazon.com"
+  image_url?: string;
+}
+
+interface PaymentInfo {
+  amount_usdc: string;
+  price: string;
+  fee: string;
+  fee_rate: string;             // "2%"
+  route: PaymentRoute;
+}
+
 interface Order {
   order_id: string;
   wallet_id: string;
   status: OrderStatus;
-
-  product: {
-    name: string;
-    url: string;
-    price: string;                // e.g., "17.99"
-    source: string;               // e.g., "amazon.com"
-    image_url?: string;
-  };
-
-  payment: {
-    amount_usdc: string;
-    price: string;
-    fee: string;
-    fee_rate: string;             // "2%"
-    route: PaymentRoute;
-  };
-
+  product: ProductInfo;
+  payment: PaymentInfo;
   shipping?: ShippingInfo;
-
+  selections?: Record<string, string>;  // e.g., { "Color": "Red", "Size": "10" }
   tx_hash?: string;
   receipt?: Receipt;
   error?: OrderError;
-
   created_at: string;
   confirmed_at?: string;
   completed_at?: string;
@@ -127,6 +127,7 @@ interface RequiredField {
 interface ShippingInfo {
   name: string;
   street: string;
+  apartment?: string;
   city: string;
   state: string;
   zip: string;
@@ -174,6 +175,7 @@ interface CredentialsMap {
   x_billing_country: string;
   x_shipping_name: string;
   x_shipping_street: string;
+  x_shipping_apartment: string;
   x_shipping_city: string;
   x_shipping_state: string;
   x_shipping_zip: string;
@@ -266,6 +268,7 @@ type DiscoveryFailureCode =
   | "adapter_502"
   | "render_timeout"
   | "http_error"
+  | "exa_error"         // Exa.ai extraction failed
   | "extract_empty"
   | "transport_error";
 ```
@@ -383,5 +386,109 @@ interface BloonConfig {
   max_transaction_amount: number; // 25
   default_order_expiry_seconds: number; // 300
   port: number; // 3000
+}
+```
+
+## Cost Tracking
+
+```typescript
+// packages/core/src/types.ts
+interface CostEntry {
+  label: string;
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  costUsd: number;
+  durationMs: number;
+}
+
+interface SessionCostEntry {
+  sessionId: string;
+  durationMs: number;
+  costUsd: number;
+}
+
+interface CostBreakdown {
+  llmCalls: CostEntry[];
+  sessions: SessionCostEntry[];
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  llmCostUsd: number;
+  sessionCostUsd: number;
+  totalCostUsd: number;
+}
+```
+
+## Error Codes
+
+All error codes are defined in `packages/core/src/types.ts`:
+
+```typescript
+const ErrorCodes = {
+  INSUFFICIENT_BALANCE: "INSUFFICIENT_BALANCE",
+  SHIPPING_REQUIRED: "SHIPPING_REQUIRED",
+  PRICE_EXCEEDS_LIMIT: "PRICE_EXCEEDS_LIMIT",
+  WALLET_NOT_FOUND: "WALLET_NOT_FOUND",
+  ORDER_NOT_FOUND: "ORDER_NOT_FOUND",
+  ORDER_EXPIRED: "ORDER_EXPIRED",
+  URL_UNREACHABLE: "URL_UNREACHABLE",
+  PRICE_EXTRACTION_FAILED: "PRICE_EXTRACTION_FAILED",
+  TRANSFER_FAILED: "TRANSFER_FAILED",
+  X402_PAYMENT_FAILED: "X402_PAYMENT_FAILED",
+  CHECKOUT_FAILED: "CHECKOUT_FAILED",
+  MISSING_FIELD: "MISSING_FIELD",
+  INVALID_URL: "INVALID_URL",
+  ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
+  GAS_TRANSFER_FAILED: "GAS_TRANSFER_FAILED",
+  INVALID_SELECTION: "INVALID_SELECTION",
+  QUERY_FAILED: "QUERY_FAILED",
+} as const;
+
+class BloonError extends Error {
+  code: ErrorCode;
+  constructor(code: ErrorCode, message: string);
+}
+```
+
+## Orchestrator Types
+
+Types used by the business logic layer in `packages/orchestrator/`.
+
+```typescript
+// packages/orchestrator/src/query.ts
+interface QueryInput {
+  url: string;
+}
+
+// packages/orchestrator/src/buy.ts
+interface BuyInput {
+  url: string;
+  wallet_id: string;
+  shipping?: ShippingInfo;
+  selections?: Record<string, string>;
+}
+
+// packages/orchestrator/src/confirm.ts
+interface ConfirmInput {
+  order_id: string;
+}
+
+interface ConfirmResult {
+  order: Order;
+  receipt: Receipt;
+}
+
+// packages/orchestrator/src/router.ts
+interface RouteDecision {
+  route: PaymentRoute;
+  requirements?: X402Requirements;
+}
+
+// packages/orchestrator/src/receipts.ts
+interface ReceiptInput {
+  order: Order;
+  tx_hash: string;
+  x402Result?: X402PaymentResult;
+  checkoutResult?: CheckoutResult;
 }
 ```
