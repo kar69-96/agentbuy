@@ -256,10 +256,73 @@ export function isProductPage(url: string): boolean {
 
 // ---- URL reachability check ----
 
+const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+const ADAPTER_URL =
+  process.env.BROWSERBASE_ADAPTER_URL ?? "http://localhost:3003";
+
+const ADAPTER_SCRAPE_TIMEOUT_MS = parseInt(
+  process.env.ADAPTER_SCRAPE_TIMEOUT_MS ?? "45000",
+  10,
+);
+
+/**
+ * Check URL reachability via the Browserbase adapter (stealth + proxy).
+ * Used as a fallback when plain HTTP gets 403 (bot-blocked sites).
+ * Returns true if adapter loads the page with status 200 and meaningful content.
+ * Returns true (benefit of the doubt) if adapter is unavailable.
+ */
+async function isReachableViaBrowser(url: string): Promise<boolean> {
+  try {
+    const healthResp = await fetch(`${ADAPTER_URL}/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!healthResp.ok) return true;
+  } catch {
+    // Adapter not running — benefit of the doubt
+    return true;
+  }
+
+  try {
+    const resp = await fetch(`${ADAPTER_URL}/scrape`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, timeout: 30000 }),
+      signal: AbortSignal.timeout(ADAPTER_SCRAPE_TIMEOUT_MS),
+    });
+
+    if (!resp.ok) return true;
+
+    const data = (await resp.json()) as {
+      pageStatusCode?: number;
+      content?: string;
+      pageError?: string;
+    };
+
+    if (data.pageStatusCode === 404 || data.pageStatusCode === 410) {
+      console.log(`  [exa-search] Browserbase confirmed ${data.pageStatusCode} for ${url}`);
+      return false;
+    }
+
+    const contentLen = data.content?.length ?? 0;
+    if (data.pageStatusCode === 200 && contentLen > 500) {
+      console.log(`  [exa-search] Browserbase verified reachable (${contentLen} chars): ${url}`);
+      return true;
+    }
+
+    // Adapter returned something ambiguous — benefit of the doubt
+    return true;
+  } catch {
+    // Adapter timeout or error — benefit of the doubt
+    return true;
+  }
+}
+
 /**
  * HEAD-checks a URL to filter out 404s and dead domains from Exa results.
- * Only rejects on definitive "not found" signals (404, 410, ENOTFOUND, ECONNREFUSED).
- * Keeps 403/429/5xx — those indicate a real site blocking scrapers, not a missing product.
+ * Rejects on definitive "not found" signals (404, 410, ENOTFOUND, ECONNREFUSED).
+ * On 403 or headers-overflow (bot-blocked), falls back to Browserbase adapter.
  * Keeps on timeout — Exa just crawled it, a slow response ≠ missing.
  */
 export async function isUrlReachable(url: string): Promise<boolean> {
@@ -271,12 +334,30 @@ export async function isUrlReachable(url: string): Promise<boolean> {
       method: "HEAD",
       redirect: "follow",
       signal: controller.signal,
+      headers: { "User-Agent": BROWSER_USER_AGENT },
     });
-    return res.status !== 404 && res.status !== 410;
+
+    if (res.status === 404 || res.status === 410) return false;
+
+    if (res.status === 403) {
+      console.log(`  [exa-search] 403 on HEAD — trying Browserbase fallback: ${url}`);
+      return isReachableViaBrowser(url);
+    }
+
+    return true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    const causeCode = (err as any)?.cause?.code as string | undefined;
+
     if (msg.includes("ENOTFOUND") || msg.includes("ECONNREFUSED")) {
       return false;
+    }
+    // Headers overflow = aggressive bot protection (e.g. Logitech, Corsair)
+    // Node's fetch wraps this as "fetch failed" with cause.code = UND_ERR_HEADERS_OVERFLOW
+    // These sites load fine in a real browser — verify via Browserbase
+    if (causeCode === "UND_ERR_HEADERS_OVERFLOW") {
+      console.log(`  [exa-search] Headers overflow — trying Browserbase fallback: ${url}`);
+      return isReachableViaBrowser(url);
     }
     // Timeout (AbortError), SSL errors, etc. → keep (benefit of the doubt)
     return true;
