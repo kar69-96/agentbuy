@@ -53,7 +53,13 @@ All 5 phases implemented in a single pass:
 | Phase 4: Action Caching & Cost Optimization | Done | Stagehand cacheDir per domain, expanded DOM pruning (SVG, video, footer, ads, chat widgets) |
 | Phase 5: Recovery & Diagnostics | Done | Error classification (7 categories), diagnostic screenshots on failure, checkpoint URL tracking, consecutive failure detection |
 
-### Known Pre-existing Failures (not affected by this change)
+### Vitest Unit Tests
+
+- **Crawling:** 52/52 pass (discover.test.ts) — includes Shopify fast-path, URL validation, Browserbase trigger, exception handling tests
+- **Checkout:** 38/38 pass (cache, credentials, confirm, fill)
+- **Session:** 4/4 pass
+
+### Known Pre-existing Failures (not affected by pipeline fixes)
 
 | File | Tests Failed | Root Cause |
 |------|-------------|------------|
@@ -61,14 +67,47 @@ All 5 phases implemented in a single pass:
 | `e2e/x402-flow.test.ts` | 2 | Wallet creation returns 500 (same gas issue) |
 | `e2e/browser-flow.test.ts` | 1 | Browser checkout flow failure (flaky) |
 | `e2e/wikipedia-donation.test.ts` | 1 | Donation flow failure |
-| `crawling/e2e.test.ts` | 1 | Gymshark URL is 404 |
-| `checkout/e2e-discover.test.ts` | 3 | Stagehand/Browserbase network flakiness |
+| `crawling/e2e.test.ts` | 1-4 | Shopify sites may return `method: "shopify"` (updated assertions); Gymshark 404 |
+| `checkout/e2e-discover.test.ts` | 3-4 | Stagehand/Browserbase network flakiness |
+| `checkout/session-hardened.test.ts` | 2 | ANTHROPIC_API_KEY env var not set in test env |
+| `checkout/error-classification.test.ts` | varies | Pre-existing checkout test issues |
+| `checkout/step-tracker-enhanced.test.ts` | varies | Pre-existing checkout test issues |
 
-### Bulk URL Test (61 URLs, concurrency 3)
+### Bulk URL Test (61 URLs, concurrency 3) — Phase 2 Results (Exa + BB try/catch + Gemini quality)
 
-- **Passed: 37 (61%)** — up from 29 (48%) after URL refresh + API keys
-- **404s: 4** — Gymshark, Chubbies, CB2, eBay (down from 22)
-- **Null/blocked: 20** — blocked (7), HTTP 500 (5), extract_empty (5), timeout/redirect/502 (3)
+- **Passed: 46 (75%), 0 false positives** — up from 38/61 (62%) after Phase 1
+- **404s: 3** — Gymshark, Chubbies, eBay (correctly rejected)
+- **Failed: 12** — extract_empty=8, blocked=3, adapter_502=1
+- **Methods: shopify=8, exa=37, browserbase=1, unknown=15**
+- **Timing:** avg 65.7s, P50 73.8s, P95 106.4s, fastest 0.8s (Shopify), slowest 156.8s
+
+**Phase 2 optimizations applied (2026-03-08):**
+
+| Optimization | Description | New Passes |
+|---|---|---|
+| Exa.ai integration | Fire Exa in parallel with Firecrawl; Exa now primary extractor for 37/46 successes | Levi's, Google, Bose, Logitech, Wayfair, CB2, West Elm, REI (+8) |
+| Browserbase try/catch | BB call wrapped so ProductBlockedError doesn't bypass timing/failure tracking | Chewy now correctly tracked (still fails due to 429) |
+| Expanded JSON-LD | `isProductType()` handles ProductGroup/IndividualProduct/schema.org URLs | Quality improvement |
+| CSS selector tier | itemprop microdata + h1+price class patterns before Gemini fallback | Quality improvement |
+| More content selectors | 22 selectors (was 9): `.pdp-container`, `[data-testid='pdp']`, etc. | Quality improvement |
+
+**Remaining failures (12):**
+- **Correct rejections (URL validation)**: MVMT (wrong variant), Bookshop (Exa returned wrong book), iHerb (Exa returned wrong product)
+- **Infrastructure**: Gap (product redirect → GeneralNoResults), Thrive (domain parked → GoDaddy), Away (adapter 502)
+- **Blocked**: B&N (403), Chewy (429), Etsy (blocked pattern)
+- **Gemini empty**: Adidas (BB renders but Gemini returns null), Nordstrom (same)
+- **Redirect**: Zara (redirects to search on BB)
+
+### Phase 1 Bulk URL Test (62%, baseline for Phase 2)
+
+- **Passed: 38 (62%), 0 false positives**
+- **Methods:** shopify=8, firecrawl=22, browserbase=8
+- **Fixes:** Browserbase trigger widened, per-attempt try/catch, Shopify fast-path, URL-product name validation
+
+### Previous Bulk URL Test (pre-all-fixes)
+
+- **Passed: 37 (61%)** — but 3 were false positives (Thrive, Bookshop, The Ordinary)
+- **True positive rate: 34/61 (56%)**
 - **Methods:** firecrawl=28, browserbase=9
 - **Timing:** avg 44.8s, P50 39.8s, P95 84.5s
 

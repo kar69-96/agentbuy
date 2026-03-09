@@ -263,6 +263,15 @@ export async function browserbaseExtract(
 
 // ---- Structured data extraction from rendered HTML ----
 
+function isProductType(type: unknown): boolean {
+  if (typeof type === "string") {
+    return ["Product", "IndividualProduct", "ProductGroup"].includes(type)
+      || type.includes("schema.org/Product");
+  }
+  if (Array.isArray(type)) return type.some((t) => isProductType(t));
+  return false;
+}
+
 function extractJsonLdFromHtml(html: string): FirecrawlExtract | null {
   const regex =
     /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
@@ -271,14 +280,13 @@ function extractJsonLdFromHtml(html: string): FirecrawlExtract | null {
   while ((match = regex.exec(html)) !== null) {
     try {
       const data = JSON.parse(match[1]!) as Record<string, unknown>;
-      const product =
-        data["@type"] === "Product"
-          ? data
-          : Array.isArray(data["@graph"])
-            ? (data["@graph"] as Record<string, unknown>[]).find(
-                (item) => item["@type"] === "Product",
-              )
-            : null;
+      const product = isProductType(data["@type"])
+        ? data
+        : Array.isArray(data["@graph"])
+          ? (data["@graph"] as Record<string, unknown>[]).find(
+              (item) => isProductType(item["@type"]),
+            )
+          : null;
       if (!product) continue;
 
       const name = product["name"] as string | undefined;
@@ -291,8 +299,13 @@ function extractJsonLdFromHtml(html: string): FirecrawlExtract | null {
         | undefined;
       if (Array.isArray(offers)) offers = offers[0];
       if (offers) {
-        if (offers["price"] != null) price = String(offers["price"]);
-        else if (offers["lowPrice"] != null) price = String(offers["lowPrice"]);
+        if (offers["@type"] === "AggregateOffer") {
+          if (offers["lowPrice"] != null) price = String(offers["lowPrice"]);
+          else if (offers["price"] != null) price = String(offers["price"]);
+        } else {
+          if (offers["price"] != null) price = String(offers["price"]);
+          else if (offers["lowPrice"] != null) price = String(offers["lowPrice"]);
+        }
         currency = (offers["priceCurrency"] as string) ?? undefined;
       }
 
@@ -360,6 +373,67 @@ function extractMetaFromHtml(html: string): FirecrawlExtract | null {
   return null;
 }
 
+function extractViaCssSelectors(html: string): FirecrawlExtract | null {
+  const $ = load(html);
+
+  // Strategy 1: Schema.org microdata (itemprop selectors)
+  const itempropName = $('[itemprop="name"]').first().text().trim();
+  const itempropPrice =
+    $('[itemprop="price"]').first().attr("content")
+    || $('[itemprop="price"]').first().text().trim();
+
+  if (itempropName && itempropPrice) {
+    const priceMatch = /[\d,]+\.?\d*/.exec(itempropPrice.replace(/,/g, ""));
+    if (priceMatch && parseFloat(priceMatch[0]) > 0) {
+      const currency =
+        $('[itemprop="priceCurrency"]').first().attr("content") || undefined;
+      const image =
+        $('[itemprop="image"]').first().attr("src")
+        || $('[itemprop="image"]').first().attr("content")
+        || undefined;
+      const brand = $('[itemprop="brand"]').first().text().trim() || undefined;
+      const desc = $('[itemprop="description"]').first().text().trim() || "";
+
+      return {
+        name: itempropName,
+        price: priceMatch[0],
+        currency,
+        image_url: image,
+        brand,
+        description: desc ? desc.slice(0, 500) : undefined,
+        options: [],
+      };
+    }
+  }
+
+  // Strategy 2: h1 + price class pattern
+  const h1 = $("h1").first().text().trim();
+  if (!h1) return null;
+
+  const priceSelectors = [
+    "[data-price]",
+    ".price",
+    "#price",
+    '[data-testid*="price"]',
+    '[class*="price"]:not([class*="compare"]):not([class*="original"]):not([class*="was"])',
+  ];
+
+  for (const sel of priceSelectors) {
+    const $el = $(sel).first();
+    const text =
+      $el.attr("content") || $el.attr("data-price") || $el.text().trim();
+    if (text) {
+      const cleaned = text.replace(/[^0-9.,]/g, "").replace(/,/g, "");
+      const match = /\d+\.?\d*/.exec(cleaned);
+      if (match && parseFloat(match[0]) > 0) {
+        return { name: h1, price: match[0], options: [] };
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function browserbaseExtractWithFailure(
   url: string,
   timeoutMs = 90_000,
@@ -390,6 +464,13 @@ export async function browserbaseExtractWithFailure(
     if (metaExtract?.name && metaExtract?.price) {
       console.log(`  [browserbase-extract] Meta tag success: ${metaExtract.name} — ${metaExtract.price}`);
       return { extract: metaExtract, failure: null };
+    }
+
+    // Try CSS selector extraction (itemprop, h1+price patterns)
+    const cssExtract = extractViaCssSelectors(html);
+    if (cssExtract?.name && cssExtract?.price) {
+      console.log(`  [browserbase-extract] CSS selector success: ${cssExtract.name} — ${cssExtract.price}`);
+      return { extract: cssExtract, failure: null };
     }
 
     // Fall back to Gemini markdown extraction

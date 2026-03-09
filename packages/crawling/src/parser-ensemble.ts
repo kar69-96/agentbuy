@@ -88,8 +88,8 @@ export function rankCandidate(input: CandidateInput): RankedCandidate | null {
     reasons.push("currency");
   }
 
-  // Slight source prior for browser-rendered data on hard pages.
-  if (input.source === "browserbase") {
+  // Slight source prior for browser-rendered or Exa-extracted data on hard pages.
+  if (input.source === "browserbase" || input.source === "exa") {
     score += 0.02;
   }
 

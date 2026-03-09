@@ -1295,7 +1295,11 @@ describe("discoverViaFirecrawl — invalid price rejection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+    ),
+    );
+    // Mock Browserbase adapter response (triggered by widened Browserbase fallback)
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "not available" }), { status: 502 }),
     );
     const result = await discoverViaFirecrawl("https://example.com/product");
     expect(result).toBeNull();
@@ -1313,6 +1317,10 @@ describe("discoverViaFirecrawl — invalid price rejection", () => {
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
+    );
+    // Mock Browserbase adapter response (triggered by widened Browserbase fallback)
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "not available" }), { status: 502 }),
     );
     const result = await discoverViaFirecrawl("https://example.com/product");
     expect(result).toBeNull();

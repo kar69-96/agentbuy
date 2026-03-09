@@ -79,6 +79,70 @@ export function isRedirectToOtherPage(originalUrl: string, finalUrl: string | un
   }
 }
 
+/**
+ * Normalize a word for overlap comparison: lowercase + strip non-alphanumeric
+ * (handles ™, ®, accents, etc.)
+ */
+function normalizeWord(w: string): string {
+  return w.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Parse words from a single path segment.
+ * Splits on hyphens/underscores/dots, filters out short words and pure numeric IDs.
+ */
+function wordsFromSegment(segment: string): string[] {
+  return segment
+    .replace(/\.[^.]+$/, "") // remove file extension (.html, .json)
+    .split(/[-_.]/)
+    .map((s) => normalizeWord(s))
+    .filter((w) => w.length > 2 && !/^\d+$/.test(w));
+}
+
+/**
+ * Extract meaningful words from URL path segments (the "slug").
+ * Tries the last segment first; if it yields no words (e.g. pure numeric ID),
+ * falls back to earlier segments. Returns empty array only if no segment has words.
+ */
+export function extractSlugWords(url: string): string[] {
+  try {
+    const pathname = new URL(url).pathname;
+    const segments = pathname.split("/").filter(Boolean);
+    // Try from last segment backwards; return first segment that has words
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const words = wordsFromSegment(segments[i]);
+      if (words.length > 0) return words;
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Compute the fraction of URL slug words that appear in the product name.
+ * Returns 1.0 if the URL has no extractable slug words (can't validate).
+ */
+export function computeUrlProductOverlap(
+  url: string,
+  productName: string,
+): number {
+  const slugWords = extractSlugWords(url);
+  if (slugWords.length === 0) return 1;
+  const nameWords = new Set(
+    productName
+      .split(/\s+/)
+      .map((w) => normalizeWord(w))
+      .filter((w) => w.length > 2),
+  );
+  if (nameWords.size === 0) return 0;
+  let matches = 0;
+  for (const word of slugWords) {
+    if (nameWords.has(word)) matches++;
+  }
+  return matches / slugWords.length;
+}
+
 export function computeWordOverlap(a: string, b: string): number {
   const wordsA = new Set(
     a

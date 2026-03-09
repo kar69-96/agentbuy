@@ -16,6 +16,7 @@ export {
 export {
   defaultQueryDiscoveryProviders,
   type QueryDiscoveryProviders,
+  type ExaExtractResult,
 } from "./providers.js";
 
 // ---- Exa.ai ----
@@ -48,7 +49,7 @@ export {
 } from "./constants.js";
 
 // ---- Shopify ----
-export { fetchShopifyOptions } from "./shopify.js";
+export { fetchShopifyOptions, fetchShopifyProduct } from "./shopify.js";
 
 // ---- Helpers (also used by checkout for scrape code) ----
 export {
@@ -59,6 +60,8 @@ export {
   isValidPrice,
   cleanExtractField,
   isRedirectToOtherPage,
+  extractSlugWords,
+  computeUrlProductOverlap,
 } from "./helpers.js";
 
 // ---- Lower-level functions ----

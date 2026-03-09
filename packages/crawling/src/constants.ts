@@ -91,6 +91,8 @@ export const NOT_FOUND_PATTERNS = [
 
 /** Selectors to try (in order) for main product content extraction. */
 export const MAIN_CONTENT_SELECTORS = [
+  "[itemtype*='schema.org/Product']",
+  "[itemtype*='Product']",
   "main",
   "[role='main']",
   "#main-content",
@@ -100,6 +102,17 @@ export const MAIN_CONTENT_SELECTORS = [
   "[data-product]",
   "#product",
   ".pdp-main",
+  "#product-content",
+  ".product-main",
+  "[data-component='ProductDetail']",
+  "article.product",
+  ".pdp-container",
+  ".product-details",
+  ".product-info",
+  "#pdp",
+  "[data-testid='product-detail']",
+  "[data-testid='pdp']",
+  ".product-overview",
 ];
 
 /** Boilerplate elements to strip before markdown conversion. */
