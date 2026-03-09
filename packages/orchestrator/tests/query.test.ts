@@ -6,16 +6,17 @@ vi.mock("@bloon/x402", () => ({
   detectRoute: vi.fn(),
 }));
 
-vi.mock("@bloon/checkout", () => ({
-  discoverProduct: vi.fn(),
+vi.mock("@bloon/crawling", () => ({
+  classifyUrl: vi.fn().mockReturnValue("exa_first"),
+  discoverWithStrategy: vi.fn(),
 }));
 
 import { detectRoute } from "@bloon/x402";
-import { discoverProduct } from "@bloon/checkout";
+import { classifyUrl, discoverWithStrategy } from "@bloon/crawling";
 import { query } from "../src/query.js";
 
 const mockedDetectRoute = vi.mocked(detectRoute);
-const mockedDiscoverProduct = vi.mocked(discoverProduct);
+const mockedDiscoverWithStrategy = vi.mocked(discoverWithStrategy);
 
 // ---- Tests ----
 
@@ -45,11 +46,11 @@ describe("query", () => {
 
   it("query browserbase URL returns product info + options + required_fields", async () => {
     mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
-    mockedDiscoverProduct.mockResolvedValue({
+    mockedDiscoverWithStrategy.mockResolvedValue({
       name: "Cool Sneakers",
       price: "89.99",
       image_url: "https://shop.example.com/img.jpg",
-      method: "scrape",
+      method: "exa",
       options: [
         { name: "Color", values: ["White", "Black"] },
         { name: "Size", values: ["9", "10", "11"] },
@@ -70,10 +71,10 @@ describe("query", () => {
 
   it("query browserbase URL without options has no selections in required_fields", async () => {
     mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
-    mockedDiscoverProduct.mockResolvedValue({
+    mockedDiscoverWithStrategy.mockResolvedValue({
       name: "Simple Widget",
       price: "10.00",
-      method: "scrape",
+      method: "firecrawl",
       options: [],
     });
 
@@ -92,10 +93,19 @@ describe("query", () => {
 
   it("query with discovery failure throws QUERY_FAILED", async () => {
     mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
-    mockedDiscoverProduct.mockRejectedValue(new Error("Network timeout"));
+    mockedDiscoverWithStrategy.mockRejectedValue(new Error("Network timeout"));
 
     await expect(
       query({ url: "https://shop.example.com/timeout" }),
+    ).rejects.toThrow(expect.objectContaining({ code: "QUERY_FAILED" }));
+  });
+
+  it("query with null discovery result throws QUERY_FAILED", async () => {
+    mockedDetectRoute.mockResolvedValue({ route: "browserbase" });
+    mockedDiscoverWithStrategy.mockResolvedValue(null);
+
+    await expect(
+      query({ url: "https://shop.example.com/blocked" }),
     ).rejects.toThrow(expect.objectContaining({ code: "QUERY_FAILED" }));
   });
 });

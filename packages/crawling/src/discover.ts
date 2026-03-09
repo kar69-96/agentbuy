@@ -9,6 +9,9 @@ import {
 } from "./variant.js";
 import { fetchShopifyOptions, fetchShopifyProduct } from "./shopify.js";
 import { ProductBlockedError, ProductNotFoundError } from "./constants.js";
+import { discoverViaExa } from "./exa-extract.js";
+import type { FirecrawlExtract } from "./types.js";
+import type { DiscoveryStrategy } from "./url-classifier.js";
 
 const VALID_DISCOVERY_FAILURE_CODES = new Set<string>([
   "llm_config", "blocked", "not_found", "adapter_502",
@@ -432,4 +435,111 @@ export async function discoverViaFirecrawlWithDiagnostics(
       },
     };
   }
+}
+
+// ---- Strategy-aware discovery ----
+
+/** Convert a FirecrawlExtract to FullDiscoveryResult with the given method label. */
+function extractToResult(extract: FirecrawlExtract, method: string): FullDiscoveryResult {
+  const options = mapOptions(extract.options);
+  return {
+    name: extract.name!,
+    price: stripCurrencySymbol(extract.price!),
+    image_url: cleanExtractField(extract.image_url),
+    method,
+    options,
+    original_price: cleanExtractField(extract.original_price)
+      ? stripCurrencySymbol(extract.original_price!)
+      : undefined,
+    currency: cleanExtractField(extract.currency),
+    description: cleanExtractField(extract.description),
+    brand: cleanExtractField(extract.brand),
+  };
+}
+
+/**
+ * Strategy-aware discovery dispatch.
+ *
+ * | Strategy    | Execution path                                      | Expected time |
+ * |-------------|-----------------------------------------------------|---------------|
+ * | shopify     | fetchShopifyProduct() → if null, exa_first          | ~1s happy path |
+ * | exa_first   | discoverViaExa() → 1 Firecrawl attempt → Browserbase | ~15s (Exa win) |
+ * | blocked_only| Browserbase directly (skip Exa + Firecrawl)         | ~30-60s        |
+ *
+ * Unlike discoverViaFirecrawl() which retries Firecrawl 3 times, exa_first runs only
+ * 1 Firecrawl attempt (Exa already tried first).
+ */
+export async function discoverWithStrategy(
+  url: string,
+  strategy: DiscoveryStrategy,
+): Promise<FullDiscoveryResult | null> {
+  const timeoutMs = Number.parseInt(
+    process.env.QUERY_FIRECRAWL_TIMEOUT_MS ?? "90000",
+    10,
+  );
+
+  // ---- Shopify: native JSON endpoint ----
+  if (strategy === "shopify") {
+    try {
+      const shopifyExtract = await fetchShopifyProduct(url);
+      if (shopifyExtract?.name && isValidPrice(shopifyExtract.price ?? "")) {
+        return extractToResult(shopifyExtract, "shopify");
+      }
+    } catch {
+      // Shopify JSON failed, fall through to exa_first
+    }
+    // Fall through to exa_first
+  }
+
+  // ---- blocked_only: skip Exa and Firecrawl, go directly to Browserbase ----
+  if (strategy === "blocked_only") {
+    const { extract } = await defaultQueryDiscoveryProviders
+      .browserbaseExtract(url, timeoutMs)
+      .catch(() => ({ extract: null, failure: null }));
+    if (!extract?.price || !isValidPrice(extract.price)) return null;
+    return extractToResult(extract, "browserbase");
+  }
+
+  // ---- exa_first (also the fallback from shopify) ----
+
+  // 1. Exa: full extraction with variant prices
+  const exaResult = await discoverViaExa(url).catch(() => null);
+  if (exaResult?.price && isValidPrice(exaResult.price)) {
+    return exaResult;
+  }
+
+  // 2. One Firecrawl attempt (not 3 like discoverViaFirecrawl)
+  const config = getFirecrawlConfig();
+  if (config) {
+    const { extract: fcExtract } = await defaultQueryDiscoveryProviders
+      .firecrawlExtract(url, config, timeoutMs)
+      .catch(() => ({ extract: null, failure: null }));
+    if (fcExtract?.price && isValidPrice(fcExtract.price)) {
+      let options = mapOptions(fcExtract.options);
+      if (options.length === 0) {
+        const shopifyOpts = await fetchShopifyOptions(url);
+        if (shopifyOpts) options = shopifyOpts;
+      }
+      return {
+        name: fcExtract.name!,
+        price: stripCurrencySymbol(fcExtract.price!),
+        image_url: cleanExtractField(fcExtract.image_url),
+        method: "firecrawl",
+        options,
+        original_price: cleanExtractField(fcExtract.original_price)
+          ? stripCurrencySymbol(fcExtract.original_price!)
+          : undefined,
+        currency: cleanExtractField(fcExtract.currency),
+        description: cleanExtractField(fcExtract.description),
+        brand: cleanExtractField(fcExtract.brand),
+      };
+    }
+  }
+
+  // 3. Browserbase fallback
+  const { extract: bbExtract } = await defaultQueryDiscoveryProviders
+    .browserbaseExtract(url, timeoutMs)
+    .catch(() => ({ extract: null, failure: null }));
+  if (!bbExtract?.price || !isValidPrice(bbExtract.price)) return null;
+  return extractToResult(bbExtract, "browserbase");
 }

@@ -5,6 +5,14 @@ import { BloonError } from "@bloon/core";
 vi.mock("@bloon/crawling", () => ({
   parseSearchQuery: vi.fn(),
   searchProducts: vi.fn(),
+  classifyUrl: vi.fn().mockReturnValue("exa_first"),
+  enrichVariantPricesViaExa: vi.fn().mockImplementation((_name: string, _url: string, opts: unknown[]) => Promise.resolve(opts)),
+  fetchShopifyOptions: vi.fn().mockResolvedValue(null),
+}));
+
+// Mock checkout module (resolveVariantPricesViaBrowser for blocked_only enrichment)
+vi.mock("@bloon/checkout", () => ({
+  resolveVariantPricesViaBrowser: vi.fn().mockImplementation((_url: string, opts: unknown[]) => Promise.resolve(opts)),
 }));
 
 import { parseSearchQuery, searchProducts } from "@bloon/crawling";

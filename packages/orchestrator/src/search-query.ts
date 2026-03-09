@@ -6,14 +6,19 @@
 import {
   type SearchQueryResponse,
   type SearchProductResult,
+  type ProductOption,
   BloonError,
   ErrorCodes,
 } from "@bloon/core";
 import {
   parseSearchQuery,
   searchProducts,
+  enrichVariantPricesViaExa,
+  fetchShopifyOptions,
+  classifyUrl,
   type ExaSearchResult,
 } from "@bloon/crawling";
+import { resolveVariantPricesViaBrowser } from "@bloon/checkout";
 import { buildRequiredFields } from "./query.js";
 
 export interface SearchQueryInput {
@@ -49,6 +54,43 @@ function passesFilter(
   if (minPrice !== undefined && num < minPrice) return false;
   if (maxPrice !== undefined && num > maxPrice) return false;
   return true;
+}
+
+// ---- Variant price enrichment ----
+
+/**
+ * Enrich options with per-variant prices using the appropriate strategy.
+ * Only runs if options exist but prices are missing.
+ * Returns options unchanged on any error.
+ */
+async function enrichVariants(
+  url: string,
+  productName: string,
+  options: readonly ProductOption[],
+): Promise<readonly ProductOption[]> {
+  if (options.length === 0) return options;
+
+  const needsEnrichment = options.some(
+    (opt) => !opt.prices || Object.keys(opt.prices).length === 0,
+  );
+  if (!needsEnrichment) return options;
+
+  const strategy = classifyUrl(url);
+  const mutableOptions = [...options] as ProductOption[];
+
+  try {
+    if (strategy === "shopify") {
+      const shopifyOpts = await fetchShopifyOptions(url);
+      return shopifyOpts ?? options;
+    }
+    if (strategy === "exa_first") {
+      return await enrichVariantPricesViaExa(productName, url, mutableOptions);
+    }
+    // blocked_only: use Browserbase headless variant resolution
+    return await resolveVariantPricesViaBrowser(url, mutableOptions);
+  } catch {
+    return options;
+  }
 }
 
 // ---- Main entry point ----
@@ -124,8 +166,16 @@ export async function searchQuery(
   // 5. Take top N
   const top = scored.slice(0, MAX_RESULTS);
 
-  // 6. Build response
-  const products: SearchProductResult[] = top.map(({ result, score }) => ({
+  // 6. Enrich variant prices in parallel (strategy-aware per URL)
+  const enriched = await Promise.all(
+    top.map(async ({ result, score }) => {
+      const enrichedOptions = await enrichVariants(result.url, result.name, result.options);
+      return { result: { ...result, options: enrichedOptions }, score };
+    }),
+  );
+
+  // 7. Build response
+  const products: SearchProductResult[] = enriched.map(({ result, score }) => ({
     product: {
       name: result.name,
       url: result.url,

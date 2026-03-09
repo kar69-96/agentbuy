@@ -6,21 +6,21 @@
 
 **Last updated:** 2026-03-09
 
-### NL Search Feature + URL Reachability Filtering (2026-03-09)
+### Smart Discovery Routing + Variant Price Enrichment (2026-03-09)
 
-- `pnpm build` — all 7 packages compile cleanly
-- Unit tests: **157/157 pass** across 6 test files (was 141 before exa-search expansion)
-  - `nl-search.test.ts` — 24 tests (domain/price parsing, cleaned terms, edge cases)
-  - `exa-search.test.ts` — 44 tests (validation, filtering, options, currency; `isProductPage` blocklist/staging/path; `isUrlReachable` 404/410/ENOTFOUND→drop, 403/429/5xx/timeout→keep; mixed batch + parallel checks)
-  - `search-query.test.ts` — 17 tests (orchestrator: price filter, ranking, error propagation)
-  - `api.test.ts` — 44 tests (url path unchanged + 11 new NL search route tests)
-  - `exa-extract.test.ts` — 23 tests (unchanged, verifies client refactor didn't break)
-  - `orchestrator/query.test.ts` — 5 tests (STANDARD_SHIPPING_FIELDS export unchanged)
-- URL reachability filtering: 404/410/ENOTFOUND/ECONNREFUSED → dropped; 403/429/5xx/timeout → kept
-- E2E NL search suite: `tests/e2e/nl-search.test.ts` — 18 tests (5 validation + 13 live Exa queries)
-  - All 13 live queries return only retail product pages (no editorial/review/staging/search-result URLs)
-  - Domain filter: "on amazon" → amazon.com only; "from target" → target.com only
-  - Results capped at 5 per query; all URLs valid https://
+- `pnpm build` — crawling, orchestrator, checkout all compile cleanly
+- Unit tests: **91/91 pass** across affected test files
+  - `orchestrator/query.test.ts` — 6 tests (was 5; +1 for null discovery result → QUERY_FAILED)
+  - `orchestrator/search-query.test.ts` — 17 tests (now uses enrichVariants, classifyUrl, resolveVariantPricesViaBrowser mocks)
+  - `crawling/exa-search.test.ts` — 44 tests (unchanged)
+  - `crawling/nl-search.test.ts` — 24 tests (unchanged)
+- Changes:
+  - `url-classifier.ts` (new): `classifyUrl()` routes URLs to `shopify|exa_first|blocked_only` based on Phase 2 data
+  - `discover.ts`: `discoverWithStrategy()` — strategy-aware dispatch (Exa-first, Shopify fast-path, Browserbase-only)
+  - `exa-extract.ts`: exported `enrichVariantPricesViaExa()` public wrapper
+  - `search-query.ts`: enriches top-5 NL search results with per-variant prices in parallel
+  - `query.ts`: URL path now uses `classifyUrl()` + `discoverWithStrategy()` instead of `discoverProduct()`
+  - `checkout/discover.ts`: removed double-Exa bug (outer `exaPromise` was redundant with inner Firecrawl pipeline Exa)
 
 ### Pre-existing failures (unrelated to NL search)
 

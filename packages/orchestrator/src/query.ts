@@ -6,7 +6,7 @@ import {
   BloonError,
   ErrorCodes,
 } from "@bloon/core";
-import { discoverProduct } from "@bloon/checkout";
+import { classifyUrl, discoverWithStrategy } from "@bloon/crawling";
 import { routeOrder } from "./router.js";
 
 export interface QueryInput {
@@ -64,15 +64,23 @@ export async function query(input: QueryInput): Promise<QueryResponse> {
     };
   }
 
-  // 4. Discover product info
+  // 4. Discover product info (strategy-aware routing from Phase 2 bulk test data)
+  const strategy = classifyUrl(url);
   let discovery;
   try {
-    discovery = await discoverProduct(url);
+    discovery = await discoverWithStrategy(url, strategy);
   } catch (e) {
     if (e instanceof BloonError) throw e;
     throw new BloonError(
       ErrorCodes.QUERY_FAILED,
       `Product discovery failed for ${url}: ${e instanceof Error ? e.message : "unknown error"}`,
+    );
+  }
+
+  if (!discovery) {
+    throw new BloonError(
+      ErrorCodes.QUERY_FAILED,
+      `Product discovery failed for ${url}: no structured data found`,
     );
   }
 

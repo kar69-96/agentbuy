@@ -1,5 +1,5 @@
 // ---- Firecrawl discovery pipeline ----
-export { discoverViaFirecrawl } from "./discover.js";
+export { discoverViaFirecrawl, discoverWithStrategy } from "./discover.js";
 export type { FullDiscoveryResult } from "./discover.js";
 
 // ---- Client config ----
@@ -21,8 +21,11 @@ export {
 
 // ---- Exa.ai ----
 export { getExaClient } from "./exa-client.js";
-export { discoverViaExa } from "./exa-extract.js";
+export { discoverViaExa, enrichVariantPricesViaExa } from "./exa-extract.js";
 export { searchProducts, isProductPage, isUrlReachable, type ExaSearchResult, type SearchProductsOptions } from "./exa-search.js";
+
+// ---- URL classifier ----
+export { classifyUrl, type DiscoveryStrategy } from "./url-classifier.js";
 
 // ---- NL search parser ----
 export { parseSearchQuery, type ParsedSearchQuery } from "./nl-search.js";
