@@ -120,6 +120,9 @@ importers:
       '@bloon/core':
         specifier: workspace:*
         version: link:../core
+      '@bloon/crawling':
+        specifier: workspace:*
+        version: link:../crawling
       '@bloon/wallet':
         specifier: workspace:*
         version: link:../wallet

@@ -15,7 +15,7 @@ export interface QueryInput {
 
 // ---- Standard shipping fields ----
 
-const STANDARD_SHIPPING_FIELDS: RequiredField[] = [
+export const STANDARD_SHIPPING_FIELDS: readonly RequiredField[] = [
   { field: "shipping.name", label: "Full name" },
   { field: "shipping.email", label: "Email address" },
   { field: "shipping.phone", label: "Phone number" },
@@ -26,6 +26,17 @@ const STANDARD_SHIPPING_FIELDS: RequiredField[] = [
   { field: "shipping.zip", label: "ZIP / Postal code" },
   { field: "shipping.country", label: "Country" },
 ];
+
+// ---- Required fields builder (shared with search-query) ----
+
+export function buildRequiredFields(options: readonly ProductOption[]): RequiredField[] {
+  const fields = [...STANDARD_SHIPPING_FIELDS];
+  if (options.length > 0) {
+    const optionNames = options.map((o) => o.name).join(", ");
+    fields.push({ field: "selections", label: `Product options (${optionNames})` });
+  }
+  return fields;
+}
 
 export async function query(input: QueryInput): Promise<QueryResponse> {
   const { url } = input;
@@ -65,16 +76,8 @@ export async function query(input: QueryInput): Promise<QueryResponse> {
     );
   }
 
-  // 5. Build required fields — always use standard shipping fields
-  const requiredFields: RequiredField[] = [...STANDARD_SHIPPING_FIELDS];
-
-  if (discovery.options.length > 0) {
-    const optionNames = discovery.options.map((o: ProductOption) => o.name).join(", ");
-    requiredFields.push({
-      field: "selections",
-      label: `Product options (${optionNames})`,
-    });
-  }
+  // 5. Build required fields
+  const requiredFields = buildRequiredFields(discovery.options);
 
   const product: RichProductInfo = {
     name: discovery.name,

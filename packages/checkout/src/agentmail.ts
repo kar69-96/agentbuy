@@ -64,7 +64,7 @@ export async function getOrCreateInbox(): Promise<{
   cachedEmail = inboxIdToEmail(inbox.inboxId);
 
   console.log(`  [agentmail] created inbox: ${cachedEmail}`);
-  return { inboxId: cachedInboxId, email: cachedEmail };
+  return { inboxId: cachedInboxId!, email: cachedEmail! };
 }
 
 /**

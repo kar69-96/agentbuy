@@ -4,12 +4,13 @@
  * Skipped entirely if EXA_API_KEY is not set.
  */
 
-import Exa from "exa-js";
+import type Exa from "exa-js";
 import type { ProductOption } from "@bloon/core";
 import type { FullDiscoveryResult } from "./discover.js";
 import { stripCurrencySymbol, isValidPrice, mapOptions, computeWordOverlap, cleanExtractField, isRedirectToOtherPage } from "./helpers.js";
 import { valuesLikelyMatch } from "./variant.js";
 import { ProductNotFoundError } from "./constants.js";
+import { getExaClient } from "./exa-client.js";
 
 // ---- Config ----
 
@@ -25,19 +26,6 @@ const EXA_EXTRACT_TIMEOUT_MS = parseInt(
   process.env.EXA_EXTRACT_TIMEOUT_MS ?? "20000",
   10,
 );
-
-// ---- Exa client singleton ----
-
-let cachedExa: InstanceType<typeof Exa> | null = null;
-
-function getExaClient(): InstanceType<typeof Exa> | null {
-  const key = process.env.EXA_API_KEY;
-  if (!key) return null;
-  if (!cachedExa) {
-    cachedExa = new Exa(key);
-  }
-  return cachedExa;
-}
 
 // ---- Product extraction schema ----
 

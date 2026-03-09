@@ -121,6 +121,28 @@ export interface QueryResponse {
   discovery_method: string;
 }
 
+// ---- Search (NL query) ----
+
+export interface SearchProductResult {
+  product: RichProductInfo;
+  options: ProductOption[];
+  required_fields: RequiredField[];
+  route: PaymentRoute;
+  discovery_method: string;
+  relevance_score: number;
+}
+
+export interface SearchQueryResponse {
+  type: "search";
+  query: string;
+  products: SearchProductResult[];
+  search_metadata: {
+    total_found: number;
+    domain_filter?: string[];
+    price_filter?: { min?: number; max?: number };
+  };
+}
+
 // ---- Card & Billing ----
 
 export interface CardInfo {
@@ -278,6 +300,9 @@ export const ErrorCodes = {
   GAS_TRANSFER_FAILED: "GAS_TRANSFER_FAILED",
   INVALID_SELECTION: "INVALID_SELECTION",
   QUERY_FAILED: "QUERY_FAILED",
+  SEARCH_NO_RESULTS: "SEARCH_NO_RESULTS",
+  SEARCH_UNAVAILABLE: "SEARCH_UNAVAILABLE",
+  SEARCH_RATE_LIMITED: "SEARCH_RATE_LIMITED",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

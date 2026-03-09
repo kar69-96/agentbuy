@@ -16,10 +16,11 @@ vi.mock("@bloon/orchestrator", () => ({
   buy: vi.fn(),
   confirm: vi.fn(),
   query: vi.fn(),
+  searchQuery: vi.fn(),
 }));
 
 import { createWallet, getBalance, generateQR } from "@bloon/wallet";
-import { buy, confirm, query } from "@bloon/orchestrator";
+import { buy, confirm, query, searchQuery } from "@bloon/orchestrator";
 import { createApp } from "../src/server.js";
 
 const mockedCreateWallet = vi.mocked(createWallet);
@@ -28,6 +29,7 @@ const mockedGenerateQR = vi.mocked(generateQR);
 const mockedBuy = vi.mocked(buy);
 const mockedConfirm = vi.mocked(confirm);
 const mockedQuery = vi.mocked(query);
+const mockedSearchQuery = vi.mocked(searchQuery);
 
 // ---- Test helpers ----
 
@@ -625,6 +627,205 @@ describe("POST /api/query", () => {
     expect(res.status).toBe(502);
     const json = await res.json();
     expect(json.error.code).toBe("QUERY_FAILED");
+  });
+
+  // ---- NL search path ----
+
+  it("returns 400 MISSING_FIELD when both url and query are sent", async () => {
+    const res = await req("POST", "/api/query", {
+      url: "https://shop.example.com/shoes",
+      query: "shoes",
+    });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error.code).toBe("MISSING_FIELD");
+    expect(json.error.message).toContain("not both");
+  });
+
+  it("returns 400 MISSING_FIELD when query is empty string", async () => {
+    const res = await req("POST", "/api/query", { query: "" });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error.code).toBe("MISSING_FIELD");
+  });
+
+  it("returns 400 MISSING_FIELD when query is whitespace only", async () => {
+    const res = await req("POST", "/api/query", { query: "   " });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error.code).toBe("MISSING_FIELD");
+  });
+
+  it("returns 200 search response for { query } with correct shape", async () => {
+    const { type } = await import("@bloon/core");
+    mockedSearchQuery.mockResolvedValue({
+      type: "search",
+      query: "towels on amazon under $15",
+      products: [
+        {
+          product: {
+            name: "Cotton Towels",
+            url: "https://amazon.com/dp/B08EXAMPLE",
+            price: "12.99",
+            brand: "Basics",
+            image_url: "https://amazon.com/img.jpg",
+          },
+          options: [{ name: "Color", values: ["White", "Gray"] }],
+          required_fields: [
+            { field: "shipping.name", label: "Full name" },
+            { field: "shipping.email", label: "Email address" },
+            { field: "selections", label: "Product options (Color)" },
+          ],
+          route: "browserbase",
+          discovery_method: "exa_search",
+          relevance_score: 0.92,
+        },
+      ],
+      search_metadata: {
+        total_found: 1,
+        domain_filter: ["amazon.com"],
+        price_filter: { max: 15 },
+      },
+    });
+
+    const res = await req("POST", "/api/query", {
+      query: "towels on amazon under $15",
+    });
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.type).toBe("search");
+    expect(json.query).toBe("towels on amazon under $15");
+    expect(json.products).toHaveLength(1);
+    expect(json.products[0].product.name).toBe("Cotton Towels");
+    expect(json.products[0].product.source).toBe("amazon.com");
+    expect(json.products[0].product.price).toBe("12.99");
+    expect(json.products[0].discovery_method).toBe("exa_search");
+    expect(json.products[0].route).toBe("browserbase");
+    expect(json.products[0].relevance_score).toBe(0.92);
+    expect(json.products[0].options).toHaveLength(1);
+    expect(json.products[0].required_fields.length).toBeGreaterThan(0);
+    expect(json.search_metadata.total_found).toBe(1);
+    expect(json.search_metadata.domain_filter).toEqual(["amazon.com"]);
+    expect(json.search_metadata.price_filter).toEqual({ max: 15 });
+  });
+
+  it("routes { query } to searchQuery, not query", async () => {
+    mockedSearchQuery.mockResolvedValue({
+      type: "search",
+      query: "socks",
+      products: [],
+      search_metadata: { total_found: 0 },
+    });
+
+    await req("POST", "/api/query", { query: "socks" });
+
+    expect(mockedSearchQuery).toHaveBeenCalledWith({ query: "socks" });
+    expect(mockedQuery).not.toHaveBeenCalled();
+  });
+
+  it("routes { url } to query, not searchQuery", async () => {
+    mockedQuery.mockResolvedValue({
+      product: { name: "Shoe", url: "https://example.com/shoe", price: "50.00" },
+      options: [],
+      required_fields: [],
+      route: "browserbase",
+      discovery_method: "scrape",
+    });
+
+    await req("POST", "/api/query", { url: "https://example.com/shoe" });
+
+    expect(mockedQuery).toHaveBeenCalled();
+    expect(mockedSearchQuery).not.toHaveBeenCalled();
+  });
+
+  it("propagates SEARCH_NO_RESULTS as 404", async () => {
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
+    mockedSearchQuery.mockRejectedValue(
+      new BloonError(ErrorCodes.SEARCH_NO_RESULTS, "No products found"),
+    );
+
+    const res = await req("POST", "/api/query", { query: "nonexistent xyzabc" });
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error.code).toBe("SEARCH_NO_RESULTS");
+  });
+
+  it("propagates SEARCH_UNAVAILABLE as 503", async () => {
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
+    mockedSearchQuery.mockRejectedValue(
+      new BloonError(ErrorCodes.SEARCH_UNAVAILABLE, "EXA_API_KEY not set"),
+    );
+
+    const res = await req("POST", "/api/query", { query: "towels" });
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.error.code).toBe("SEARCH_UNAVAILABLE");
+  });
+
+  it("propagates SEARCH_RATE_LIMITED as 429", async () => {
+    const { BloonError, ErrorCodes } = await import("@bloon/core");
+    mockedSearchQuery.mockRejectedValue(
+      new BloonError(ErrorCodes.SEARCH_RATE_LIMITED, "Rate limit exceeded"),
+    );
+
+    const res = await req("POST", "/api/query", { query: "towels" });
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    expect(json.error.code).toBe("SEARCH_RATE_LIMITED");
+  });
+
+  it("search response products include source hostname", async () => {
+    mockedSearchQuery.mockResolvedValue({
+      type: "search",
+      query: "sneakers",
+      products: [
+        {
+          product: {
+            name: "Air Max",
+            url: "https://nike.com/products/air-max",
+            price: "110.00",
+          },
+          options: [],
+          required_fields: [],
+          route: "browserbase",
+          discovery_method: "exa_search",
+          relevance_score: 0.88,
+        },
+      ],
+      search_metadata: { total_found: 1 },
+    });
+
+    const res = await req("POST", "/api/query", { query: "sneakers" });
+    const json = await res.json();
+    expect(json.products[0].product.source).toBe("nike.com");
+  });
+
+  it("search response with invalid product URL still formats without crashing", async () => {
+    mockedSearchQuery.mockResolvedValue({
+      type: "search",
+      query: "towels",
+      products: [
+        {
+          product: {
+            name: "Towel",
+            url: "not-a-url",
+            price: "5.00",
+          },
+          options: [],
+          required_fields: [],
+          route: "browserbase",
+          discovery_method: "exa_search",
+          relevance_score: 0.7,
+        },
+      ],
+      search_metadata: { total_found: 1 },
+    });
+
+    const res = await req("POST", "/api/query", { query: "towels" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.products[0].product.source).toBe("unknown");
   });
 });
 
