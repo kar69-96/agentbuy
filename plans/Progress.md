@@ -4,7 +4,33 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-03-08
+**Last updated:** 2026-03-09
+
+### NL Search Feature + URL Reachability Filtering (2026-03-09)
+
+- `pnpm build` — all 7 packages compile cleanly
+- Unit tests: **157/157 pass** across 6 test files (was 141 before exa-search expansion)
+  - `nl-search.test.ts` — 24 tests (domain/price parsing, cleaned terms, edge cases)
+  - `exa-search.test.ts` — 44 tests (validation, filtering, options, currency; `isProductPage` blocklist/staging/path; `isUrlReachable` 404/410/ENOTFOUND→drop, 403/429/5xx/timeout→keep; mixed batch + parallel checks)
+  - `search-query.test.ts` — 17 tests (orchestrator: price filter, ranking, error propagation)
+  - `api.test.ts` — 44 tests (url path unchanged + 11 new NL search route tests)
+  - `exa-extract.test.ts` — 23 tests (unchanged, verifies client refactor didn't break)
+  - `orchestrator/query.test.ts` — 5 tests (STANDARD_SHIPPING_FIELDS export unchanged)
+- URL reachability filtering: 404/410/ENOTFOUND/ECONNREFUSED → dropped; 403/429/5xx/timeout → kept
+- E2E NL search suite: `tests/e2e/nl-search.test.ts` — 18 tests (5 validation + 13 live Exa queries)
+  - All 13 live queries return only retail product pages (no editorial/review/staging/search-result URLs)
+  - Domain filter: "on amazon" → amazon.com only; "from target" → target.com only
+  - Results capped at 5 per query; all URLs valid https://
+
+### Pre-existing failures (unrelated to NL search)
+
+| File | Tests Failed | Root Cause |
+|------|-------------|------------|
+| `checkout/error-classification.test.ts` | 40 | `detectCheckoutPhase`/`isShopifyCheckout` not exported — pre-existing |
+| `tests/buy/checkout.test.ts` | varies | Flaky live Browserbase e2e (Allbirds OOS, ColourPop timeout) |
+| `wallet/gas-network.test.ts` | 2 | Funder wallet has insufficient ETH |
+| `e2e/x402-flow.test.ts` | 2 | Same gas issue |
+| `crawling/e2e.test.ts` | 1 | Gymshark URL is 404 |
 
 ### E2E Checkout Results (17 tests, `tests/buy/checkout.test.ts`)
 

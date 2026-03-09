@@ -50,6 +50,14 @@ export function getQueryModelApiKey(): string {
   return key;
 }
 
+export function getAnthropicApiKey(): string {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) {
+    throw new Error("ANTHROPIC_API_KEY is required");
+  }
+  return key;
+}
+
 export async function createSession(options?: SessionOptions): Promise<BrowserbaseSession> {
   const { apiKey, projectId } = getBrowserbaseConfig();
 

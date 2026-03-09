@@ -1,5 +1,13 @@
-import type { Wallet, Order, Receipt, QueryResponse } from "@bloon/core";
+import type { Wallet, Order, Receipt, QueryResponse, SearchQueryResponse } from "@bloon/core";
 import { getOrdersByWallet } from "@bloon/core";
+
+function getHostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "unknown";
+  }
+}
 
 export function formatWalletCreateResponse(
   wallet: Wallet,
@@ -27,7 +35,7 @@ export function formatWalletGetResponse(
     type: "purchase" as const,
     order_id: o.order_id,
     product: o.product.name,
-    merchant: new URL(o.product.url).hostname,
+    merchant: getHostname(o.product.url),
     route: o.payment.route,
     price: o.payment.price,
     fee: o.payment.fee,
@@ -51,12 +59,31 @@ export function formatQueryResponse(result: QueryResponse) {
   return {
     product: {
       ...result.product,
-      source: new URL(result.product.url).hostname,
+      source: getHostname(result.product.url),
     },
     options: result.options,
     required_fields: result.required_fields,
     route: result.route,
     discovery_method: result.discovery_method,
+  };
+}
+
+export function formatSearchQueryResponse(result: SearchQueryResponse) {
+  return {
+    type: result.type,
+    query: result.query,
+    products: result.products.map((p) => ({
+      product: {
+        ...p.product,
+        source: getHostname(p.product.url),
+      },
+      options: p.options,
+      required_fields: p.required_fields,
+      route: p.route,
+      discovery_method: p.discovery_method,
+      relevance_score: p.relevance_score,
+    })),
+    search_metadata: result.search_metadata,
   };
 }
 
@@ -71,7 +98,7 @@ export function formatBuyResponse(order: Order, balance: string) {
     product: {
       name: order.product.name,
       url: order.product.url,
-      source: new URL(order.product.url).hostname,
+      source: getHostname(order.product.url),
     },
     payment: {
       item_price: order.payment.price,

@@ -35,6 +35,9 @@ HTTP status codes follow REST conventions.
 | `X402_PAYMENT_FAILED` | 502 | x402 service rejected payment | Check Bloon master wallet funds |
 | `CHECKOUT_FAILED` | 502 | Browser checkout failed after payment | Contact human — USDC was sent, tx_hash preserved |
 | `QUERY_FAILED` | 502 | Product discovery pipeline failed | Try different URL |
+| `SEARCH_NO_RESULTS` | 404 | NL search returned 0 matching products | Broaden query or remove price/domain filter |
+| `SEARCH_UNAVAILABLE` | 503 | EXA_API_KEY not set, or unexpected Exa error | Check env vars, retry |
+| `SEARCH_RATE_LIMITED` | 429 | Exa API rate limit exceeded | Wait and retry |
 | `MISSING_FIELD` | 400 | Required field not in request body | Check API docs, add missing field |
 | `INVALID_URL` | 400 | URL is not a valid HTTP(S) URL | Fix URL format |
 | `INVALID_SELECTION` | 400 | Selections must be non-empty string key-value pairs | Check selections format |
@@ -53,6 +56,8 @@ HTTP status codes follow REST conventions.
 - `MISSING_FIELD` → fix request, retry
 - `INVALID_URL` → fix URL, retry
 - `INVALID_SELECTION` → fix selections format, retry
+- `SEARCH_NO_RESULTS` → broaden query, remove price/domain filter
+- `SEARCH_RATE_LIMITED` → wait and retry
 
 ### Requires Human Attention
 - `PRICE_EXCEEDS_LIMIT` → human decides whether to proceed differently
@@ -99,7 +104,9 @@ When `CHECKOUT_FAILED` occurs:
 - `agent_name` required, non-empty string
 
 ### POST /api/query
-- `url` required, valid HTTP(S) URL
+- Either `url` or `query` is required (not both, not neither)
+- `url` path: must be valid HTTP(S) URL
+- `query` path: must be non-empty, ≥2 chars after trimming
 
 ### POST /api/buy
 - `url` required, valid HTTP(S) URL

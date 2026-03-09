@@ -1,10 +1,15 @@
-# Query Endpoint — Product Discovery
+# Query Endpoint — Product Discovery & NL Search
 
-`POST /api/query` is the entry point for product discovery. An agent calls it with a URL, and Bloon returns everything needed to make a purchase: product info, variant options with prices, and the required fields for checkout.
+`POST /api/query` has two modes:
+
+- **URL mode** `{ url }` — discover a specific product URL (existing behavior)
+- **NL search mode** `{ query }` — describe what you want in plain English, get back 5 products
+
+The two fields are mutually exclusive. Sending both or neither returns `400 MISSING_FIELD`.
 
 No wallet required. No money spent. This is a read-only lookup.
 
-## Request
+## URL Mode
 
 ```bash
 curl -X POST http://localhost:3000/api/query \
@@ -12,11 +17,24 @@ curl -X POST http://localhost:3000/api/query \
   -d '{ "url": "https://www.allbirds.com/products/mens-tree-runners" }'
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `url` | string | yes | Product URL or x402 endpoint |
+## NL Search Mode
 
-## Response
+```bash
+curl -X POST http://localhost:3000/api/query \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "towels on amazon under $15" }'
+```
+
+> **Full NL search spec:** See `plans/22-nl-search.md` for pipeline details, scoring, domain aliases, price patterns, and limitations.
+
+## Request
+
+| Field | Type | One-of | Description |
+|-------|------|--------|-------------|
+| `url` | string | yes | Product URL or x402 endpoint |
+| `query` | string | yes | Natural language product query |
+
+## URL Mode Response
 
 ```json
 {
@@ -140,32 +158,68 @@ The orchestrator assembles the `QueryResponse` with product info, options, requi
 
 ## Code Path
 
+### URL mode
 ```
-POST /api/query
-  → packages/api/src/routes/query.ts           (validate input)
+POST /api/query { url }
+  → packages/api/src/routes/query.ts            (branch: hasUrl → query())
   → packages/orchestrator/src/query.ts          (orchestrate)
     → packages/x402/src/detect.ts               (route detection)
     → packages/checkout/src/discover.ts
        → discoverProduct(url)                   (main entry point)
           → discoverViaFirecrawl(url)           [Tier 1 - packages/crawling]
-             → extract.ts                       (Firecrawl /v1/scrape, up to 3 attempts)
-             → parser-ensemble.ts               (candidate ranking)
-             → browserbase-extract.ts           (Browserbase+Gemini repair)
-             → shopify.ts                       (options fallback)
-             → variant.ts                       (Steps 2/3)
           → scrapePriceWithOptions(url)         [Tier 2 - checkout]
           → discoverViaExa(url)                [Tier 2.5 - packages/crawling]
           → discoverViaBrowser(url)             [Tier 3 - checkout]
-  → packages/api/src/formatters.ts              (format response)
+  → packages/api/src/formatters.ts              (formatQueryResponse)
 ```
+
+### NL search mode
+```
+POST /api/query { query }
+  → packages/api/src/routes/query.ts            (branch: hasQuery → searchQuery())
+  → packages/orchestrator/src/search-query.ts   (orchestrate)
+    → packages/crawling/src/nl-search.ts        (parseSearchQuery)
+    → packages/crawling/src/exa-search.ts       (searchProducts via Exa searchAndContents)
+    → filter by price, score, take top 5
+  → packages/api/src/formatters.ts              (formatSearchQueryResponse)
+```
+
+## NL Search Mode Response
+
+```json
+{
+  "type": "search",
+  "query": "towels on amazon under $15",
+  "products": [
+    {
+      "product": { "name": "...", "url": "...", "price": "12.99", "source": "amazon.com" },
+      "options": [{ "name": "Color", "values": ["White", "Gray"] }],
+      "required_fields": [ ... ],
+      "route": "browserbase",
+      "discovery_method": "exa_search",
+      "relevance_score": 0.94
+    }
+  ],
+  "search_metadata": {
+    "total_found": 5,
+    "domain_filter": ["amazon.com"],
+    "price_filter": { "max": 15 }
+  }
+}
+```
+
+The NL response has `"type": "search"` at the top level. URL mode responses do NOT have a `type` field (backward compatible).
 
 ## Error Cases
 
 | Error | HTTP | When |
 |-------|------|------|
-| `MISSING_FIELD` | 400 | `url` not provided or empty |
-| `INVALID_URL` | 400 | URL fails `new URL()` validation |
-| `QUERY_FAILED` | 502 | All three discovery tiers failed |
+| `MISSING_FIELD` | 400 | Neither `url` nor `query` provided, both provided, or query too short |
+| `INVALID_URL` | 400 | URL path: fails `new URL()` validation |
+| `QUERY_FAILED` | 502 | URL path: all discovery tiers failed |
+| `SEARCH_NO_RESULTS` | 404 | NL path: Exa returned 0 results, or all failed price filter |
+| `SEARCH_UNAVAILABLE` | 503 | NL path: EXA_API_KEY not set, or Exa error |
+| `SEARCH_RATE_LIMITED` | 429 | NL path: Exa 429 rate limit |
 
 ## x402 Response (Digital Services)
 

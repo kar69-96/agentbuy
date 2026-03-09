@@ -88,7 +88,7 @@ interface Receipt {
 
 ## Query Response
 
-Returned by `POST /api/query` — product discovery before purchasing.
+Returned by `POST /api/query { url }` — URL-based product discovery.
 
 ```typescript
 interface QueryResponse {
@@ -96,7 +96,36 @@ interface QueryResponse {
   options: ProductOption[];
   required_fields: RequiredField[];
   route: "x402" | "browserbase";
-  discovery_method: "x402" | "firecrawl" | "scrape" | "browserbase";
+  discovery_method: "x402" | "firecrawl" | "scrape" | "browserbase" | "exa";
+}
+```
+
+## Search Response
+
+Returned by `POST /api/query { query }` — natural language product search. Always has `type: "search"`.
+
+```typescript
+interface SearchProductResult {
+  product: RichProductInfo;
+  options: ProductOption[];
+  required_fields: RequiredField[];
+  route: PaymentRoute;          // always "browserbase"
+  discovery_method: string;     // always "exa_search"
+  relevance_score: number;      // 0.0 - 1.0
+}
+
+interface SearchQueryResponse {
+  type: "search";
+  query: string;
+  products: SearchProductResult[];
+  search_metadata: {
+    total_found: number;
+    domain_filter?: string[];   // e.g. ["amazon.com"]
+    price_filter?: {
+      min?: number;
+      max?: number;
+    };
+  };
 }
 
 interface RichProductInfo {
@@ -442,11 +471,46 @@ const ErrorCodes = {
   GAS_TRANSFER_FAILED: "GAS_TRANSFER_FAILED",
   INVALID_SELECTION: "INVALID_SELECTION",
   QUERY_FAILED: "QUERY_FAILED",
+  SEARCH_NO_RESULTS: "SEARCH_NO_RESULTS",
+  SEARCH_UNAVAILABLE: "SEARCH_UNAVAILABLE",
+  SEARCH_RATE_LIMITED: "SEARCH_RATE_LIMITED",
 } as const;
 
 class BloonError extends Error {
   code: ErrorCode;
   constructor(code: ErrorCode, message: string);
+}
+```
+
+## NL Search Types
+
+Types used by the NL search pipeline in `packages/crawling/src/nl-search.ts` and `packages/crawling/src/exa-search.ts`.
+
+```typescript
+// Parsed output of parseSearchQuery()
+interface ParsedSearchQuery {
+  readonly cleanedTerms: string;
+  readonly domains: readonly string[];
+  readonly minPrice?: number;
+  readonly maxPrice?: number;
+}
+
+// Single result from searchProducts()
+interface ExaSearchResult {
+  readonly name: string;
+  readonly url: string;
+  readonly price: string;
+  readonly original_price?: string;
+  readonly currency?: string;
+  readonly brand?: string;
+  readonly image_url?: string;
+  readonly options: readonly ProductOption[];
+  readonly relevance_score: number;
+}
+
+// Input to searchQuery() orchestrator
+interface SearchQueryInput {
+  readonly query: string;
 }
 ```
 

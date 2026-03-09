@@ -18,8 +18,13 @@ export {
   type QueryDiscoveryProviders,
 } from "./providers.js";
 
-// ---- Exa.ai extraction ----
+// ---- Exa.ai ----
+export { getExaClient } from "./exa-client.js";
 export { discoverViaExa } from "./exa-extract.js";
+export { searchProducts, isProductPage, isUrlReachable, type ExaSearchResult, type SearchProductsOptions } from "./exa-search.js";
+
+// ---- NL search parser ----
+export { parseSearchQuery, type ParsedSearchQuery } from "./nl-search.js";
 
 // ---- Variant helpers ----
 export { valuesLikelyMatch, normalizeToken } from "./variant.js";

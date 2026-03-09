@@ -97,19 +97,51 @@ Returns: `wallet_id`, `address`, `balance_usdc`, `transactions[]`
 
 ### POST /api/query
 
-| Body Field | Type | Required | Description |
-|------------|------|----------|-------------|
+Two modes — send one field, not both:
+
+| Body Field | Type | One-of | Description |
+|------------|------|--------|-------------|
 | `url` | string | yes | Product URL or x402 endpoint |
+| `query` | string | yes | Natural language product search |
 
-Returns: `product` (name, url, price, image_url, brand, currency), `options[]` (name, values, prices), `required_fields[]` (field, label), `route`, `discovery_method`
+**URL mode** returns a single product:
+```json
+{
+  "product": { "name": "...", "url": "...", "price": "...", "source": "...", ... },
+  "options": [{ "name": "Size", "values": ["S", "M", "L"] }],
+  "required_fields": [{ "field": "shipping.name", "label": "Full name" }, ...],
+  "route": "browserbase",
+  "discovery_method": "firecrawl"
+}
+```
 
-Call this first to discover what a product needs before buying. No wallet required.
-- `options` lists product variants (Color, Size) with available values and per-variant prices if they differ
-- `required_fields` tells you what shipping fields and selections are needed
-- If `selections` appears in required_fields, include matching key-value pairs in your buy request
-- `discovery_method` is one of: `"x402"`, `"firecrawl"`, `"browserbase"`, `"scrape"`
-- Discovery pipeline: Firecrawl (primary, up to 3 attempts with Browserbase+Gemini repair) → Server-side scrape (JSON-LD/meta tags) → Browserbase+Stagehand (headless Chrome agent)
-- If `error: "product_not_found"` is returned, the product page is 404 or discontinued
+**NL search mode** returns up to 5 ranked products:
+```json
+{
+  "type": "search",
+  "query": "towels on amazon under $15",
+  "products": [
+    {
+      "product": { "name": "...", "url": "...", "price": "12.99", "source": "amazon.com" },
+      "options": [...],
+      "required_fields": [...],
+      "route": "browserbase",
+      "discovery_method": "exa_search",
+      "relevance_score": 0.94
+    }
+  ],
+  "search_metadata": { "total_found": 5, "domain_filter": ["amazon.com"], "price_filter": { "max": 15 } }
+}
+```
+
+Usage notes:
+- No wallet required for either mode
+- `options` lists product variants with per-variant prices where available
+- `required_fields` tells you what shipping fields and selections to include in `/api/buy`
+- If `selections` appears in `required_fields`, pass matching `{"Color":"White","Size":"M"}` in buy
+- `discovery_method` is one of: `"x402"`, `"firecrawl"`, `"exa"`, `"scrape"`, `"browserbase"`, `"exa_search"`
+- NL queries support domain filters (`on amazon`), price filters (`under $15`), and ranges (`$10-$20`)
+- NL search errors: `SEARCH_NO_RESULTS` (404), `SEARCH_UNAVAILABLE` (503), `SEARCH_RATE_LIMITED` (429)
 
 ### POST /api/buy
 
@@ -146,6 +178,7 @@ HTML page (not JSON). Shows QR code + live USDC balance. For humans, not agents.
 
 ## Recommended Agent Workflow
 
+### When you have a specific URL
 ```
 1. POST /api/wallets → save wallet_id, give funding_url to human
 2. Wait for human to fund → poll GET /api/wallets/:id until balance > 0
@@ -155,6 +188,19 @@ HTML page (not JSON). Shows QR code + live USDC balance. For humans, not agents.
    → Include all required_fields from query response
    → If INSUFFICIENT_BALANCE: ask human to fund more
    → If PRICE_EXCEEDS_LIMIT: product > $25, tell human
+5. Present quote to human, get approval
+6. POST /api/confirm { order_id }
+7. Return receipt to human
+```
+
+### When the human describes what they want (NL search)
+```
+1. POST /api/wallets → save wallet_id, give funding_url to human
+2. Wait for human to fund → poll GET /api/wallets/:id until balance > 0
+3. POST /api/query { query: "towels on amazon under $15" }
+   → Returns up to 5 ranked products
+   → Show human the options, let them pick one
+4. POST /api/buy { url: products[chosen].product.url, wallet_id, shipping, selections? }
 5. Present quote to human, get approval
 6. POST /api/confirm { order_id }
 7. Return receipt to human
@@ -181,6 +227,9 @@ HTML page (not JSON). Shows QR code + live USDC balance. For humans, not agents.
 | `ORDER_INVALID_STATUS` | 400 | Order can't be confirmed (wrong status) |
 | `GAS_TRANSFER_FAILED` | 500 | ETH gas transfer failed |
 | `QUERY_FAILED` | 502 | Product discovery failed, try different URL |
+| `SEARCH_NO_RESULTS` | 404 | NL search found nothing, broaden query |
+| `SEARCH_UNAVAILABLE` | 503 | Search service not configured (check EXA_API_KEY) |
+| `SEARCH_RATE_LIMITED` | 429 | Search rate limited, retry in a moment |
 | `PRODUCT_NOT_FOUND` | 404 | Product page is 404 or discontinued |
 
 ## What the Agent Never Sees

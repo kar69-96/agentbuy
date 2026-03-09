@@ -102,7 +102,9 @@ This URL is returned only from `POST /api/wallets`. It cannot be derived from th
 
 ## POST /api/query
 
-Discover product info, options, and required fields for a URL. No wallet needed. Recommended first step before buying.
+Discover product info, options, and required fields. Accepts either a product URL or a natural language query. No wallet needed.
+
+### URL-based discovery (existing)
 
 ```bash
 curl -X POST http://localhost:3000/api/query \
@@ -110,17 +112,21 @@ curl -X POST http://localhost:3000/api/query \
   -d '{ "url": "https://allbirds.com/products/mens-tree-runners" }'
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
+| Field | Type | One-of | Description |
+|-------|------|--------|-------------|
 | `url` | string | yes | Product URL or x402 endpoint |
+| `query` | string | yes | Natural language product search |
 
-**200 OK (browserbase route — product with options):**
+Sending **both** `url` and `query` returns `400 MISSING_FIELD`. Sending **neither** returns `400 MISSING_FIELD`.
+
+**200 OK (URL path — browserbase route):**
 ```json
 {
   "product": {
     "name": "Men's Tree Runners",
     "url": "https://allbirds.com/products/mens-tree-runners",
     "price": "98.00",
+    "source": "allbirds.com",
     "image_url": "https://cdn.allbirds.com/...",
     "brand": "Allbirds",
     "currency": "USD"
@@ -131,10 +137,7 @@ curl -X POST http://localhost:3000/api/query \
       "values": ["Charcoal", "Navy", "White"],
       "prices": { "Charcoal": "98.00", "Navy": "98.00", "White": "98.00" }
     },
-    {
-      "name": "Size",
-      "values": ["8", "9", "10", "11", "12"]
-    }
+    { "name": "Size", "values": ["8", "9", "10", "11", "12"] }
   ],
   "required_fields": [
     { "field": "shipping.name", "label": "Full name" },
@@ -153,7 +156,7 @@ curl -X POST http://localhost:3000/api/query \
 }
 ```
 
-**200 OK (x402 route):**
+**200 OK (URL path — x402 route):**
 ```json
 {
   "product": {
@@ -168,16 +171,78 @@ curl -X POST http://localhost:3000/api/query \
 }
 ```
 
-**400:** `INVALID_URL`
+**400:** `INVALID_URL`, `MISSING_FIELD`
 **502:** `QUERY_FAILED`
 
-### Discovery Pipeline
+### Natural language search (new)
 
-The query endpoint runs a multi-tier discovery pipeline:
+```bash
+curl -X POST http://localhost:3000/api/query \
+  -H "Content-Type: application/json" \
+  -d '{ "query": "towels on amazon under $15" }'
+```
+
+The query is parsed to extract domain filters (`on amazon` → `amazon.com`), price constraints (`under $15` → `maxPrice: 15`), and cleaned search terms. Exa `searchAndContents()` is called and returns up to 5 ranked product results.
+
+**200 OK (NL search path):**
+```json
+{
+  "type": "search",
+  "query": "towels on amazon under $15",
+  "products": [
+    {
+      "product": {
+        "name": "Amazon Basics Quick-Dry Towels",
+        "url": "https://amazon.com/dp/B08EXAMPLE",
+        "price": "12.99",
+        "source": "amazon.com",
+        "brand": "Amazon Basics",
+        "image_url": "https://m.media-amazon.com/..."
+      },
+      "options": [
+        { "name": "Color", "values": ["White", "Gray"] }
+      ],
+      "required_fields": [
+        { "field": "shipping.name", "label": "Full name" },
+        { "field": "shipping.email", "label": "Email address" },
+        { "field": "shipping.phone", "label": "Phone number" },
+        { "field": "shipping.street", "label": "Street address" },
+        { "field": "shipping.apartment", "label": "Apartment / Floor / Suite" },
+        { "field": "shipping.city", "label": "City" },
+        { "field": "shipping.state", "label": "State / Province" },
+        { "field": "shipping.zip", "label": "ZIP / Postal code" },
+        { "field": "shipping.country", "label": "Country" },
+        { "field": "selections", "label": "Product options (Color)" }
+      ],
+      "route": "browserbase",
+      "discovery_method": "exa_search",
+      "relevance_score": 0.94
+    }
+  ],
+  "search_metadata": {
+    "total_found": 1,
+    "domain_filter": ["amazon.com"],
+    "price_filter": { "max": 15 }
+  }
+}
+```
+
+NL search response always has `"type": "search"`. URL-based response has no `type` field (backward compatible).
+
+**400:** `MISSING_FIELD` (empty/whitespace query, or both url+query sent)
+**404:** `SEARCH_NO_RESULTS`
+**429:** `SEARCH_RATE_LIMITED`
+**503:** `SEARCH_UNAVAILABLE`
+
+> See `plans/22-nl-search.md` for the full NL search spec.
+
+### Discovery Pipeline (URL path)
+
+The URL-based query endpoint runs a multi-tier discovery pipeline:
 
 1. **Route detection** — HEAD request to check for HTTP 402 (x402 route). If 402 → return immediately.
 2. **Firecrawl (Tier 1)** — Up to 3 attempts with exponential backoff. Parser ensemble scores candidates. Browserbase+Gemini repair if confidence < 0.75.
-3. **Exa.ai (Tier 1.5)** — Runs in parallel with Firecrawl. Returns early if Firecrawl succeeds. Handles bot-blocked sites.
+3. **Exa.ai (Tier 2.5)** — Runs in parallel with Firecrawl. Livecrawl + structured extraction. Handles bot-blocked sites.
 4. **Server-side scrape (Tier 2)** — JSON-LD + meta tag parsing. Free and fast.
 5. **Browserbase + Stagehand (Tier 3)** — Headless Chrome agent extracts product info. Slowest but most accurate.
 
@@ -417,4 +482,7 @@ All errors:
 | `CHECKOUT_FAILED` | 502 | Browser checkout failed |
 | `PRICE_EXTRACTION_FAILED` | 502 | Could not extract price from page |
 | `QUERY_FAILED` | 502 | Product discovery pipeline failed |
+| `SEARCH_NO_RESULTS` | 404 | NL search returned 0 results |
+| `SEARCH_UNAVAILABLE` | 503 | EXA_API_KEY not set, or Exa error |
+| `SEARCH_RATE_LIMITED` | 429 | Exa rate limit hit |
 | `PRICE_MISMATCH` | 409 | Cart total at checkout differs from quote |

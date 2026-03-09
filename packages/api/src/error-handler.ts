@@ -18,6 +18,9 @@ const STATUS_MAP: Record<string, number> = {
   CHECKOUT_FAILED: 502,
   PRICE_EXTRACTION_FAILED: 502,
   QUERY_FAILED: 502,
+  SEARCH_NO_RESULTS: 404,
+  SEARCH_UNAVAILABLE: 503,
+  SEARCH_RATE_LIMITED: 429,
 };
 
 export const errorHandler: ErrorHandler = (err, c) => {

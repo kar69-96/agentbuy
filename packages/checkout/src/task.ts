@@ -58,6 +58,13 @@ export type CheckoutStep = (typeof CHECKOUT_STEPS)[keyof typeof CHECKOUT_STEPS];
 
 // ---- Types ----
 
+export interface CheckoutCheckpoints {
+  cart?: string;
+  shipping?: string;
+  payment?: string;
+  confirmation?: string;
+}
+
 export interface CheckoutResult {
   success: boolean;
   orderNumber?: string;
@@ -66,6 +73,9 @@ export interface CheckoutResult {
   replayUrl: string;
   failedStep?: CheckoutStep;
   errorMessage?: string;
+  errorCategory?: import("@bloon/core").CheckoutErrorCategory;
+  diagnosticScreenshotPath?: string;
+  checkpoints?: CheckoutCheckpoints;
   durationMs?: number;
 }
 
