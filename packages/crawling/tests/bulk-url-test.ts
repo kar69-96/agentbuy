@@ -44,25 +44,25 @@ const urls: { url: string; category: string }[] = [
   // ---- Shopify stores ----
   { url: "https://www.allbirds.com/products/mens-tree-runners", category: "Shopify / Shoes" },
   { url: "https://en.pitviper.es/products/the-actualbush-original-2-0", category: "Shopify / Sunglasses" },
-  { url: "https://www.gymshark.com/products/gymshark-adapt-camo-seamless-leggings-black-asphalt-grey-ss24", category: "Gymshark / Activewear" },
+  { url: "https://www.gymshark.com/products/gymshark-running-elite-race-vest-sleeveless-tops-black-ss25", category: "Gymshark / Activewear" },
   { url: "https://www.brooklinen.com/products/classic-core-sheet-set", category: "Shopify / Bedding" },
   { url: "https://bombas.com/products/mens-merino-wool-socks", category: "Bombas / Socks" },
   { url: "https://ruggable.com/products/kamran-hazel-rug", category: "Ruggable / Rugs" },
-  { url: "https://www.chubbiesshorts.com/products/the-business-executives-6-everywear-performance-short", category: "Chubbies / Shorts" },
-  { url: "https://www.mvmt.com/products/classic-black-tan", category: "Shopify / Watches" },
+  { url: "https://www.chubbiesshorts.com/products/the-shadowstorms-5-5-originals", category: "Chubbies / Shorts" },
+  { url: "https://www.mvmt.com/new-arrivals-4/napa-red/28000548.html", category: "MVMT / Watches" },
   { url: "https://www.nativecos.com/products/deodorant-stick", category: "Native / Personal care" },
   { url: "https://www.hydroflask.com/32-oz-wide-mouth", category: "Shopify / Bottles" },
 
   // ---- Fashion / Apparel ----
   { url: "https://www.primark.com/es-es/p/pantalones-cortos-deportivos-de-malla-negro-991160590804", category: "Primark / Shorts" },
-  { url: "https://www.zara.com/us/en/cotton-t-shirt-p00722325.html", category: "Zara / T-shirt" },
+  { url: "https://www.zara.com/us/en/rustic-cotton-t-shirt-p04424306.html?v1=504236252", category: "Zara / T-shirt" },
   { url: "https://www2.hm.com/en_us/productpage.0970818001.html", category: "H&M / Apparel" },
   { url: "https://www.uniqlo.com/us/en/products/E422992-000/00", category: "Uniqlo / Apparel" },
   { url: "https://www.nike.com/t/air-max-90-mens-shoes-6n3vKB/CN8490-001", category: "Nike / Shoes" },
-  { url: "https://www.adidas.com/us/ultraboost-5-shoes/HQ6437.html", category: "Adidas / Shoes" },
+  { url: "https://www.adidas.com/us/samba-jane-shoes/JR1402.html", category: "Adidas / Shoes" },
   { url: "https://www.levi.com/US/en_US/clothing/men/jeans/511-slim-fit-mens-jeans/p/045115855", category: "Levi's / Jeans" },
-  { url: "https://www.nordstrom.com/s/nike-dunk-low-retro-sneaker-men/6579130", category: "Nordstrom / Shoes" },
-  { url: "https://www.gap.com/browse/product.do?pid=795187012", category: "Gap / Apparel" },
+  { url: "https://www.nordstrom.com/s/air-force-1-07-basketball-sneaker-men/4680267", category: "Nordstrom / Shoes" },
+  { url: "https://www.gap.com/browse/product.do?pid=706174002", category: "Gap / Apparel" },
 
   // ---- Electronics ----
   { url: "https://www.apple.com/shop/buy-iphone/iphone-16", category: "Apple / Phone" },
@@ -81,7 +81,7 @@ const urls: { url: string; category: string }[] = [
 
   // ---- Grocery / Food ----
   { url: "https://www.vitacost.com/pacific-foods-organic-oat-plant-based-beverage-original", category: "Vitacost / Grocery" },
-  { url: "https://www.thrive.market/p/primal-kitchen-classic-bbq-sauce", category: "Thrive / Food" },
+  { url: "https://www.primalkitchen.com/products/classic-unsweetened-organic-bbq-sauce", category: "Primal Kitchen / Food" },
 
   // ---- Beauty / Skincare ----
   { url: "https://www.sephora.com/product/the-porefessional-face-primer-P264900", category: "Sephora / Makeup" },
@@ -97,7 +97,7 @@ const urls: { url: string; category: string }[] = [
   { url: "https://www.thenorthface.com/en-us/p/mens/mens-jackets-and-vests-211702/mens-terra-peak-jacket-NF0A88U2", category: "North Face / Jacket" },
 
   // ---- Books / Media ----
-  { url: "https://bookshop.org/p/books/atomic-habits-james-clear/7244448", category: "Bookshop / Book" },
+  { url: "https://bookshop.org/p/books/atomic-habits-an-easy-proven-way-to-build-good-habits-break-bad-ones-james-clear/072529306f5772fe", category: "Bookshop / Book" },
   { url: "https://www.barnesandnoble.com/w/project-hail-mary-andy-weir/1137396811", category: "B&N / Book" },
 
   // ---- Pet ----
@@ -118,7 +118,7 @@ const urls: { url: string; category: string }[] = [
   { url: "https://www.muji.us/products/ultrasonic-aroma-diffuser", category: "Muji / Home" },
 
   // ---- Supplements / Health ----
-  { url: "https://www.iherb.com/pr/nature-s-way-alive-once-daily-multi-vitamin-ultra-potency-60-tablets/14811", category: "iHerb / Vitamins" },
+  { url: "https://www.iherb.com/pr/nature-s-way-alive-men-s-ultra-multivitamin-60-tablets/37794", category: "iHerb / Vitamins" },
   { url: "https://athleticgreens.com/en", category: "AG1 / Supplements" },
 
   // ---- Marketplace ----
