@@ -9,6 +9,7 @@
     "test:watch": "vitest",
     "test:checkout": "tsx tests/browserbase-refinement/test-checkout.ts",
     "test:checkout:loop": "tsx tests/browserbase-refinement/test-checkout-loop.ts",
+    "test:account-creation": "tsx tests/browserbase-refinement/test-account-creation.ts",
     "firecrawl:start": "bash packages/crawling/scripts/start.sh",
     "firecrawl:stop": "bash packages/crawling/scripts/stop.sh",
     "firecrawl:health": "bash packages/crawling/scripts/health.sh"
