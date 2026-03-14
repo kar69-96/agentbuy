@@ -1,16 +1,15 @@
 /**
  * AgentMail integration for checkout email verification.
  *
- * Provides a singleton inbox so checkout flows can receive
- * verification codes sent to the agent's email address.
+ * Uses a fixed email address from AGENTMAIL_ADDRESS env var.
+ * The same address is reused across all checkouts and account creations.
+ * AgentMail API is only needed for polling verification codes.
  */
 import { AgentMailClient } from "agentmail";
 
 // ---- Singleton state ----
 
 let client: AgentMailClient | null = null;
-let cachedInboxId: string | null = null;
-let cachedEmail: string | null = null;
 
 // ---- Initialization ----
 
@@ -25,53 +24,26 @@ function getClient(): AgentMailClient {
   return client;
 }
 
-function inboxIdToEmail(id: string): string {
-  return id.includes("@") ? id : `${id}@agentmail.to`;
-}
-
 /**
- * Get an existing inbox or create one. Reuses the first existing inbox
- * to avoid hitting free-tier inbox limits. Caches in memory for the
- * process lifetime.
+ * Get the fixed agent email address and inbox ID from env.
+ * Returns null if AGENTMAIL_ADDRESS is not configured.
  */
-export async function getOrCreateInbox(): Promise<{
-  inboxId: string;
-  email: string;
-}> {
-  if (cachedInboxId && cachedEmail) {
-    return { inboxId: cachedInboxId, email: cachedEmail };
-  }
+export function getAgentInbox(): { inboxId: string; email: string } | null {
+  const address = process.env.AGENTMAIL_ADDRESS;
+  if (!address) return null;
 
-  const am = getClient();
+  // Extract inbox ID (the local part before @)
+  const inboxId = address.includes("@") ? address.split("@")[0]! : address;
+  const email = address.includes("@") ? address : `${address}@agentmail.to`;
 
-  // Try to reuse an existing inbox first (avoids free-tier inbox limit)
-  try {
-    const existing = await am.inboxes.list();
-    const inboxes = existing.inboxes ?? [];
-    if (inboxes.length > 0) {
-      const reuse = inboxes[0]!;
-      cachedInboxId = reuse.inboxId;
-      cachedEmail = inboxIdToEmail(reuse.inboxId);
-      console.log(`  [agentmail] reusing inbox: ${cachedEmail}`);
-      return { inboxId: cachedInboxId, email: cachedEmail };
-    }
-  } catch {
-    // List failed — fall through to create
-  }
-
-  const inbox = await am.inboxes.create();
-  cachedInboxId = inbox.inboxId;
-  cachedEmail = inboxIdToEmail(inbox.inboxId);
-
-  console.log(`  [agentmail] created inbox: ${cachedEmail}`);
-  return { inboxId: cachedInboxId!, email: cachedEmail! };
+  return { inboxId, email };
 }
 
 /**
- * Return the cached agent email address, or null if not yet initialized.
+ * Return the agent email address, or null if not configured.
  */
 export function getAgentEmail(): string | null {
-  return cachedEmail;
+  return getAgentInbox()?.email ?? null;
 }
 
 // ---- Verification code extraction ----
@@ -149,6 +121,4 @@ export async function pollForVerificationCode(
 
 export function resetAgentMail(): void {
   client = null;
-  cachedInboxId = null;
-  cachedEmail = null;
 }

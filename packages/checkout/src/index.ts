@@ -101,7 +101,7 @@ export type { PageType, ConfirmationData, ErrorData, ErrorType } from "./scripte
 
 // ---- AgentMail (email verification) ----
 export {
-  getOrCreateInbox,
+  getAgentInbox,
   getAgentEmail,
   pollForVerificationCode,
   resetAgentMail,

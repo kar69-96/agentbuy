@@ -32,7 +32,7 @@ import {
   extractErrorMessage,
 } from "./scripted-actions.js";
 import type { PageType } from "./scripted-actions.js";
-import { getOrCreateInbox, getAgentEmail, pollForVerificationCode } from "./agentmail.js";
+import { getAgentInbox, pollForVerificationCode } from "./agentmail.js";
 
 // ---- Checkout steps ----
 
@@ -275,18 +275,12 @@ export async function runCheckout(
     country: stagehandVars.x_billing_country ?? "",
   };
 
-  // 3b. AgentMail — replace shipping email with agent inbox for verification support
-  let agentInboxId: string | null = null;
-  if (process.env.AGENTMAIL_API_KEY) {
-    try {
-      const inbox = await getOrCreateInbox();
-      agentInboxId = inbox.inboxId;
-      shippingData.email = inbox.email;
-      stagehandVars.x_shipping_email = inbox.email;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.log(`  [agentmail] init failed, using original email: ${msg.slice(0, 100)}`);
-    }
+  // 3b. AgentMail — replace shipping email with agent address for verification support
+  const agentInbox = getAgentInbox();
+  const agentInboxId = agentInbox?.inboxId ?? null;
+  if (agentInbox) {
+    shippingData.email = agentInbox.email;
+    stagehandVars.x_shipping_email = agentInbox.email;
   }
 
   // 4. Validate keys early (fail fast with clear error)
