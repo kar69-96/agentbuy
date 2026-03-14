@@ -46,6 +46,14 @@ export function getAgentEmail(): string | null {
   return getAgentInbox()?.email ?? null;
 }
 
+/**
+ * Return the fixed agent password from AGENTMAIL_PASSWORD env var.
+ * Used for account creation on sites that require login.
+ */
+export function getAgentPassword(): string | null {
+  return process.env.AGENTMAIL_PASSWORD ?? null;
+}
+
 // ---- Verification code extraction ----
 
 const CODE_PATTERNS = [

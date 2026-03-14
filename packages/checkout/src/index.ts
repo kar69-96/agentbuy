@@ -1,6 +1,11 @@
 // ---- Checkout orchestration ----
 export { runCheckout, CHECKOUT_STEPS } from "./task.js";
-export type { CheckoutResult, CheckoutInput, CheckoutStep, CheckoutCheckpoints } from "./task.js";
+export type {
+  CheckoutResult,
+  CheckoutInput,
+  CheckoutStep,
+  CheckoutCheckpoints,
+} from "./task.js";
 
 // ---- CAPTCHA handling ----
 export { waitForCaptchaSolve } from "./captcha.js";
@@ -15,7 +20,6 @@ export {
   discoverProduct,
   scrapePriceWithOptions,
   discoverViaBrowser,
-
   extractVariantsFromJsonLd,
   fetchVariantPriceBrowser,
   resolveVariantPricesViaBrowser,
@@ -96,13 +100,18 @@ export {
   extractVisibleTotal,
   extractErrorMessage,
 } from "./scripted-actions.js";
-export type { PageType, ConfirmationData, ErrorData, ErrorType } from "./scripted-actions.js";
-
+export type {
+  PageType,
+  ConfirmationData,
+  ErrorData,
+  ErrorType,
+} from "./scripted-actions.js";
 
 // ---- AgentMail (email verification) ----
 export {
   getAgentInbox,
   getAgentEmail,
+  getAgentPassword,
   pollForVerificationCode,
   resetAgentMail,
 } from "./agentmail.js";

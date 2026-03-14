@@ -32,7 +32,12 @@ import {
   extractErrorMessage,
 } from "./scripted-actions.js";
 import type { PageType } from "./scripted-actions.js";
-import { getAgentInbox, pollForVerificationCode } from "./agentmail.js";
+import {
+  getAgentInbox,
+  getAgentEmail,
+  getAgentPassword,
+  pollForVerificationCode,
+} from "./agentmail.js";
 
 // ---- Checkout steps ----
 
@@ -108,6 +113,7 @@ const MAX_LLM_CALLS = 25;
 interface LoopState {
   currentStep: CheckoutStep;
   addedToCart: boolean;
+  accountCreated: boolean;
   shippingFilled: boolean;
   cardFilled: boolean;
   billingFilled: boolean;
@@ -131,6 +137,7 @@ function pageTypeToStep(pageType: PageType): CheckoutStep {
     case "cart":
       return "proceed-to-checkout";
     case "login-gate":
+    case "registration-form":
       return "proceed-to-checkout";
     case "email-verification":
       return "verify-email";
@@ -166,9 +173,10 @@ function buildPageInstruction(
   if (state.shippingFilled) done.push("shipping filled");
   if (state.cardFilled) done.push("card filled");
   if (state.billingFilled) done.push("billing filled");
-  const ctx = done.length > 0
-    ? `[${domain}] Already done: ${done.join(", ")}. `
-    : `[${domain}] `;
+  const ctx =
+    done.length > 0
+      ? `[${domain}] Already done: ${done.join(", ")}. `
+      : `[${domain}] `;
   const stallHint = isStalled
     ? "Previous action didn't advance the page. Try a different approach — scroll down, look for alternative buttons, or try clicking directly. "
     : "";
@@ -195,7 +203,9 @@ function buildPageInstruction(
           return `${ctx}${stallHint}Product options are already selected. Click the "Add to Cart", "Add to Bag", or "Buy Now" button NOW. Do NOT re-select any options.`;
         }
         // First attempt: select options
-        return `${ctx}Select exactly these options: ${Object.entries(selections).map(([k, v]) => `${k}: ${v}`).join(", ")}. After selecting, click "Add to Cart" or "Add to Bag".`;
+        return `${ctx}Select exactly these options: ${Object.entries(selections)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join(", ")}. After selecting, click "Add to Cart" or "Add to Bag".`;
       }
       // No selections — just add to cart.
       return `${ctx}Click "Add to Cart", "Add to Bag", or "Buy Now". Do NOT browse or select any product options.`;
@@ -205,7 +215,19 @@ function buildPageInstruction(
       return `${ctx}${stallHint}Click "Checkout", "Proceed to Checkout", or "Continue to Checkout" to advance to the checkout page.`;
 
     case "login-gate":
-      return `${ctx}${stallHint}Click "Guest Checkout", "Continue as Guest", "Continue without account", "Checkout as Guest", "Continue without signing in", "Skip sign in", "Shop as guest", or "No thanks" to skip login. Do NOT create an account.`;
+      if (isStalled && !state.accountCreated) {
+        return `${ctx}${stallHint}No guest checkout option available. Click "Create Account", "Sign Up", "Register", or "Join" to create a new account instead.`;
+      }
+      if (isStalled && state.accountCreated) {
+        return `${ctx}${stallHint}Account was already created. Click "Sign In" or "Log In", then enter email=%x_account_email% and password=%x_account_password% to log in.`;
+      }
+      return `${ctx}${stallHint}Click "Guest Checkout", "Continue as Guest", "Continue without account", "Checkout as Guest", "Continue without signing in", "Skip sign in", "Shop as guest", or "No thanks" to skip login.`;
+
+    case "registration-form":
+      if (state.accountCreated) {
+        return `${ctx}${stallHint}Account was already created. Navigate back to sign in or checkout. Do NOT create another account.`;
+      }
+      return `${ctx}${stallHint}Fill the registration form: email=%x_account_email%, password=%x_account_password%, confirm password=%x_account_password%. If a name field is required, use %x_shipping_name%. Then click "Create Account", "Sign Up", "Register", or "Submit".`;
 
     case "email-verification":
       return `${ctx}${stallHint}Enter the verification code that was sent to the email address. The code is: ${state.verificationCode ?? "still being retrieved"}. If you see a code input field, enter it and click Verify/Submit/Continue.`;
@@ -283,6 +305,16 @@ export async function runCheckout(
     stagehandVars.x_shipping_email = agentInbox.email;
   }
 
+  // 3c. Account credentials for registration (if needed at login gate)
+  const agentEmail = getAgentEmail();
+  const agentPasswordVal = getAgentPassword();
+  if (agentEmail) {
+    stagehandVars.x_account_email = agentEmail;
+  }
+  if (agentPasswordVal) {
+    stagehandVars.x_account_password = agentPasswordVal;
+  }
+
   // 4. Validate keys early (fail fast with clear error)
   const modelApiKey = getModelApiKey();
 
@@ -338,8 +370,12 @@ export async function runCheckout(
       }
       const finalUrlObj = new URL(finalUrl);
       const isSearchPage =
-        ["/search", "/find"].some(s => finalUrlObj.pathname.toLowerCase().includes(s)) ||
-        ["q=", "query="].some(s => finalUrlObj.search.toLowerCase().includes(s));
+        ["/search", "/find"].some((s) =>
+          finalUrlObj.pathname.toLowerCase().includes(s),
+        ) ||
+        ["q=", "query="].some((s) =>
+          finalUrlObj.search.toLowerCase().includes(s),
+        );
       if (isSearchPage) {
         return {
           success: false,
@@ -351,17 +387,28 @@ export async function runCheckout(
         };
       }
       if (finalUrl !== url) {
-        console.log(`  [redirect] ${url.slice(0, 80)} → ${finalUrl.slice(0, 80)}`);
+        console.log(
+          `  [redirect] ${url.slice(0, 80)} → ${finalUrl.slice(0, 80)}`,
+        );
       }
-    } catch { /* URL parsing failed — continue */ }
+    } catch {
+      /* URL parsing failed — continue */
+    }
 
     // 8a-bot. Bot-block detection — minimal page content signals bot-blocked site
     try {
-      const bodyText = await page.evaluate(() => document.body.textContent || "");
-      const wordCount = bodyText.trim().split(/\s+/).filter((w: string) => w.length > 0).length;
+      const bodyText = await page.evaluate(
+        () => document.body.textContent || "",
+      );
+      const wordCount = bodyText
+        .trim()
+        .split(/\s+/)
+        .filter((w: string) => w.length > 0).length;
       const charCount = bodyText.trim().length;
       if (charCount < 500 || wordCount < 50) {
-        console.log(`  [bot-blocked] page content too small: ${charCount} chars, ${wordCount} words`);
+        console.log(
+          `  [bot-blocked] page content too small: ${charCount} chars, ${wordCount} words`,
+        );
         return {
           success: false,
           sessionId: session.id,
@@ -386,9 +433,13 @@ export async function runCheckout(
 
     // 8c. DOM pruning — strip non-functional elements to reduce token count
     await page.evaluate(() => {
-      document.querySelectorAll("noscript").forEach(e => e.remove());
-      document.querySelectorAll('[aria-hidden="true"]').forEach(e => e.remove());
-      document.querySelectorAll("img").forEach(img => { img.removeAttribute("srcset"); });
+      document.querySelectorAll("noscript").forEach((e) => e.remove());
+      document
+        .querySelectorAll('[aria-hidden="true"]')
+        .forEach((e) => e.remove());
+      document.querySelectorAll("img").forEach((img) => {
+        img.removeAttribute("srcset");
+      });
     });
 
     // 8d. Initial scripted popup dismissal
@@ -398,6 +449,7 @@ export async function runCheckout(
     const state: LoopState = {
       currentStep: "navigate",
       addedToCart: false,
+      accountCreated: false,
       shippingFilled: false,
       cardFilled: false,
       billingFilled: false,
@@ -424,11 +476,15 @@ export async function runCheckout(
       try {
         pageType = await detectPageType(page);
       } catch {
-        console.log(`  [detect-error] detectPageType threw, treating as unknown`);
+        console.log(
+          `  [detect-error] detectPageType threw, treating as unknown`,
+        );
         pageType = "unknown";
       }
       state.currentStep = pageTypeToStep(pageType);
-      console.log(`[page ${pageIdx}] type=${pageType} url=${page.url().slice(0, 80)}`);
+      console.log(
+        `[page ${pageIdx}] type=${pageType} url=${page.url().slice(0, 80)}`,
+      );
 
       // 9d. Run page-type handler (all scripted, 0 LLM)
       let advanced = false;
@@ -436,7 +492,9 @@ export async function runCheckout(
       switch (pageType) {
         case "donation-landing": {
           // 3-step scripted handler: select amount → one-time → click payment button
-          console.log(`  [donation] entering scripted handler, price=${input.order.product.price}`);
+          console.log(
+            `  [donation] entering scripted handler, price=${input.order.product.price}`,
+          );
           const price = input.order.product.price;
           let amountSelected = false;
 
@@ -444,7 +502,10 @@ export async function runCheckout(
           if (price) {
             const priceNum = parseFloat(price);
             const variants = [
-              `$${priceNum}`, `$${priceNum.toFixed(2)}`, `${priceNum}`, `${priceNum.toFixed(2)}`,
+              `$${priceNum}`,
+              `$${priceNum.toFixed(2)}`,
+              `${priceNum}`,
+              `${priceNum.toFixed(2)}`,
             ];
 
             // Try radio buttons with matching value
@@ -462,8 +523,13 @@ export async function runCheckout(
                 // data-amount attributes
                 for (const v of vars) {
                   const plain = v.replace("$", "");
-                  const el = document.querySelector(`[data-amount="${plain}"], [data-amount="${v}"]`);
-                  if (el) { (el as HTMLElement).click(); return true; }
+                  const el = document.querySelector(
+                    `[data-amount="${plain}"], [data-amount="${v}"]`,
+                  );
+                  if (el) {
+                    (el as HTMLElement).click();
+                    return true;
+                  }
                 }
                 // Buttons/labels containing the price text
                 const clickables = document.querySelectorAll(
@@ -471,14 +537,15 @@ export async function runCheckout(
                 );
                 for (const el of clickables) {
                   const text = (el.textContent || "").trim();
-                  if (vars.some(v => text === v || text.includes(v))) {
+                  if (vars.some((v) => text === v || text.includes(v))) {
                     (el as HTMLElement).click();
                     return true;
                   }
                 }
                 return false;
               }, variants);
-              if (amountSelected) console.log(`  [donation] selected amount via DOM click`);
+              if (amountSelected)
+                console.log(`  [donation] selected amount via DOM click`);
             }
           }
 
@@ -486,36 +553,43 @@ export async function runCheckout(
           if (amountSelected) {
             await page.waitForTimeout(500);
             const oneTimeSelected =
-              await scriptedSelectOption(page, "one-time", "radio") ||
-              await scriptedSelectOption(page, "one time", "radio") ||
-              await scriptedSelectOption(page, "just once", "radio");
-            if (oneTimeSelected) console.log(`  [donation] selected one-time frequency`);
+              (await scriptedSelectOption(page, "one-time", "radio")) ||
+              (await scriptedSelectOption(page, "one time", "radio")) ||
+              (await scriptedSelectOption(page, "just once", "radio"));
+            if (oneTimeSelected)
+              console.log(`  [donation] selected one-time frequency`);
           }
 
           // Step 3: Click payment button (only if amount was selected)
           if (amountSelected) {
             await page.waitForTimeout(500);
             advanced =
-              await scriptedClickButton(page, "donate by credit") ||
-              await scriptedClickButton(page, "donate by card") ||
-              await scriptedClickButton(page, "credit card") ||
-              await scriptedClickButton(page, "credit/debit card") ||
-              await scriptedClickButton(page, "donate now") ||
-              await scriptedClickButton(page, "continue") ||
-              await scriptedClickButton(page, "donate") ||
-              await scriptedClickButton(page, "give now");
+              (await scriptedClickButton(page, "donate by credit")) ||
+              (await scriptedClickButton(page, "donate by card")) ||
+              (await scriptedClickButton(page, "credit card")) ||
+              (await scriptedClickButton(page, "credit/debit card")) ||
+              (await scriptedClickButton(page, "donate now")) ||
+              (await scriptedClickButton(page, "continue")) ||
+              (await scriptedClickButton(page, "donate")) ||
+              (await scriptedClickButton(page, "give now"));
             if (advanced) console.log(`  [donation] clicked payment button`);
           }
 
           // If amount selection failed → advanced stays false → LLM fallback
           if (!amountSelected && price) {
-            console.log(`  [donation] scripted amount selection failed for $${price}`);
+            console.log(
+              `  [donation] scripted amount selection failed for $${price}`,
+            );
           }
           break;
         }
 
         case "product": {
-          if (input.selections && Object.keys(input.selections).length > 0 && !state.selectionsApplied) {
+          if (
+            input.selections &&
+            Object.keys(input.selections).length > 0 &&
+            !state.selectionsApplied
+          ) {
             // Variant selection needed and not yet applied — defer to LLM
             // advanced stays false → LLM fallback handles selection
             break;
@@ -528,7 +602,10 @@ export async function runCheckout(
               const checkoutUrl = new URL(page.url());
               checkoutUrl.pathname = "/checkout";
               checkoutUrl.search = "";
-              await page.goto(checkoutUrl.toString(), { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+              await page.goto(checkoutUrl.toString(), {
+                waitUntil: "domcontentloaded",
+                timeoutMs: 15000,
+              });
               advanced = true;
             } catch {
               // Fall through to LLM
@@ -539,24 +616,36 @@ export async function runCheckout(
           // Check for out-of-stock / unavailable variant before trying ATC
           const isUnavailable = await page.evaluate(() => {
             const unavailableTexts = [
-              "option not available", "sold out", "out of stock",
-              "unavailable", "notify me", "coming soon", "not available",
-              "currently out", "temporarily out",
+              "option not available",
+              "sold out",
+              "out of stock",
+              "unavailable",
+              "notify me",
+              "coming soon",
+              "not available",
+              "currently out",
+              "temporarily out",
             ];
             // Check all buttons and submit inputs for unavailable signals
-            const allButtons = document.querySelectorAll('button, input[type="submit"]');
+            const allButtons = document.querySelectorAll(
+              'button, input[type="submit"]',
+            );
             for (const btn of allButtons) {
               const text = (btn.textContent || "").trim().toLowerCase();
-              const value = ((btn as HTMLInputElement).value || "").toLowerCase();
+              const value = (
+                (btn as HTMLInputElement).value || ""
+              ).toLowerCase();
               const combined = `${text} ${value}`;
-              if (unavailableTexts.some(s => combined.includes(s))) {
+              if (unavailableTexts.some((s) => combined.includes(s))) {
                 return text || value || "unavailable";
               }
             }
             return null;
           });
           if (isUnavailable) {
-            console.log(`  [product] ATC button unavailable: "${isUnavailable}"`);
+            console.log(
+              `  [product] ATC button unavailable: "${isUnavailable}"`,
+            );
             return {
               success: false,
               sessionId: session.id,
@@ -570,12 +659,12 @@ export async function runCheckout(
           // No selections needed, or selections already applied — try scripted add-to-cart
           // Prefer "buy now" (goes directly to checkout, skips cart drawer)
           const addedToCart =
-            await scriptedClickButton(page, "buy now") ||
-            await scriptedClickButton(page, "add to cart") ||
-            await scriptedClickButton(page, "add to bag") ||
-            await scriptedClickButton(page, "add to basket") ||
-            await scriptedClickButton(page, "ship it") ||
-            await scriptedClickButton(page, "deliver it");
+            (await scriptedClickButton(page, "buy now")) ||
+            (await scriptedClickButton(page, "add to cart")) ||
+            (await scriptedClickButton(page, "add to bag")) ||
+            (await scriptedClickButton(page, "add to basket")) ||
+            (await scriptedClickButton(page, "ship it")) ||
+            (await scriptedClickButton(page, "deliver it"));
           if (addedToCart) {
             state.addedToCart = true;
             console.log(`  [product] added to cart via scripted click`);
@@ -588,20 +677,25 @@ export async function runCheckout(
             } else {
               // Still on product page — try checkout buttons in cart drawer
               advanced =
-                await scriptedClickButton(page, "checkout") ||
-                await scriptedClickButton(page, "proceed to checkout") ||
-                await scriptedClickButton(page, "go to checkout") ||
-                await scriptedClickButton(page, "secure checkout") ||
-                await scriptedClickButton(page, "view bag") ||
-                await scriptedClickButton(page, "view cart");
+                (await scriptedClickButton(page, "checkout")) ||
+                (await scriptedClickButton(page, "proceed to checkout")) ||
+                (await scriptedClickButton(page, "go to checkout")) ||
+                (await scriptedClickButton(page, "secure checkout")) ||
+                (await scriptedClickButton(page, "view bag")) ||
+                (await scriptedClickButton(page, "view cart"));
               // If no checkout button found, navigate directly to /checkout
               if (!advanced) {
-                console.log(`  [product] no checkout button in drawer, navigating to /checkout`);
+                console.log(
+                  `  [product] no checkout button in drawer, navigating to /checkout`,
+                );
                 try {
                   const checkoutUrl = new URL(page.url());
                   checkoutUrl.pathname = "/checkout";
                   checkoutUrl.search = "";
-                  await page.goto(checkoutUrl.toString(), { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+                  await page.goto(checkoutUrl.toString(), {
+                    waitUntil: "domcontentloaded",
+                    timeoutMs: 15000,
+                  });
                   advanced = true;
                 } catch {
                   // Fall through to LLM
@@ -614,21 +708,26 @@ export async function runCheckout(
 
         case "cart": {
           advanced =
-            await scriptedClickButton(page, "checkout") ||
-            await scriptedClickButton(page, "proceed to checkout") ||
-            await scriptedClickButton(page, "continue to checkout") ||
-            await scriptedClickButton(page, "secure checkout") ||
-            await scriptedClickButton(page, "go to checkout") ||
-            await scriptedClickButton(page, "start checkout") ||
-            await scriptedClickButton(page, "begin checkout");
+            (await scriptedClickButton(page, "checkout")) ||
+            (await scriptedClickButton(page, "proceed to checkout")) ||
+            (await scriptedClickButton(page, "continue to checkout")) ||
+            (await scriptedClickButton(page, "secure checkout")) ||
+            (await scriptedClickButton(page, "go to checkout")) ||
+            (await scriptedClickButton(page, "start checkout")) ||
+            (await scriptedClickButton(page, "begin checkout"));
           // Fallback: navigate directly to /checkout if buttons didn't work
           if (!advanced) {
-            console.log(`  [cart] no checkout button found, navigating to /checkout`);
+            console.log(
+              `  [cart] no checkout button found, navigating to /checkout`,
+            );
             try {
               const checkoutUrl = new URL(page.url());
               checkoutUrl.pathname = "/checkout";
               checkoutUrl.search = "";
-              await page.goto(checkoutUrl.toString(), { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+              await page.goto(checkoutUrl.toString(), {
+                waitUntil: "domcontentloaded",
+                timeoutMs: 15000,
+              });
               advanced = true;
             } catch {
               // Fall through to LLM
@@ -638,17 +737,45 @@ export async function runCheckout(
         }
 
         case "login-gate": {
+          // First try guest checkout buttons
           advanced =
-            await scriptedClickButton(page, "guest checkout") ||
-            await scriptedClickButton(page, "continue as guest") ||
-            await scriptedClickButton(page, "continue without account") ||
-            await scriptedClickButton(page, "guest") ||
-            await scriptedClickButton(page, "checkout as guest") ||
-            await scriptedClickButton(page, "continue without signing in") ||
-            await scriptedClickButton(page, "skip sign in") ||
-            await scriptedClickButton(page, "shop as guest") ||
-            await scriptedClickButton(page, "checkout without an account") ||
-            await scriptedClickButton(page, "no thanks");
+            (await scriptedClickButton(page, "guest checkout")) ||
+            (await scriptedClickButton(page, "continue as guest")) ||
+            (await scriptedClickButton(page, "continue without account")) ||
+            (await scriptedClickButton(page, "guest")) ||
+            (await scriptedClickButton(page, "checkout as guest")) ||
+            (await scriptedClickButton(page, "continue without signing in")) ||
+            (await scriptedClickButton(page, "skip sign in")) ||
+            (await scriptedClickButton(page, "shop as guest")) ||
+            (await scriptedClickButton(page, "checkout without an account")) ||
+            (await scriptedClickButton(page, "no thanks"));
+
+          // If guest checkout failed and we've stalled, try account creation path
+          if (!advanced && state.stallCount >= 2 && !state.accountCreated) {
+            const hasCredentials = getAgentEmail() && getAgentPassword();
+            if (hasCredentials) {
+              console.log(
+                "  [login-gate] guest checkout unavailable, trying account creation",
+              );
+              advanced =
+                (await scriptedClickButton(page, "create account")) ||
+                (await scriptedClickButton(page, "sign up")) ||
+                (await scriptedClickButton(page, "register")) ||
+                (await scriptedClickButton(page, "join")) ||
+                (await scriptedClickButton(page, "create an account")) ||
+                (await scriptedClickButton(page, "new customer"));
+            } else {
+              console.log(
+                "  [login-gate] no AGENTMAIL_ADDRESS/AGENTMAIL_PASSWORD — cannot create account",
+              );
+            }
+          }
+          break;
+        }
+
+        case "registration-form": {
+          // Registration form is handled entirely by LLM fallback with Stagehand variables.
+          // No scripted fill needed — the LLM instruction uses %x_account_email% and %x_account_password%.
           break;
         }
 
@@ -656,7 +783,11 @@ export async function runCheckout(
           // Poll AgentMail for verification code
           if (agentInboxId) {
             const pollStart = new Date().toISOString();
-            const code = await pollForVerificationCode(agentInboxId, pollStart, 60_000);
+            const code = await pollForVerificationCode(
+              agentInboxId,
+              pollStart,
+              60_000,
+            );
 
             if (code) {
               state.verificationCode = code;
@@ -665,10 +796,10 @@ export async function runCheckout(
                 console.log(`  [email-verification] filled code: ${code}`);
                 await page.waitForTimeout(1000);
                 advanced =
-                  await scriptedClickButton(page, "verify") ||
-                  await scriptedClickButton(page, "submit") ||
-                  await scriptedClickButton(page, "continue") ||
-                  await scriptedClickButton(page, "confirm");
+                  (await scriptedClickButton(page, "verify")) ||
+                  (await scriptedClickButton(page, "submit")) ||
+                  (await scriptedClickButton(page, "continue")) ||
+                  (await scriptedClickButton(page, "confirm"));
               }
             } else {
               console.log("  [email-verification] timed out waiting for code");
@@ -683,12 +814,16 @@ export async function runCheckout(
           const filled = await scriptedFillShipping(page, shippingData);
           state.shippingFilled = filled.length > 0;
           if (filled.length > 0) {
-            console.log(`  [shipping] filled ${filled.length} fields: ${filled.join(", ")}`);
+            console.log(
+              `  [shipping] filled ${filled.length} fields: ${filled.join(", ")}`,
+            );
           }
 
           // If scripted fill got < 3 fields, supplement with LLM using variables
           if (filled.length < 3 && state.llmCalls < MAX_LLM_CALLS) {
-            console.log(`  [shipping] only ${filled.length} fields via script, supplementing with LLM`);
+            console.log(
+              `  [shipping] only ${filled.length} fields via script, supplementing with LLM`,
+            );
             try {
               await stagehand.act(
                 `Fill the shipping/contact form: email=%x_shipping_email%, name=%x_shipping_name%, address=%x_shipping_street%, city=%x_shipping_city%, state=%x_shipping_state%, zip=%x_shipping_zip%, phone=%x_shipping_phone%. Skip any fields already filled.`,
@@ -706,11 +841,11 @@ export async function runCheckout(
           if (state.shippingFilled || filled.length > 0) {
             await page.waitForTimeout(1000);
             advanced =
-              await scriptedClickButton(page, "continue") ||
-              await scriptedClickButton(page, "continue to payment") ||
-              await scriptedClickButton(page, "next") ||
-              await scriptedClickButton(page, "save and continue") ||
-              await scriptedClickButton(page, "continue to shipping");
+              (await scriptedClickButton(page, "continue")) ||
+              (await scriptedClickButton(page, "continue to payment")) ||
+              (await scriptedClickButton(page, "next")) ||
+              (await scriptedClickButton(page, "save and continue")) ||
+              (await scriptedClickButton(page, "continue to shipping"));
           }
           break;
         }
@@ -720,14 +855,21 @@ export async function runCheckout(
           // Combined checkout pages (Glossier, etc.) show shipping + payment on same page.
           // Fill shipping first if not done yet.
           if (!state.shippingFilled) {
-            const shippingFilled = await scriptedFillShipping(page, shippingData);
+            const shippingFilled = await scriptedFillShipping(
+              page,
+              shippingData,
+            );
             state.shippingFilled = shippingFilled.length > 0;
             if (shippingFilled.length > 0) {
-              console.log(`  [payment-page shipping] filled ${shippingFilled.length} fields: ${shippingFilled.join(", ")}`);
+              console.log(
+                `  [payment-page shipping] filled ${shippingFilled.length} fields: ${shippingFilled.join(", ")}`,
+              );
             }
             // Supplement with LLM if scripted got < 3 fields
             if (shippingFilled.length < 3 && state.llmCalls < MAX_LLM_CALLS) {
-              console.log(`  [payment-page shipping] only ${shippingFilled.length} fields via script, supplementing with LLM`);
+              console.log(
+                `  [payment-page shipping] only ${shippingFilled.length} fields via script, supplementing with LLM`,
+              );
               try {
                 await stagehand.act(
                   `Fill the shipping/contact form fields on this page: email=%x_shipping_email%, name=%x_shipping_name%, address=%x_shipping_street%, city=%x_shipping_city%, state=%x_shipping_state%, zip=%x_shipping_zip%, phone=%x_shipping_phone%. Skip any fields already filled.`,
@@ -737,16 +879,18 @@ export async function runCheckout(
                 state.shippingFilled = true;
               } catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
-                console.log(`  [payment-page shipping llm error] ${msg.slice(0, 100)}`);
+                console.log(
+                  `  [payment-page shipping llm error] ${msg.slice(0, 100)}`,
+                );
                 state.llmCalls++;
               }
             }
             // Click continue if there's a shipping-to-payment transition button
             await page.waitForTimeout(1000);
-            await scriptedClickButton(page, "continue") ||
-              await scriptedClickButton(page, "continue to payment") ||
-              await scriptedClickButton(page, "next") ||
-              await scriptedClickButton(page, "save and continue");
+            (await scriptedClickButton(page, "continue")) ||
+              (await scriptedClickButton(page, "continue to payment")) ||
+              (await scriptedClickButton(page, "next")) ||
+              (await scriptedClickButton(page, "save and continue"));
             await page.waitForTimeout(2000);
           }
 
@@ -758,7 +902,9 @@ export async function runCheckout(
             // Fill card fields
             const cardResult = await scriptedFillCardFields(page, cdpCreds);
             state.cardFilled = cardResult.filled > 0;
-            console.log(`  [card] filled ${cardResult.filled} fields via ${cardResult.method}`);
+            console.log(
+              `  [card] filled ${cardResult.filled} fields via ${cardResult.method}`,
+            );
 
             // Wait longer for form validation after card fill
             if (state.cardFilled) {
@@ -767,10 +913,15 @@ export async function runCheckout(
 
             // Fill billing if available
             if (billingData.street) {
-              const billingFilled = await scriptedFillBilling(page, billingData);
+              const billingFilled = await scriptedFillBilling(
+                page,
+                billingData,
+              );
               state.billingFilled = billingFilled.length > 0;
               if (billingFilled.length > 0) {
-                console.log(`  [billing] filled ${billingFilled.length} fields: ${billingFilled.join(", ")}`);
+                console.log(
+                  `  [billing] filled ${billingFilled.length} fields: ${billingFilled.join(", ")}`,
+                );
               }
             }
           }
@@ -787,7 +938,9 @@ export async function runCheckout(
             try {
               const newCache = await extractDomainCache(page, domain);
               saveDomainCache(newCache);
-            } catch { /* best-effort */ }
+            } catch {
+              /* best-effort */
+            }
 
             return {
               success: true,
@@ -800,15 +953,15 @@ export async function runCheckout(
 
           // Live: click place order — try multiple common button labels
           advanced =
-            await scriptedClickButton(page, "place order") ||
-            await scriptedClickButton(page, "complete purchase") ||
-            await scriptedClickButton(page, "submit order") ||
-            await scriptedClickButton(page, "donate") ||
-            await scriptedClickButton(page, "pay now") ||
-            await scriptedClickButton(page, "complete order") ||
-            await scriptedClickButton(page, "confirm order") ||
-            await scriptedClickButton(page, "pay") ||
-            await scriptedClickButton(page, "submit payment");
+            (await scriptedClickButton(page, "place order")) ||
+            (await scriptedClickButton(page, "complete purchase")) ||
+            (await scriptedClickButton(page, "submit order")) ||
+            (await scriptedClickButton(page, "donate")) ||
+            (await scriptedClickButton(page, "pay now")) ||
+            (await scriptedClickButton(page, "complete order")) ||
+            (await scriptedClickButton(page, "confirm order")) ||
+            (await scriptedClickButton(page, "pay")) ||
+            (await scriptedClickButton(page, "submit payment"));
 
           // Post-submit: check for inline validation errors (async merchant responses)
           if (advanced) {
@@ -816,12 +969,16 @@ export async function runCheckout(
             const postSubmitType = await detectPageType(page);
             if (postSubmitType === "error") {
               const errorData = await extractErrorMessage(page);
-              console.log(`  [post-submit error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+              console.log(
+                `  [post-submit error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`,
+              );
 
               try {
                 const newCache = await extractDomainCache(page, domain);
                 saveDomainCache(newCache);
-              } catch { /* best-effort */ }
+              } catch {
+                /* best-effort */
+              }
 
               return {
                 success: false,
@@ -840,13 +997,17 @@ export async function runCheckout(
           const data = await extractConfirmationData(page);
           state.confirmationData = data;
           state.currentStep = "verify-confirmation";
-          console.log(`  [confirmation] order=${data.orderNumber ?? "?"} total=${data.total ?? "?"}`);
+          console.log(
+            `  [confirmation] order=${data.orderNumber ?? "?"} total=${data.total ?? "?"}`,
+          );
 
           // Save domain cache
           try {
             const newCache = await extractDomainCache(page, domain);
             saveDomainCache(newCache);
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
 
           return {
             success: true,
@@ -860,13 +1021,17 @@ export async function runCheckout(
 
         case "error": {
           const errorData = await extractErrorMessage(page);
-          console.log(`  [error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+          console.log(
+            `  [error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`,
+          );
 
           // Save domain cache before returning
           try {
             const newCache = await extractDomainCache(page, domain);
             saveDomainCache(newCache);
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
 
           return {
             success: false,
@@ -881,16 +1046,22 @@ export async function runCheckout(
         default: {
           // unknown — check for help/FAQ page recovery before LLM fallback
           const currentUrl = page.url().toLowerCase();
-          if (state.addedToCart && (
-            currentUrl.includes("/help") ||
-            currentUrl.includes("/faq") ||
-            currentUrl.includes("/support") ||
-            currentUrl.includes("/customer-service")
-          )) {
+          if (
+            state.addedToCart &&
+            (currentUrl.includes("/help") ||
+              currentUrl.includes("/faq") ||
+              currentUrl.includes("/support") ||
+              currentUrl.includes("/customer-service"))
+          ) {
             try {
               const origin = new URL(page.url()).origin;
-              console.log(`  [recovery] help page detected, navigating to ${origin}/cart`);
-              await page.goto(`${origin}/cart`, { waitUntil: "domcontentloaded", timeoutMs: 15000 });
+              console.log(
+                `  [recovery] help page detected, navigating to ${origin}/cart`,
+              );
+              await page.goto(`${origin}/cart`, {
+                waitUntil: "domcontentloaded",
+                timeoutMs: 15000,
+              });
               advanced = true;
             } catch {
               // Fall through to LLM
@@ -925,12 +1096,16 @@ export async function runCheckout(
           const data = await extractConfirmationData(page);
           state.confirmationData = data;
           state.currentStep = "verify-confirmation";
-          console.log(`  [post-action confirmation] order=${data.orderNumber ?? "?"} total=${data.total ?? "?"}`);
+          console.log(
+            `  [post-action confirmation] order=${data.orderNumber ?? "?"} total=${data.total ?? "?"}`,
+          );
 
           try {
             const newCache = await extractDomainCache(page, domain);
             saveDomainCache(newCache);
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
 
           return {
             success: true,
@@ -943,12 +1118,16 @@ export async function runCheckout(
         }
         if (postType === "error") {
           const errorData = await extractErrorMessage(page);
-          console.log(`  [post-action error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+          console.log(
+            `  [post-action error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`,
+          );
 
           try {
             const newCache = await extractDomainCache(page, domain);
             saveDomainCache(newCache);
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
 
           return {
             success: false,
@@ -965,15 +1144,28 @@ export async function runCheckout(
       const needsLlm = !advanced || state.stallCount >= 2;
       if (needsLlm && state.llmCalls < MAX_LLM_CALLS) {
         const isStalled = state.stallCount >= 2;
-        const instruction = buildPageInstruction(pageType, input, state, isStalled);
+        const instruction = buildPageInstruction(
+          pageType,
+          input,
+          state,
+          isStalled,
+        );
 
-        // For shipping forms with no scripted fill, pass variables for LLM substitution
+        // Pass variables for LLM substitution when forms need credential data
         const actOptions: { variables?: Record<string, string> } = {};
         if (pageType === "shipping-form" && !state.shippingFilled) {
           actOptions.variables = stagehandVars;
         }
+        if (pageType === "registration-form" && !state.accountCreated) {
+          actOptions.variables = stagehandVars;
+        }
+        if (pageType === "login-gate" && isStalled && state.accountCreated) {
+          actOptions.variables = stagehandVars;
+        }
 
-        console.log(`  [llm fallback ${state.llmCalls + 1}/${MAX_LLM_CALLS}${isStalled ? " STALLED" : ""}] ${instruction.slice(0, 100)}...`);
+        console.log(
+          `  [llm fallback ${state.llmCalls + 1}/${MAX_LLM_CALLS}${isStalled ? " STALLED" : ""}] ${instruction.slice(0, 100)}...`,
+        );
 
         try {
           await stagehand.act(instruction, actOptions);
@@ -995,12 +1187,12 @@ export async function runCheckout(
           if (!state.addedToCart) {
             await page.waitForTimeout(1000);
             const postLlmAtc =
-              await scriptedClickButton(page, "buy now") ||
-              await scriptedClickButton(page, "add to cart") ||
-              await scriptedClickButton(page, "add to bag") ||
-              await scriptedClickButton(page, "add to basket") ||
-              await scriptedClickButton(page, "ship it") ||
-              await scriptedClickButton(page, "deliver it");
+              (await scriptedClickButton(page, "buy now")) ||
+              (await scriptedClickButton(page, "add to cart")) ||
+              (await scriptedClickButton(page, "add to bag")) ||
+              (await scriptedClickButton(page, "add to basket")) ||
+              (await scriptedClickButton(page, "ship it")) ||
+              (await scriptedClickButton(page, "deliver it"));
             if (postLlmAtc) {
               state.addedToCart = true;
               console.log(`  [post-llm] scripted add-to-cart succeeded`);
@@ -1008,14 +1200,21 @@ export async function runCheckout(
               await page.waitForTimeout(3000);
               // Try checkout buttons in cart drawer
               const wentToCheckout =
-                await scriptedClickButton(page, "checkout") ||
-                await scriptedClickButton(page, "proceed to checkout") ||
-                await scriptedClickButton(page, "go to checkout") ||
-                await scriptedClickButton(page, "view bag") ||
-                await scriptedClickButton(page, "view cart");
-              if (wentToCheckout) console.log(`  [post-llm] navigated to checkout via button`);
+                (await scriptedClickButton(page, "checkout")) ||
+                (await scriptedClickButton(page, "proceed to checkout")) ||
+                (await scriptedClickButton(page, "go to checkout")) ||
+                (await scriptedClickButton(page, "view bag")) ||
+                (await scriptedClickButton(page, "view cart"));
+              if (wentToCheckout)
+                console.log(`  [post-llm] navigated to checkout via button`);
             }
           }
+        }
+
+        // After LLM on registration form, mark account as created
+        if (pageType === "registration-form" && !state.accountCreated) {
+          state.accountCreated = true;
+          console.log("  [registration] account creation submitted");
         }
 
         // Check for navigation / confirmation / error after LLM action
@@ -1031,7 +1230,9 @@ export async function runCheckout(
           try {
             const newCache = await extractDomainCache(page, domain);
             saveDomainCache(newCache);
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
 
           return {
             success: true,
@@ -1044,12 +1245,16 @@ export async function runCheckout(
         }
         if (postLlmType === "error") {
           const errorData = await extractErrorMessage(page);
-          console.log(`  [post-llm error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`);
+          console.log(
+            `  [post-llm error] type=${errorData.type} message=${errorData.message.slice(0, 100)}`,
+          );
 
           try {
             const newCache = await extractDomainCache(page, domain);
             saveDomainCache(newCache);
-          } catch { /* best-effort */ }
+          } catch {
+            /* best-effort */
+          }
 
           return {
             success: false,
@@ -1066,7 +1271,9 @@ export async function runCheckout(
           state.stallCount = 0;
         }
       } else if (needsLlm && state.llmCalls >= MAX_LLM_CALLS) {
-        console.log(`  [budget exhausted] ${state.llmCalls}/${MAX_LLM_CALLS} LLM calls used`);
+        console.log(
+          `  [budget exhausted] ${state.llmCalls}/${MAX_LLM_CALLS} LLM calls used`,
+        );
         break;
       }
     }
@@ -1075,7 +1282,9 @@ export async function runCheckout(
     let confirmedViaPageText = false;
     let finalTotal: string | undefined;
     try {
-      const bodyText = await page.evaluate(() => document.body.textContent || "");
+      const bodyText = await page.evaluate(
+        () => document.body.textContent || "",
+      );
       const confirmation = verifyConfirmationPage(bodyText);
       confirmedViaPageText = confirmation.isConfirmed;
       if (!finalTotal) {
