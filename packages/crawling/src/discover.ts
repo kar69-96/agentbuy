@@ -437,6 +437,16 @@ export async function discoverViaFirecrawlWithDiagnostics(
   }
 }
 
+// ---- URL-slug overlap validation helper ----
+
+/** Returns true if the extracted name has acceptable overlap with the URL slug words. */
+function passesUrlOverlap(url: string, name: string | undefined): boolean {
+  if (!name) return true; // no name to validate against
+  const slugWords = extractSlugWords(url);
+  if (slugWords.length < 2) return true; // slug too short to validate
+  return computeUrlProductOverlap(url, name) > 0;
+}
+
 // ---- Strategy-aware discovery ----
 
 /** Convert a FirecrawlExtract to FullDiscoveryResult with the given method label. */
@@ -496,7 +506,7 @@ export async function discoverWithStrategy(
     const { extract } = await defaultQueryDiscoveryProviders
       .browserbaseExtract(url, timeoutMs)
       .catch(() => ({ extract: null, failure: null }));
-    if (!extract?.price || !isValidPrice(extract.price)) return null;
+    if (!extract?.price || !isValidPrice(extract.price) || !passesUrlOverlap(url, extract.name)) return null;
     return extractToResult(extract, "browserbase");
   }
 
@@ -504,35 +514,40 @@ export async function discoverWithStrategy(
 
   // 1. Exa: full extraction with variant prices
   const exaResult = await discoverViaExa(url).catch(() => null);
-  if (exaResult?.price && isValidPrice(exaResult.price)) {
+  if (exaResult?.price && isValidPrice(exaResult.price) && passesUrlOverlap(url, exaResult.name)) {
     return exaResult;
   }
 
-  // 2. One Firecrawl attempt (not 3 like discoverViaFirecrawl)
+  // 2. Two Firecrawl attempts (retry once on failure)
   const config = getFirecrawlConfig();
   if (config) {
-    const { extract: fcExtract } = await defaultQueryDiscoveryProviders
-      .firecrawlExtract(url, config, timeoutMs)
-      .catch(() => ({ extract: null, failure: null }));
-    if (fcExtract?.price && isValidPrice(fcExtract.price)) {
-      let options = mapOptions(fcExtract.options);
-      if (options.length === 0) {
-        const shopifyOpts = await fetchShopifyOptions(url);
-        if (shopifyOpts) options = shopifyOpts;
+    for (let attempt = 0; attempt <= 1; attempt++) {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 2000));
       }
-      return {
-        name: fcExtract.name!,
-        price: stripCurrencySymbol(fcExtract.price!),
-        image_url: cleanExtractField(fcExtract.image_url),
-        method: "firecrawl",
-        options,
-        original_price: cleanExtractField(fcExtract.original_price)
-          ? stripCurrencySymbol(fcExtract.original_price!)
-          : undefined,
-        currency: cleanExtractField(fcExtract.currency),
-        description: cleanExtractField(fcExtract.description),
-        brand: cleanExtractField(fcExtract.brand),
-      };
+      const { extract: fcExtract } = await defaultQueryDiscoveryProviders
+        .firecrawlExtract(url, config, timeoutMs)
+        .catch(() => ({ extract: null, failure: null }));
+      if (fcExtract?.price && isValidPrice(fcExtract.price) && passesUrlOverlap(url, fcExtract.name)) {
+        let options = mapOptions(fcExtract.options);
+        if (options.length === 0) {
+          const shopifyOpts = await fetchShopifyOptions(url);
+          if (shopifyOpts) options = shopifyOpts;
+        }
+        return {
+          name: fcExtract.name!,
+          price: stripCurrencySymbol(fcExtract.price!),
+          image_url: cleanExtractField(fcExtract.image_url),
+          method: "firecrawl",
+          options,
+          original_price: cleanExtractField(fcExtract.original_price)
+            ? stripCurrencySymbol(fcExtract.original_price!)
+            : undefined,
+          currency: cleanExtractField(fcExtract.currency),
+          description: cleanExtractField(fcExtract.description),
+          brand: cleanExtractField(fcExtract.brand),
+        };
+      }
     }
   }
 
@@ -540,6 +555,6 @@ export async function discoverWithStrategy(
   const { extract: bbExtract } = await defaultQueryDiscoveryProviders
     .browserbaseExtract(url, timeoutMs)
     .catch(() => ({ extract: null, failure: null }));
-  if (!bbExtract?.price || !isValidPrice(bbExtract.price)) return null;
+  if (!bbExtract?.price || !isValidPrice(bbExtract.price) || !passesUrlOverlap(url, bbExtract.name)) return null;
   return extractToResult(bbExtract, "browserbase");
 }

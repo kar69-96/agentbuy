@@ -124,6 +124,9 @@ packages/
 - Manual refunds for failed purchases
 - Localhost only (deploy behind reverse proxy for production)
 
+## Rules 
+- Never build site specific adaptors, always build agnostic
+
 ## Security — ALWAYS APPLIES
 
 > **When:** Every run. These rules are non-negotiable regardless of task.

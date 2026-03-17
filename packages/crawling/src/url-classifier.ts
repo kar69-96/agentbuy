@@ -35,6 +35,7 @@ const BLOCKED_DOMAINS = new Set<string>([
   "target.com",
   "walmart.com",
   "costco.com",
+  "levi.com",
 ]);
 
 /**

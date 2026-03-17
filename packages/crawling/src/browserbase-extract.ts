@@ -412,9 +412,15 @@ function extractViaCssSelectors(html: string): FirecrawlExtract | null {
 
   const priceSelectors = [
     "[data-price]",
+    '[data-testid*="price"]',
+    '[aria-label*="price"]',
+    '[data-automation-id*="price"]',
     ".price",
     "#price",
-    '[data-testid*="price"]',
+    '[class*="productPrice"]',
+    '[class*="buybox"] [class*="price"]',
+    '[class*="offer"] [class*="price"]',
+    'span[class*="amount"]',
     '[class*="price"]:not([class*="compare"]):not([class*="original"]):not([class*="was"])',
   ];
 
