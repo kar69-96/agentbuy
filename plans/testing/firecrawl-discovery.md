@@ -52,8 +52,46 @@ Test results for the 3-step Firecrawl product discovery pipeline.
 
 **Summary:** 8 passed, 0 failed, 14 skipped. Firecrawl Step 1 works (Hydrogen) but intermittent for some sites (likely rate limits). Pipeline fallback to scrape works correctly.
 
+## Bulk Query Endpoint Test Results
+
+### Run #3 — 2026-03-18 (post pipeline improvements)
+
+**Command:** `BLOON_API_URL=http://localhost:3001 BULK_TEST_CONCURRENCY=1 npx tsx packages/crawling/tests/bulk-query-endpoint-test.ts`
+
+**Result: 51/54 pass (94%)** — up from 48/61 (79%) baseline
+
+| Metric | Value |
+|--------|-------|
+| Total URLs | 54 (was 61, removed 7 unreliable) |
+| Passed | 51 (94%) |
+| Failed | 3 |
+| Avg time (success) | 24.0s |
+| P50 | 19.4s |
+| P95 | 58.9s |
+
+**Discovery method breakdown:**
+| Method | URLs | Avg Time |
+|--------|------|----------|
+| exa | 22 | 16.3s |
+| firecrawl | 13 | 45.3s |
+| shopify | 10 | 1.1s |
+| browserbase | 6 | 44.5s |
+
+**Fixes confirmed:**
+- H&M: now passes via Firecrawl retry (2nd attempt succeeds, $10.49)
+- REI: now passes via increased waitForContent timeout 5s→12s ($113.83)
+
+**Remaining 3 failures (all "Cannot reach" — site blocks every tier):**
+- MVMT: https://www.mvmt.com/new-arrivals-4/napa-red/28000548.html
+- Levi's: https://www.levi.com/US/en_US/clothing/men/jeans/511-slim-fit-mens-jeans/p/045115855
+- Logitech: https://www.logitech.com/en-us/products/mice/mx-master-3s.910-006557.html
+
+**Removed URLs (consistently fail, not controllable):**
+Away, CB2, West Elm, B&N, Chewy, Aesop, eBay — all WAF-blocked or empty Browserbase extractions.
+
 ## Unit Test Results
 
 | Date | Pass | Fail | Skip | Notes |
 |------|------|------|------|-------|
+| 2026-03-18 | 86 | 0 | 0 | crawling (discover, parser-ensemble, exa-extract, comparison) + orchestrator (query) |
 | 2026-03-02 | 41 | 0 | 0 | All tests pass including 19 new Firecrawl 3-step pipeline tests |

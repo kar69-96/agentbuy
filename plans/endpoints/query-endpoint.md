@@ -36,9 +36,16 @@ POST /api/query
   NO
   |
   v
+[URL Classification]                    (packages/crawling/src/url-classifier.ts)
+  |  - shopify: Shopify JSON fast-path → exa_first fallback
+  |  - blocked_only: skip Exa+Firecrawl → Browserbase directly
+  |  - exa_first: Exa → Firecrawl (2 attempts) → Browserbase
+  |
+  v
 [Primary: Firecrawl Pipeline]          (packages/crawling/src/discover.ts)
-  |  - Up to 3 attempts with exponential backoff
-  |  - Confidence-based candidate ranking
+  |  - discoverWithStrategy() for URL path (strategy-aware)
+  |  - discoverViaFirecrawl() for full pipeline (3 attempts + repair)
+  |  - URL-slug overlap validation after each extraction
   |  - Browserbase+Gemini repair path if confidence < 0.75
   |  - Shopify .json fallback for options
   |  - Variant price resolution (Step 2/3)
@@ -90,15 +97,16 @@ The orchestrator fetches the URL and checks for HTTP 402 with x402 payment heade
 
 Requires `FIRECRAWL_API_KEY`. If not configured, returns `null` with `failure_code: "llm_config"`.
 
-### Step 1a: Firecrawl Extraction (up to 3 attempts)
+### Step 1a: Firecrawl Extraction
 
-Calls Firecrawl's `/v1/scrape` with JSON extraction schema to pull structured product data from the rendered page.
-
+**Full pipeline (`discoverViaFirecrawl`):** Up to 3 attempts with exponential backoff:
 ```
 Attempt 0: immediate
 Attempt 1: wait 2s, retry
 Attempt 2: wait 4s, retry
 ```
+
+**Strategy-aware pipeline (`discoverWithStrategy`, `exa_first`):** Up to 2 attempts with 2s delay. Each result is validated via `passesUrlOverlap()` — if the extracted product name has zero word overlap with the URL slug, the result is rejected and the next tier is tried.
 
 Each attempt produces a **candidate** that gets scored by the parser ensemble (`packages/crawling/src/parser-ensemble.ts`). The loop breaks early if:
 - Confidence >= `QUERY_MIN_CONFIDENCE` (default: 0.75) AND price is valid
@@ -119,9 +127,9 @@ Triggered when:
 - Best candidate has confidence < 0.75 but does have a valid price
 
 **Pipeline:**
-1. Fetch rendered HTML from the Browserbase adapter (`POST localhost:3003/scrape`)
-2. Convert HTML to markdown via `htmlToMarkdown()` — tries main-content selectors first, falls back to full page with boilerplate stripped, caps at 30k chars
-3. Extract product data via Gemini 2.5 Flash with structured JSON output
+1. Fetch rendered HTML from the Browserbase adapter (`POST localhost:3003/scrape`) — adapter waits up to **12s** for content readiness (21 product selectors including aria-label, data-automation-id, buybox patterns)
+2. Try structured extraction first (no LLM cost): JSON-LD → meta tags → CSS selectors (11 price patterns)
+3. Fall back to Gemini markdown extraction: HTML → markdown (main-content selectors, boilerplate stripped, 30k char cap) → Gemini 2.5 Flash with subscription/one-time pricing guidance
 4. Add Browserbase result as another candidate for ranking
 
 The Browserbase result gets a +0.02 source prior in the ranking, giving it a slight edge on ties.

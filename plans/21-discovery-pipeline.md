@@ -33,12 +33,34 @@ URL --> Route Detection (x402?) --> Discovery Pipeline --> Response
                         +-----------------------------+
 ```
 
-## Stage 0: Route Detection
+## Stage 0: Route Detection + URL Classification
 
 Before discovery, `routeOrder(url)` checks if the URL returns HTTP 402.
 
 - **x402 detected**: Return immediately with price from `maxAmountRequired`. No discovery needed.
-- **Not x402**: Proceed to discovery pipeline.
+- **Not x402**: Classify URL via `classifyUrl()` (`url-classifier.ts`) and proceed to strategy-aware discovery.
+
+### URL Classification (`classifyUrl`)
+
+Routes URLs to one of three strategies based on domain and URL patterns:
+
+| Strategy | Trigger | Execution Path |
+|----------|---------|----------------|
+| `shopify` | URL has `/products/` or `*.myshopify.com` | Shopify JSON → exa_first fallback |
+| `blocked_only` | Domain in `BLOCKED_DOMAINS` set | Skip Exa + Firecrawl, go straight to Browserbase |
+| `exa_first` | Everything else (default) | Exa → Firecrawl (2 attempts) → Browserbase |
+
+**BLOCKED_DOMAINS** (19 domains): chewy.com, barnesandnoble.com, etsy.com, amazon.* (11 TLDs), bestbuy.com, target.com, walmart.com, costco.com, levi.com
+
+### URL-Slug Validation
+
+After every successful extraction in `discoverWithStrategy()`, the result is validated against the URL slug via `passesUrlOverlap()`:
+
+1. Extract slug words from the URL path
+2. If slug has >= 2 words, compute word overlap with extracted product name
+3. If overlap is 0 (no matching words), reject the result and fall through to the next tier
+
+This prevents returning wrong-product results when a tier extracts data from a redirect or unrelated page.
 
 ## Stage 1: Firecrawl (Primary)
 
@@ -48,10 +70,16 @@ Uses self-hosted Firecrawl `/v1/scrape` with LLM extraction (Gemini 2.5 Flash vi
 
 ### Retry Strategy
 
+**Full pipeline (`discoverViaFirecrawl`):**
 - Up to 3 attempts with exponential backoff (2s, 4s between retries)
 - Each attempt is scored by the parser ensemble
 - Loop breaks early if confidence >= `QUERY_MIN_CONFIDENCE` (default 0.75)
 - Per-attempt timeout: `QUERY_FIRECRAWL_TIMEOUT_MS` (default 90s)
+
+**Strategy-aware pipeline (`discoverWithStrategy`, `exa_first`):**
+- Up to 2 Firecrawl attempts with 2s delay between retries
+- Each attempt validated via `passesUrlOverlap()` before accepting
+- Falls through to Browserbase if both attempts fail or produce wrong-product results
 
 ### Content Classification
 
@@ -194,14 +222,18 @@ Only the highest-priority failure is reported, preventing confusing multi-error 
 
 | File | Package | Purpose |
 |------|---------|---------|
-| `discover.ts` | crawling | Main 3-tier orchestrator with diagnostics |
+| `discover.ts` | crawling | Main orchestrator: `discoverViaFirecrawl` (3-tier with diagnostics) + `discoverWithStrategy` (strategy-aware dispatch) |
 | `extract.ts` | crawling | Firecrawl `/v1/scrape` wrapper + content classification |
 | `exa.ts` | crawling | Exa.ai `/contents` extraction |
-| `browserbase-extract.ts` | crawling | Browserbase+Gemini fallback |
+| `exa-extract.ts` | crawling | Exa.ai full product extraction with variant resolution |
+| `browserbase-extract.ts` | crawling | Browserbase+Gemini fallback: JSON-LD → meta → CSS → Gemini extraction |
+| `browserbase-adapter.ts` | crawling | Browserbase adapter HTTP server (Playwright microservice, port 3003) |
 | `parser-ensemble.ts` | crawling | Candidate scoring and ranking |
 | `variant.ts` | crawling | Variant price resolution (Steps 2/3) |
 | `shopify.ts` | crawling | Shopify `.json` fallback |
-| `constants.ts` | crawling | Patterns, schemas, limits |
+| `url-classifier.ts` | crawling | URL routing: `classifyUrl()` → shopify / exa_first / blocked_only |
+| `constants.ts` | crawling | Extraction prompt, schema, limits, BLOCKED_PATTERNS, NOT_FOUND_PATTERNS, content selectors |
+| `helpers.ts` | crawling | Price utilities, `extractSlugWords`, `computeUrlProductOverlap`, `isValidPrice` |
 | `providers.ts` | crawling | Pluggable provider abstraction |
 | `discover.ts` | checkout | Server-side scrape + Browserbase+Stagehand discovery |
 | `query.ts` | orchestrator | Query endpoint entry point |

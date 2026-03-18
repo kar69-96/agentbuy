@@ -92,9 +92,13 @@ If after all Firecrawl attempts:
 ...then the Browserbase+Gemini fallback runs:
 
 1. **Fetch rendered HTML** from the Browserbase adapter (`POST localhost:3003/scrape`)
-2. **Convert HTML to markdown** via `htmlToMarkdown()` — tries 9 main-content selectors first (e.g., `main`, `[role='main']`, `.product-detail`), falls back to full page with 19+ boilerplate selectors stripped, caps at 30k chars
-3. **Extract product data** via Gemini 2.5 Flash with structured JSON output schema
-4. **Add result as a candidate** — re-rank all candidates, best wins
+   - Adapter waits up to **12s** for content readiness (was 5s) via `Promise.race` between `networkidle` and product selector detection
+   - **21 product selectors** including itemprop, data-product, class-based patterns, `aria-label*="price"`, `data-automation-id*="price"`, `data-feature-name*="price"`, `.product-price`, `.offer-price`, `[class*="buybox"]`
+2. **Try structured extraction first** (fast, no LLM cost): JSON-LD → meta tags → CSS selectors
+   - **11 CSS price selectors** (expanded from 5): `[data-price]`, `[data-testid*="price"]`, `[aria-label*="price"]`, `[data-automation-id*="price"]`, `.price`, `#price`, `[class*="productPrice"]`, `[class*="buybox"] [class*="price"]`, `[class*="offer"] [class*="price"]`, `span[class*="amount"]`, generic `[class*="price"]` with exclusions
+3. **Fall back to Gemini markdown extraction**: Convert HTML to markdown via `htmlToMarkdown()` — tries main-content selectors first, strips boilerplate, caps at 30k chars
+4. **Gemini prompt** includes guidance for subscription vs one-time pricing (extract one-time price as main) and sale vs original pricing (extract selling price as price, compare-at as original_price)
+5. **Add result as a candidate** — re-rank all candidates, best wins
 
 ### Shopify Fallback for Options
 
@@ -228,6 +232,12 @@ Firecrawl cannot handle:
 - **Login-gated pricing** — sites that require authentication to show prices
 
 These fall through to Browserbase Tier 3 (headless Chrome + Stagehand agent).
+
+## BLOCKED_DOMAINS (url-classifier.ts)
+
+Domains confirmed to block both Firecrawl and Exa (403/429/WAF). Requests are routed directly to Browserbase (`blocked_only` strategy), skipping wasted Exa + Firecrawl attempts:
+
+chewy.com, barnesandnoble.com, etsy.com, amazon.* (11 TLDs), bestbuy.com, target.com, walmart.com, costco.com, levi.com
 
 Note: The Browserbase+Gemini repair path within the Firecrawl pipeline (Step 1b) catches some anti-bot cases. The full Tier 3 Browserbase+Stagehand path in `packages/checkout` is more capable but slower — it uses an LLM agent to interact with the page rather than just rendering and extracting.
 
