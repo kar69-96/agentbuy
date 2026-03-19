@@ -10,7 +10,7 @@
 | **Multi-tenant path** | Natural | Full rewrite |
 | **Long-running checkout** | Async HTTP — natural fit | Blocks stdio pipe |
 | **Testing** | curl | Need MCP client |
-| **Auth** | None for v1 (wallet_id is credential) | None (local) |
+| **Auth** | None for v1 (single operator) | None (local) |
 | **Build effort** | Slightly more (Hono routes vs tool handlers) | Less |
 
 MCP wrapper planned for v2 — thin layer that calls the REST API.
@@ -25,18 +25,17 @@ MCP wrapper planned for v2 — thin layer that calls the REST API.
 ┌────────────────────▼────────────────────────────────┐
 │               packages/api (Hono)                    │
 │                                                      │
-│  POST /api/wallets     GET /api/wallets/:id          │
 │  POST /api/query       POST /api/buy                 │
-│  POST /api/confirm     GET /fund/:token              │
+│  POST /api/confirm                                   │
 └────┬─────────────────────────────────────────────────┘
      │
 ┌────▼─────────────────────────────────────────────────┐
 │            packages/orchestrator                      │
-│  query(), buy(), confirm(), routeOrder()              │
+│  query(), buy(), confirm()                            │
 │  Receipt builder, business logic glue                 │
-└────┬──────────┬──────────────┬───────────────────────┘
-     │          │              │
-     │   ┌──────▼──────────────▼──────────────────┐
+└────┬──────────┬──────────────────────────────────────┘
+     │          │
+     │   ┌──────▼──────────────────────────────────┐
      │   │          packages/checkout              │
      │   │  discoverPrice, discoverProduct         │
      │   │  runCheckout (12-step Stagehand agent)  │
@@ -51,14 +50,16 @@ MCP wrapper planned for v2 — thin layer that calls the REST API.
      │   │  Variant resolution, Parser ensemble     │
      │   └─────────────────────────────────────────┘
      │
-┌────▼───┐   ┌──────────┐   ┌──────────────────────┐
-│ wallet │   │   x402   │   │      core            │
-│        │   │          │   │                      │
-│ viem   │   │ @x402/   │   │ Types, Store, Fees   │
-│ QR     │   │ fetch    │   │ Config, ErrorCodes   │
-│ balance│   │ detect   │   │ ConcurrencyPool      │
-└────────┘   └──────────┘   └──────────────────────┘
+┌────▼──────────────────────┐
+│          core              │
+│                            │
+│  Types, Store, Fees        │
+│  Config, ErrorCodes        │
+│  ConcurrencyPool           │
+└────────────────────────────┘
 ```
+
+> **Note:** The `wallet` and `x402` packages have been removed. Bloon now uses credit card via browser checkout only. Stub re-exports may exist in `packages/stubs/` for backward compatibility.
 
 ## Monorepo Structure
 
@@ -74,26 +75,10 @@ bloon/
 │   │   └── index.ts
 │   │
 │   ├── orchestrator/src/
-│   │   ├── router.ts       # x402 detection + route selection
 │   │   ├── query.ts        # Product discovery orchestrator
 │   │   ├── buy.ts          # Buy orchestrator (quote generation)
-│   │   ├── confirm.ts      # Confirm orchestrator (payment + execution)
-│   │   ├── receipts.ts     # Unified receipt builder (x402 + browserbase)
-│   │   └── index.ts
-│   │
-│   ├── wallet/src/
-│   │   ├── create.ts       # viem key generation + gas funding
-│   │   ├── balance.ts      # On-chain USDC balance
-│   │   ├── transfer.ts     # USDC transfers (ERC-20)
-│   │   ├── qr.ts           # QR code → base64 PNG
-│   │   ├── gas.ts          # ETH gas transfer from master wallet
-│   │   ├── client.ts       # Cached viem PublicClient
-│   │   ├── usdc-abi.ts     # USDC contract ABI
-│   │   └── index.ts
-│   │
-│   ├── x402/src/
-│   │   ├── detect.ts       # HEAD probe for 402 + parse x402 v2 format
-│   │   ├── pay.ts          # @x402/fetch from Bloon wallet
+│   │   ├── confirm.ts      # Confirm orchestrator (checkout execution)
+│   │   ├── receipts.ts     # Receipt builder
 │   │   └── index.ts
 │   │
 │   ├── crawling/src/
@@ -133,11 +118,9 @@ bloon/
 │       ├── formatters.ts    # Response formatters (wallet, query, buy, confirm)
 │       ├── error-handler.ts # BloonError → HTTP status mapping
 │       ├── routes/
-│       │   ├── wallets.ts   # POST /api/wallets, GET /api/wallets/:id
 │       │   ├── query.ts     # POST /api/query
 │       │   ├── buy.ts       # POST /api/buy
-│       │   ├── confirm.ts   # POST /api/confirm
-│       │   └── fund.ts      # GET /fund/:token (HTML page)
+│       │   └── confirm.ts   # POST /api/confirm
 │       └── index.ts         # Entry point: start server on :3000
 │
 ├── .env.example
@@ -154,11 +137,8 @@ bloon/
 | Language | TypeScript 5.x | Types |
 | Package Manager | pnpm 9.x | Monorepo |
 | HTTP Server | hono 4.x | REST API |
-| Blockchain | viem 2.x | Wallets, USDC transfers, balances |
-| x402 | @x402/fetch | Pay x402 services |
 | Browser Automation | @browserbasehq/stagehand | LLM-powered checkout + discovery |
 | Cloud Browser | Browserbase | Remote sessions (checkout + adapter) |
-| QR Code | qrcode | PNG generation |
 | LLM (Checkout) | @anthropic-ai/sdk | Sonnet 4 for Stagehand checkout |
 | LLM (Discovery) | Gemini 2.5 Flash | Firecrawl extraction + Browserbase fallback |
 | Product Discovery | Firecrawl (self-hosted) | Primary extraction tier via /v1/scrape |
@@ -168,66 +148,46 @@ bloon/
 
 ## Key Design Decisions
 
-### 1. No Auth — wallet_id IS the Credential
+### 1. No Auth — Single Operator
 
 No API keys. No registration. No auth headers.
-- `POST /api/wallets` is open — creates wallet, returns `wallet_id`
-- All other endpoints use `wallet_id` (in body or URL) as proof of ownership
-- Wallet IDs are cryptographically random — unguessable
-- Leaking a wallet_id = leaking spending access (acceptable for testnet/$25 cap)
+- All endpoints are open — single operator model
+- The operator's credit card is configured in `.env`
 - Proper auth (API keys, registration) planned for v2
 
-### 2. Private Funding Page (`/fund/:token`)
-
-Each wallet gets a unique funding URL:
-- `GET /fund/:token` serves an HTML page with QR code + live balance
-- `funding_token` is separate from `wallet_id` — different secrets, different purposes
-- Leaking `funding_url` only lets someone send you money (not spend it)
-- Balance polls every 10 seconds via the same API
-- Modeled after BARRRYYY's QR funding pattern
-
-### 3. Two-Phase Purchase (buy then confirm)
+### 2. Two-Phase Purchase (buy then confirm)
 
 `POST /api/buy` returns a quote. `POST /api/confirm` executes. Agent can present the quote to the human before spending.
 
-### 4. Shipping: Required Per-Purchase, No Defaults
+### 3. Shipping: Required Per-Purchase, No Defaults
 
 - Provided in request → use it
-- Omitted, browser route → return `SHIPPING_REQUIRED`
-- x402 route → shipping never required
+- Omitted → return `SHIPPING_REQUIRED`
 
-### 5. Stagehand with Claude Sonnet 4
+### 4. Stagehand with Claude Sonnet 4
 
 From AgentPay. Browserbase's AI browser automation SDK — provides `act()`, `observe()`, `extract()` primitives. Card fields filled via separate Playwright CDP connection (never through Stagehand's LLM). Handles arbitrary websites.
 
-### 6. Fresh Browserbase Sessions + Domain Caching
+### 5. Fresh Browserbase Sessions + Domain Caching
 
 Each checkout = fresh session. But we cache cookies/localStorage per domain:
 - Skips cookie banners, preserves preferences on repeat visits
 - NOT login persistence — no auth tokens cached
 - Cache stored at `~/.bloon/cache/{domain}.json`
 
-### 7. Hono
+### 6. Hono
 
 Lightweight (14KB), TypeScript-native, runs on Node/Cloudflare/Vercel/Deno. Easy to deploy anywhere.
 
-### 8. Closed Source
+### 7. Closed Source
 
 Not open source. Deployed and operated by you.
 
-### 9. Price Discovery — Tiered Approach
+### 8. Price Discovery — Tiered Approach
 
-`POST /api/buy` must return the **full price** the agent will pay (item + tax + shipping + Bloon fee). How that price is discovered depends on the route:
+`POST /api/buy` must return the **full price** the agent will pay (item + tax + shipping + Bloon fee). Price discovery uses a tiered approach:
 
-**x402 route:**
-- Fetch the URL → receive 402 response → parse the JSON body for payment requirements
-- The 402 body contains `accepts[]` with `maxAmountRequired` (price in token base units), `payTo`, `asset`, `network`, `scheme`
-- USDC has 6 decimals, so `10000` = $0.01
-- No tax, no shipping — digital services only
-- Add 2% Bloon fee → return quote
-- Reference: this is the same flow that purl (purl.dev) and `@x402/fetch` use under the hood
-
-**Browser route — Tier 1: Firecrawl (primary, rich)**
+**Tier 1: Firecrawl (primary, rich)**
 - Uses Firecrawl `/v1/scrape` endpoint with up to 3 attempts (exponential backoff: 2s, 4s)
 - Each attempt scored by parser ensemble; loop breaks early if confidence >= 0.75
 - If confidence is low, Browserbase+Gemini repair path renders the page and extracts via Gemini 2.5 Flash
@@ -237,61 +197,47 @@ Not open source. Deployed and operated by you.
 - Requires `FIRECRAWL_API_KEY` env var. If not set, skipped entirely.
 - See `plans/16-firecrawl-discovery.md` for the full pipeline spec
 
-**Browser route — Tier 1.5: Exa.ai (parallel, best-effort)**
+**Tier 1.5: Exa.ai (parallel, best-effort)**
 - Runs in parallel with Firecrawl — whichever succeeds first wins
 - Uses Exa.ai `/contents` endpoint with structured extraction schema
 - Handles bot-blocked sites that Firecrawl can't reach
 - Requires `EXA_API_KEY` env var. Skipped if not set.
 - See `plans/19-exa-discovery.md` for details
 
-**Browser route — Tier 2: HTML Scrape (fast, free)**
+**Tier 2: HTML Scrape (fast, free)**
 - Server-side HTTP fetch of the product URL
 - Parse structured data: JSON-LD (`@type: Product`), Open Graph meta tags, `<meta property="product:price:amount">`
 - Extract item price + product name + variant options from JSON-LD `hasVariant`/`offers`
 - Falls through to Tier 3 if bot-blocked or no structured data found
 
-**Browser route — Tier 3: Browserbase + Stagehand (slow, accurate, last resort)**
+**Tier 3: Browserbase + Stagehand (slow, accurate, last resort)**
 - Launch a Browserbase session with headless Chrome
 - Navigate to product URL → LLM extracts product info and variant options
 - For per-variant pricing: Stagehand agent selects each variant and reports the updated price
 - Used for anti-bot sites (Amazon, Best Buy) and pages without structured data
 - Most expensive tier (Browserbase session + LLM API calls per variant)
 
-The `discovery_method` field in the response tells the agent (and us) which tier was used: `"x402"`, `"firecrawl"`, `"exa"`, `"scrape"`, or `"browserbase"`.
+The `discovery_method` field in the response tells the agent (and us) which tier was used: `"firecrawl"`, `"exa"`, `"scrape"`, or `"browserbase"`.
 
 At confirm time, the browser route runs a **fresh** Browserbase session to do the actual checkout. If the final cart total at checkout time differs from the quoted total by more than $1 or 5% (whichever is smaller), the checkout aborts with `PRICE_MISMATCH` before payment — no funds at risk.
-
-**Gas costs:** ETH gas for on-chain USDC transfers is covered by Bloon's fee margin. The agent only needs USDC in their wallet, not ETH. Bloon's master wallet holds ETH for gas and uses the fee revenue to replenish it.
 
 ## Payment Flow
 
 ```
 POST /api/confirm { order_id }
   │
-  ├─ Load order + agent wallet from store
-  ├─ Verify sufficient USDC balance
-  ├─ Transfer USDC: agent wallet → Bloon master wallet (on-chain)
-  ├─ Wait for confirmation (~2s on Base)
+  ├─ Load order from store
+  ├─ Verify order is awaiting_confirmation and not expired
+  ├─ Update status → "processing"
   │
-  ├─ IF x402:
-  │   └─ @x402/fetch pays service → return response + receipt
-  │
-  ├─ IF browserbase:
-  │   ├─ Fresh Browserbase session (inject domain cache)
-  │   ├─ Stagehand: act(navigate) → act(add to cart) → act(fill) → CDP fill cards → act(submit)
-  │   ├─ Extract confirmation number
-  │   ├─ Update domain cache
-  │   └─ Return receipt with order number
+  ├─ Fresh Browserbase session (inject domain cache)
+  ├─ Stagehand: act(navigate) → act(add to cart) → act(fill) → CDP fill cards → act(submit)
+  ├─ Extract confirmation number
+  ├─ Update domain cache
+  ├─ Return receipt with order number
   │
   └─ Save receipt, update order status → "completed"
 ```
-
-## USDC Contracts
-
-| Network | Address | Decimals |
-|---------|---------|----------|
-| Base Sepolia | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | 6 |
-| Base Mainnet | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | 6 |
 
 ## Credential Placeholder System
 

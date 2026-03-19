@@ -3,11 +3,9 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import * as os from "node:os";
 import type {
-  Wallet,
   Order,
   OrderStatus,
   BloonConfig,
-  WalletsStore,
   OrdersStore,
 } from "./types.js";
 
@@ -47,14 +45,8 @@ function writeJsonFile<T>(filename: string, data: T): void {
 
 // ---- Write serialization (per-file Promise chains) ----
 
-let walletsQueue: Promise<void> = Promise.resolve();
 let ordersQueue: Promise<void> = Promise.resolve();
 let configQueue: Promise<void> = Promise.resolve();
-
-function enqueueWallets(fn: () => void): Promise<void> {
-  walletsQueue = walletsQueue.then(fn);
-  return walletsQueue;
-}
 
 function enqueueOrders(fn: () => void): Promise<void> {
   ordersQueue = ordersQueue.then(fn);
@@ -77,31 +69,6 @@ export function generateId(prefix: string): string {
   return `bloon_${prefix}_${id}`;
 }
 
-// ---- Wallet operations ----
-
-export function createWallet(wallet: Wallet): Promise<void> {
-  return enqueueWallets(() => {
-    const store = readJsonFile<WalletsStore>("wallets.json", { wallets: [] });
-    store.wallets.push(wallet);
-    writeJsonFile("wallets.json", store);
-  });
-}
-
-export function getWallet(walletId: string): Wallet | undefined {
-  const store = readJsonFile<WalletsStore>("wallets.json", { wallets: [] });
-  return store.wallets.find((w) => w.wallet_id === walletId);
-}
-
-export function getWallets(): Wallet[] {
-  const store = readJsonFile<WalletsStore>("wallets.json", { wallets: [] });
-  return store.wallets;
-}
-
-export function getWalletByFundingToken(token: string): Wallet | undefined {
-  const store = readJsonFile<WalletsStore>("wallets.json", { wallets: [] });
-  return store.wallets.find((w) => w.funding_token === token);
-}
-
 // ---- Order operations ----
 
 export function createOrder(order: Order): Promise<void> {
@@ -120,11 +87,6 @@ export function getOrder(orderId: string): Order | undefined {
 export function getOrders(): Order[] {
   const store = readJsonFile<OrdersStore>("orders.json", { orders: [] });
   return store.orders;
-}
-
-export function getOrdersByWallet(walletId: string): Order[] {
-  const store = readJsonFile<OrdersStore>("orders.json", { orders: [] });
-  return store.orders.filter((o) => o.wallet_id === walletId);
 }
 
 export function updateOrder(

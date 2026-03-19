@@ -199,7 +199,6 @@ curl -X POST http://localhost:3000/api/query \
 curl -X POST http://localhost:3000/api/buy \
   -d '{
     "url": "https://amazon.com/dp/B08EXAMPLE",
-    "wallet_id": "bloon_w_7k2m9x",
     "shipping": { ... },
     "selections": { "Color": "White", "Size": "Bath" }
   }'

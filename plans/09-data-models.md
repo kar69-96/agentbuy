@@ -2,19 +2,7 @@
 
 All types live in `packages/core/src/types.ts`.
 
-## Wallet
-
-```typescript
-interface Wallet {
-  wallet_id: string;              // "bloon_w_7k2m9x"
-  address: string;                // "0x..." Base address
-  private_key: string;            // "0x..." viem private key (never exposed)
-  funding_token: string;          // random token for /fund/:token page
-  network: "base-sepolia" | "base";
-  agent_name: string;
-  created_at: string;             // ISO 8601
-}
-```
+> **Architecture note:** The blockchain/USDC/wallet/x402 system has been removed. Bloon now uses credit card via browser checkout only.
 
 ## Order
 
@@ -26,8 +14,6 @@ type OrderStatus =
   | "failed"
   | "expired";
 
-type PaymentRoute = "x402" | "browserbase";
-
 interface ProductInfo {
   name: string;
   url: string;
@@ -37,22 +23,19 @@ interface ProductInfo {
 }
 
 interface PaymentInfo {
-  amount_usdc: string;
   price: string;
   fee: string;
   fee_rate: string;             // "2%"
-  route: PaymentRoute;
+  total: string;                // price + fee
 }
 
 interface Order {
   order_id: string;
-  wallet_id: string;
   status: OrderStatus;
   product: ProductInfo;
   payment: PaymentInfo;
   shipping?: ShippingInfo;
   selections?: Record<string, string>;  // e.g., { "Color": "Red", "Size": "10" }
-  tx_hash?: string;
   receipt?: Receipt;
   error?: OrderError;
   created_at: string;
@@ -68,21 +51,16 @@ interface Order {
 interface Receipt {
   product: string;
   merchant: string;
-  route: PaymentRoute;
   price: string;
   fee: string;
   total_paid: string;
-  tx_hash: string;
   timestamp: string;
 
-  // Browser checkout
+  // Browser checkout details
   order_number?: string;
   estimated_delivery?: string;
   confirmation_email?: string;
   browserbase_session_id?: string;
-
-  // x402
-  response?: Record<string, unknown>;
 }
 ```
 
@@ -95,8 +73,7 @@ interface QueryResponse {
   product: RichProductInfo;
   options: ProductOption[];
   required_fields: RequiredField[];
-  route: "x402" | "browserbase";
-  discovery_method: "x402" | "firecrawl" | "scrape" | "browserbase" | "exa";
+  discovery_method: "firecrawl" | "scrape" | "browserbase" | "exa";
 }
 ```
 
@@ -109,7 +86,6 @@ interface SearchProductResult {
   product: RichProductInfo;
   options: ProductOption[];
   required_fields: RequiredField[];
-  route: PaymentRoute;          // always "browserbase"
   discovery_method: string;     // always "exa_search"
   relevance_score: number;      // 0.0 - 1.0
 }
@@ -220,8 +196,6 @@ interface CredentialsMap {
 interface OrderError {
   code: string;
   message: string;
-  tx_hash?: string;
-  refund_status?: "pending_manual" | "refunded";
 }
 ```
 
@@ -377,28 +351,9 @@ interface DiscoveryResultWithOptions extends DiscoveryResult {
 }
 ```
 
-## x402 Payment Requirements
-
-```typescript
-interface X402Requirements {
-  scheme: string;
-  network: string;
-  maxAmountRequired: string;
-  payTo: string;
-  asset: string;
-  resource?: string;
-  description?: string;
-}
-```
-
 ## Store Schemas
 
 ```typescript
-// ~/.bloon/wallets.json
-interface WalletsStore {
-  wallets: Wallet[];
-}
-
 // ~/.bloon/orders.json
 interface OrdersStore {
   orders: Order[];
@@ -406,13 +361,6 @@ interface OrdersStore {
 
 // ~/.bloon/config.json
 interface BloonConfig {
-  master_wallet: {
-    address: string;
-    private_key: string;
-  };
-  network: "base-sepolia" | "base";
-  usdc_contract: string;
-  max_transaction_amount: number; // 25
   default_order_expiry_seconds: number; // 300
   port: number; // 3000
 }
@@ -454,26 +402,21 @@ All error codes are defined in `packages/core/src/types.ts`:
 
 ```typescript
 const ErrorCodes = {
-  INSUFFICIENT_BALANCE: "INSUFFICIENT_BALANCE",
   SHIPPING_REQUIRED: "SHIPPING_REQUIRED",
-  PRICE_EXCEEDS_LIMIT: "PRICE_EXCEEDS_LIMIT",
-  WALLET_NOT_FOUND: "WALLET_NOT_FOUND",
   ORDER_NOT_FOUND: "ORDER_NOT_FOUND",
   ORDER_EXPIRED: "ORDER_EXPIRED",
+  ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
   URL_UNREACHABLE: "URL_UNREACHABLE",
   PRICE_EXTRACTION_FAILED: "PRICE_EXTRACTION_FAILED",
-  TRANSFER_FAILED: "TRANSFER_FAILED",
-  X402_PAYMENT_FAILED: "X402_PAYMENT_FAILED",
   CHECKOUT_FAILED: "CHECKOUT_FAILED",
   MISSING_FIELD: "MISSING_FIELD",
   INVALID_URL: "INVALID_URL",
-  ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
-  GAS_TRANSFER_FAILED: "GAS_TRANSFER_FAILED",
   INVALID_SELECTION: "INVALID_SELECTION",
   QUERY_FAILED: "QUERY_FAILED",
   SEARCH_NO_RESULTS: "SEARCH_NO_RESULTS",
   SEARCH_UNAVAILABLE: "SEARCH_UNAVAILABLE",
   SEARCH_RATE_LIMITED: "SEARCH_RATE_LIMITED",
+  PRICE_MISMATCH: "PRICE_MISMATCH",
 } as const;
 
 class BloonError extends Error {
@@ -527,7 +470,6 @@ interface QueryInput {
 // packages/orchestrator/src/buy.ts
 interface BuyInput {
   url: string;
-  wallet_id: string;
   shipping?: ShippingInfo;
   selections?: Record<string, string>;
 }
@@ -542,17 +484,9 @@ interface ConfirmResult {
   receipt: Receipt;
 }
 
-// packages/orchestrator/src/router.ts
-interface RouteDecision {
-  route: PaymentRoute;
-  requirements?: X402Requirements;
-}
-
 // packages/orchestrator/src/receipts.ts
 interface ReceiptInput {
   order: Order;
-  tx_hash: string;
-  x402Result?: X402PaymentResult;
   checkoutResult?: CheckoutResult;
 }
 ```

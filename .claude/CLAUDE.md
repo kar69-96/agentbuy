@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Bloon?
 
-Bloon is a REST API (TypeScript/Hono) that lets AI agents purchase anything on the internet using USDC stablecoin. No API keys. No registration. The agent's `wallet_id` is its credential. Bloon auto-routes payments — x402-native merchants get paid directly, everything else goes through Browserbase cloud browser checkout with Stagehand. 2% flat fee regardless of route. Same interface, same receipt format either way.
+Bloon is a REST API (TypeScript/Hono) that lets AI agents purchase anything on the internet using a stored credit card. No API keys. No registration. Bloon discovers product info, calculates a 2% fee, and executes checkout via Browserbase cloud browser with Stagehand. Same interface, same receipt format for every purchase.
 
 ## Project Status
 
@@ -16,28 +16,24 @@ Active development. Specification lives in `plans/`. The `crawling` and `checkou
 
 ### REST API (Hono) — NOT MCP
 
-Bloon is API-first. MCP wrapper is planned for v2. The API has 5 JSON endpoints + 1 HTML page:
+Bloon is API-first. MCP wrapper is planned for v2. The API has 3 JSON endpoints:
 
-- `POST /api/wallets` — create wallet, get `wallet_id` + `funding_url`
-- `GET /api/wallets/:wallet_id` — balance + transaction history
-- `POST /api/query` — discover product info, options, required fields (no wallet needed)
+- `POST /api/query` — discover product info, options, required fields
 - `POST /api/buy` — get purchase quote for any URL (does NOT spend)
 - `POST /api/confirm` — execute purchase, get receipt
-- `GET /fund/:token` — HTML page with QR code + live balance (for humans)
 
 ### Auth Model
 
-No auth. `wallet_id` is the spending credential. `funding_token` is a separate secret that only allows deposits. If you have the `wallet_id`, you can spend the wallet.
+No auth (single operator). API key auth planned for v1.5.
 
 ### Two-Phase Purchase
 
-1. `POST /api/buy` → returns a quote (price, fee, total, route). Nothing is spent.
-2. `POST /api/confirm` → transfers USDC, executes purchase, returns receipt.
+1. `POST /api/buy` → returns a quote (price, fee, total). Nothing is spent.
+2. `POST /api/confirm` → executes browser checkout with credit card, returns receipt.
 
-### Payment Routes
+### Payment
 
-- **x402**: Native crypto payment. Detected via HTTP 402 + payment headers. 2% fee. No shipping needed.
-- **Browser checkout**: Browserbase + Stagehand (Claude Sonnet 4). 2% fee. Fresh session per checkout. Domain-level page caching for repeat flows.
+All purchases go through **browser checkout**: Browserbase + Stagehand (Claude Sonnet 4). 2% fee. Fresh session per checkout. Domain-level page caching for repeat flows.
 
 ### Credential Placeholder System
 
@@ -45,29 +41,16 @@ No auth. `wallet_id` is the spending credential. `funding_token` is a separate s
 
 LLM never sees real card numbers. Card fields are filled via Playwright CDP directly into the DOM — never through Stagehand's LLM. Non-card fields use Stagehand's `variables` parameter (`%var%` syntax) which substitutes at the execution layer. Real values come from `.env` and never enter the LLM context.
 
-### Two Secrets Per Wallet
-
-| Secret | Controls | If Leaked |
-|--------|---------|-----------|
-| `wallet_id` | Spending (buy, confirm) | Someone can spend the wallet's USDC |
-| `funding_token` | Depositing (funding page) | Someone can send USDC to the wallet (harmless) |
-
-These are independent — knowing one doesn't reveal the other.
-
 ## Tech Stack
 
 > **When:** Adding dependencies, debugging import/version issues, or choosing a library. Not needed for routine edits.
 
 - **API Server:** Hono 4.x
-- **Wallets:** viem 2.x (NOT Coinbase CDP)
-- **x402 Payments:** @x402/fetch
 - **Browser Automation:** @browserbasehq/stagehand + Browserbase
 - **Browser LLM (Checkout):** Claude Sonnet 4 (via Stagehand)
 - **Discovery LLM:** Gemini 2.5 Flash (Firecrawl extraction + Browserbase fallback)
 - **HTML Processing:** cheerio + turndown (Browserbase fallback HTML→Markdown)
 - **Gemini SDK:** @google/generative-ai (structured extraction)
-- **QR Codes:** qrcode (npm)
-- **Chain:** USDC on Base (Sepolia for testnet, mainnet for prod)
 - **Storage:** JSON files in `~/.bloon/` (chmod 600)
 
 ## Package Structure
@@ -77,9 +60,7 @@ These are independent — knowing one doesn't reveal the other.
 ```
 packages/
 ├── core/           # Types, fees, store (JSON persistence), config, concurrency pool
-├── orchestrator/   # Business logic: query(), buy(), confirm(), routeOrder(), buildReceipt()
-├── wallet/         # viem wallet create, balance, QR, USDC transfer, gas
-├── x402/           # x402 detection + payment via @x402/fetch
+├── orchestrator/   # Business logic: query(), buy(), confirm(), buildReceipt()
 ├── crawling/       # Product discovery: Firecrawl + Exa.ai + Browserbase+Gemini fallback
 │   ├── src/
 │   │   ├── discover.ts              # Discovery orchestrator (3 attempts + repair path)
@@ -94,7 +75,10 @@ packages/
 │   │   └── ...                      # client, crawl, helpers, poll, shopify, types
 │   └── scripts/                     # start.sh, stop.sh, health.sh
 ├── checkout/       # Browserbase sessions, Stagehand, credential fills, domain cache, discovery
-└── api/            # Hono server, routes, formatters, error handler, funding page HTML
+└── api/            # Hono server, routes, formatters, error handler
+stubs/
+├── wallet/         # (archived) viem wallet package — moved here during credit-card-only migration
+└── x402/           # (archived) x402 payment package — moved here during credit-card-only migration
 ```
 
 ## Key Design Decisions
@@ -102,42 +86,31 @@ packages/
 > **When:** Proposing architectural changes, questioning why something works a certain way, or considering alternatives. Not needed for routine bug fixes.
 
 - **API-first, not MCP** — curl-testable, language-agnostic, simpler debugging. MCP wrapper in v2.
-- **No auth** — wallet_id is the credential. Acceptable for single operator + testnet. API key auth in v1.5.
-- **viem wallets** — no Coinbase CDP dependency. Direct key generation + USDC transfers.
-- **Private funding page** — `/fund/:token` with QR code + live balance polling. One link onboarding.
-- **URL-only purchases** — no product search in v1. Exa.ai is integrated for discovery (Stage 2.5) but search-by-description deferred to v1.5.
+- **No auth** — single operator mode. API key auth in v1.5.
+- **Credit card only** — all payments via browser checkout with stored card credentials. Blockchain/USDC removed.
 - **Fresh Browserbase sessions** — destroyed after each checkout. Domain-level page caching (cookies/localStorage) for repeat flows.
 - **Shipping per-purchase** — custom shipping in buy request. No defaults. Returns `SHIPPING_REQUIRED` if missing for physical items.
-- **$25 max per transaction** (v1)
-- **Base Sepolia** for testnet, Base mainnet for production
 
 ## Constraints (v1)
 
 > **When:** Evaluating whether a feature or behavior is in scope for v1, or when a user asks "can Bloon do X?"
 
-- $25 cap per transaction
-- USDC on Base only
-- URL-only (no product search)
-- No API key auth (wallet_id only)
+- No API key auth
 - No rate limiting
 - JSON file storage (no database)
-- Manual refunds for failed purchases
 - Localhost only (deploy behind reverse proxy for production)
 
-## Rules 
+## Rules
 - Never build site specific adaptors, always build agnostic
 
 ## Security — ALWAYS APPLIES
 
 > **When:** Every run. These rules are non-negotiable regardless of task.
 
-- Never log or expose private keys, seed phrases, or wallet secrets
 - LLM must NEVER see real card numbers — use the placeholder system (`x_card_number`, etc.)
 - Agent data (shipping info) MUST be sanitized before passing as Stagehand variables
 - Card fields are filled via Playwright CDP, never through Stagehand's LLM
-- All on-chain verification uses viem — check amount, recipient, token, and chain
-- Wallet keys stored in `~/.bloon/wallets.json` with 600 permissions
-- `wallet_id` and `funding_token` are independent secrets — never derive one from the other
+- Card credentials stored in `.env` — never commit `.env` to source control
 
 ## Workflows
 
@@ -146,7 +119,7 @@ packages/
 > **When:** Adding or modifying API routes in `packages/api`. Skip for non-API work.
 
 1. Define request/response types in `packages/core/src/types.ts`
-2. Implement business logic in the relevant package (x402, checkout, or wallet)
+2. Implement business logic in the relevant package (checkout or crawling)
 3. Create route handler in `packages/api/src/routes/`
 4. Wire the route in `packages/api/src/server.ts`
 5. Test with curl
@@ -179,9 +152,7 @@ Run these in order after finishing any code task:
 
 > **When:** Working on the related package. Each bullet applies to a specific area — only consult the relevant ones.
 
-- viem's `waitForTransactionReceipt` can hang if the RPC is slow — always set a timeout
 - Browserbase sessions are cloud-hosted — never assume local filesystem access in `packages/checkout`
-- `@x402/fetch` auto-intercepts 402 responses — don't manually handle 402 in code that uses it
 - Fresh Browserbase sessions mean no login state — checkout must work as guest
 - Domain cache stores cookies/localStorage only — never cache auth tokens
 
@@ -218,7 +189,6 @@ If the adapter is not running, Firecrawl's Browserbase+Gemini repair path will f
 ### General Testing Notes
 
 - Always test on real websites (Shopify → Target → Best Buy → Amazon)
-- All on Base Sepolia with test USDC
 - Each build phase has a test gate — don't proceed until all pass
 - Use curl for all API testing
 - See `plans/07-testing-guidelines.md` and `plans/14-phased-build-plan.md` for details
@@ -245,13 +215,12 @@ All specification docs are in `plans/`:
 | `12-computer-use.md` | Browserbase + Stagehand deep dive (Phase 4) |
 | `13-error-handling.md` | Error codes, HTTP statuses, recovery |
 | `14-phased-build-plan.md` | 7 phases with test gates |
-| `15-coinbase-onramp.md` | Coinbase Onramp Guest Checkout integration spec |
 | `16-firecrawl-discovery.md` | Firecrawl pipeline: retry strategy, confidence thresholds, Browserbase repair, candidate ranking, failure tracking |
-| `17-query-endpoint.md` | Query endpoint deep dive: route detection → 3-tier discovery → response |
+| `17-query-endpoint.md` | Query endpoint deep dive: discovery pipeline |
 | `18-agentmail.md` | AgentMail integration for checkout email verification codes |
 | `18-firecrawl-server.md` | Running self-hosted Firecrawl + Browserbase adapter (start/stop, ports, config) |
 | `19-exa-discovery.md` | Exa.ai Stage 2.5 discovery: pipeline position, implementation, env vars |
-| `20-orchestrator.md` | Orchestrator package: query/buy/confirm business logic, routing, receipts |
+| `20-orchestrator.md` | Orchestrator package: query/buy/confirm business logic, receipts |
 | `21-discovery-pipeline.md` | Unified discovery pipeline reference: all 4 tiers, failure codes, env vars, files |
 | `endpoints/query-endpoint.md` | Full query endpoint pipeline: all stages, env vars, scoring weights, failure codes |
 | `skill.md` | Agent-facing API quick reference (lives in `/docs/skill.md`) |

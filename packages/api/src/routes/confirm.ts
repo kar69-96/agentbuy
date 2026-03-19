@@ -24,15 +24,13 @@ confirmRoutes.post("/confirm", async (c) => {
     const result = await confirm({ order_id: body.order_id.trim() });
     return c.json(formatConfirmResponse(result.order, result.receipt));
   } catch (err) {
-    // For CHECKOUT_FAILED / X402_PAYMENT_FAILED with tx_hash,
-    // return 200 with failed order details per spec
+    // For CHECKOUT_FAILED, return 200 with failed order details per spec
     if (
       err instanceof BloonError &&
-      (err.code === ErrorCodes.CHECKOUT_FAILED ||
-        err.code === ErrorCodes.X402_PAYMENT_FAILED)
+      err.code === ErrorCodes.CHECKOUT_FAILED
     ) {
       const order = getOrder(body.order_id.trim());
-      if (order?.error?.tx_hash) {
+      if (order?.error) {
         return c.json(formatConfirmFailedResponse(order));
       }
     }

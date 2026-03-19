@@ -7,7 +7,6 @@ import {
   ErrorCodes,
 } from "@bloon/core";
 import { classifyUrl, discoverWithStrategy } from "@bloon/crawling";
-import { routeOrder } from "./router.js";
 
 export interface QueryInput {
   url: string;
@@ -48,23 +47,7 @@ export async function query(input: QueryInput): Promise<QueryResponse> {
     throw new BloonError(ErrorCodes.INVALID_URL, `Invalid URL: ${url}`);
   }
 
-  // 2. Route detection
-  const decision = await routeOrder(url);
-
-  // 3. x402: immediate return
-  if (decision.route === "x402") {
-    const price = decision.requirements?.maxAmountRequired ?? "0";
-    const name = decision.requirements?.description ?? new URL(url).hostname;
-    return {
-      product: { name, url, price },
-      options: [],
-      required_fields: [],
-      route: "x402",
-      discovery_method: "x402",
-    };
-  }
-
-  // 4. Discover product info (strategy-aware routing from Phase 2 bulk test data)
+  // 2. Discover product info (strategy-aware routing)
   const strategy = classifyUrl(url);
   let discovery;
   try {
@@ -84,7 +67,7 @@ export async function query(input: QueryInput): Promise<QueryResponse> {
     );
   }
 
-  // 5. Build required fields
+  // 3. Build required fields
   const requiredFields = buildRequiredFields(discovery.options);
 
   const product: RichProductInfo = {
@@ -101,7 +84,6 @@ export async function query(input: QueryInput): Promise<QueryResponse> {
     product,
     options: discovery.options,
     required_fields: requiredFields,
-    route: "browserbase",
     discovery_method: discovery.method,
   };
 }

@@ -5,7 +5,6 @@ import { buildReceipt } from "../src/receipts.js";
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
     order_id: "bloon_ord_test01",
-    wallet_id: "bloon_w_test01",
     status: "processing",
     product: {
       name: "Test Product",
@@ -14,11 +13,10 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
       source: "scrape",
     },
     payment: {
-      amount_usdc: "10.20",
+      total: "10.20",
       price: "10.00",
       fee: "0.20",
       fee_rate: "2%",
-      route: "browserbase",
     },
     created_at: new Date().toISOString(),
     expires_at: new Date(Date.now() + 300_000).toISOString(),
@@ -31,7 +29,6 @@ describe("buildReceipt", () => {
     const order = makeOrder();
     const receipt = buildReceipt({
       order,
-      tx_hash: "0xabc123",
       checkoutResult: {
         success: true,
         orderNumber: "ORD-999",
@@ -42,49 +39,19 @@ describe("buildReceipt", () => {
 
     expect(receipt.product).toBe("Test Product");
     expect(receipt.merchant).toBe("shop.example.com");
-    expect(receipt.route).toBe("browserbase");
     expect(receipt.price).toBe("10.00");
     expect(receipt.fee).toBe("0.20");
     expect(receipt.total_paid).toBe("10.20");
-    expect(receipt.tx_hash).toBe("0xabc123");
     expect(receipt.order_number).toBe("ORD-999");
     expect(receipt.browserbase_session_id).toBe("sess_xyz");
-    expect(receipt.response).toBeUndefined();
   });
 
-  it("builds receipt for x402 payment", () => {
-    const order = makeOrder({
-      payment: {
-        amount_usdc: "0.102",
-        price: "0.10",
-        fee: "0.002",
-        fee_rate: "2%",
-        route: "x402",
-      },
-      product: {
-        name: "Echo Service",
-        url: "https://x402.example.com/api",
-        price: "0.10",
-        source: "x402",
-      },
-    });
+  it("builds receipt without checkout result", () => {
+    const order = makeOrder();
+    const receipt = buildReceipt({ order });
 
-    const receipt = buildReceipt({
-      order,
-      tx_hash: "0xdef456",
-      x402Result: {
-        response: { echo: "hello" },
-        status: 200,
-        headers: { "content-type": "application/json" },
-      },
-    });
-
-    expect(receipt.route).toBe("x402");
-    expect(receipt.price).toBe("0.10");
-    expect(receipt.fee).toBe("0.002");
-    expect(receipt.total_paid).toBe("0.102");
-    expect(receipt.tx_hash).toBe("0xdef456");
-    expect(receipt.response).toEqual({ echo: "hello" });
+    expect(receipt.product).toBe("Test Product");
+    expect(receipt.merchant).toBe("shop.example.com");
     expect(receipt.order_number).toBeUndefined();
     expect(receipt.browserbase_session_id).toBeUndefined();
   });
@@ -99,7 +66,7 @@ describe("buildReceipt", () => {
       },
     });
 
-    const receipt = buildReceipt({ order, tx_hash: "0x123" });
+    const receipt = buildReceipt({ order });
     expect(receipt.merchant).toBe("www.amazon.com");
   });
 });

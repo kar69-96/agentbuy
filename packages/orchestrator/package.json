@@ -9,8 +9,6 @@
   },
   "dependencies": {
     "@bloon/core": "workspace:*",
-    "@bloon/wallet": "workspace:*",
-    "@bloon/x402": "workspace:*",
     "@bloon/checkout": "workspace:*",
     "@bloon/crawling": "workspace:*"
   }

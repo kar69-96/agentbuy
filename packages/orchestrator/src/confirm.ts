@@ -4,12 +4,8 @@ import {
   BloonError,
   ErrorCodes,
   getOrder,
-  getWallet,
   updateOrder,
-  loadConfig,
 } from "@bloon/core";
-import { getBalance, transferUSDC } from "@bloon/wallet";
-import { payX402 } from "@bloon/x402";
 import { runCheckout } from "@bloon/checkout";
 import { buildReceipt } from "./receipts.js";
 
@@ -60,135 +56,57 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
   const confirmedAt = new Date().toISOString();
   await updateOrder(order_id, { status: "processing", confirmed_at: confirmedAt });
 
-  // 6. Load wallet and config
-  const wallet = getWallet(order.wallet_id);
-  if (!wallet) {
-    throw new BloonError(
-      ErrorCodes.WALLET_NOT_FOUND,
-      `Wallet not found: ${order.wallet_id}`,
-    );
-  }
-
-  const config = loadConfig();
-  const masterAddress = config.master_wallet.address;
-
-  // 7. Re-check balance (may have changed since buy-time)
-  const transferAmount =
-    order.payment.route === "x402"
-      ? order.payment.fee
-      : order.payment.amount_usdc;
-  const balance = await getBalance(wallet.address);
-  if (parseFloat(balance) < parseFloat(transferAmount)) {
-    await updateOrder(order_id, { status: "failed" });
-    throw new BloonError(
-      ErrorCodes.INSUFFICIENT_BALANCE,
-      `Insufficient balance at confirm time: have ${balance} USDC, need ${transferAmount} USDC`,
-    );
-  }
-
-  let txHash: string | undefined;
-
   try {
-    if (order.payment.route === "x402") {
-      // x402: transfer FEE to master, then pay service directly
-      const feeTransfer = await transferUSDC(
-        wallet.private_key,
-        masterAddress,
-        order.payment.fee,
+    // 6. Run browser checkout
+    if (!order.shipping) {
+      throw new BloonError(
+        ErrorCodes.SHIPPING_REQUIRED,
+        "Shipping info missing on order for browser checkout",
       );
-      txHash = feeTransfer.tx_hash;
-
-      // Save tx_hash immediately
-      await updateOrder(order_id, { tx_hash: txHash });
-
-      // Pay the service from agent wallet
-      const x402Result = await payX402(order.product.url, wallet.private_key);
-
-      // Build receipt
-      const receipt = buildReceipt({
-        order,
-        tx_hash: txHash!,
-        x402Result,
-      });
-
-      await updateOrder(order_id, {
-        status: "completed",
-        receipt,
-        completed_at: new Date().toISOString(),
-      });
-
-      return { order: { ...order, status: "completed", receipt }, receipt };
-    } else {
-      // Browserbase: transfer FULL amount to master
-      const fullTransfer = await transferUSDC(
-        wallet.private_key,
-        masterAddress,
-        order.payment.amount_usdc,
-      );
-      txHash = fullTransfer.tx_hash;
-
-      // Save tx_hash immediately
-      await updateOrder(order_id, { tx_hash: txHash });
-
-      // Run browser checkout
-      if (!order.shipping) {
-        throw new BloonError(
-          ErrorCodes.SHIPPING_REQUIRED,
-          "Shipping info missing on order for browser checkout",
-        );
-      }
-
-      const checkoutResult = await runCheckout({
-        order,
-        shipping: order.shipping,
-        selections: order.selections,
-      });
-
-      if (!checkoutResult.success) {
-        // Use specific error code for payment declines vs generic checkout failures
-        const isDecline = checkoutResult.errorMessage &&
-          (/payment_declined|card_invalid/.test(checkoutResult.errorMessage));
-        const code = isDecline ? ErrorCodes.CHECKOUT_DECLINED : ErrorCodes.CHECKOUT_FAILED;
-        throw new BloonError(
-          code,
-          checkoutResult.errorMessage ?? `Checkout did not confirm (session: ${checkoutResult.sessionId})`,
-        );
-      }
-
-      // Build receipt
-      const receipt = buildReceipt({
-        order,
-        tx_hash: txHash!,
-        checkoutResult,
-      });
-
-      await updateOrder(order_id, {
-        status: "completed",
-        receipt,
-        completed_at: new Date().toISOString(),
-      });
-
-      return { order: { ...order, status: "completed", receipt }, receipt };
     }
+
+    const checkoutResult = await runCheckout({
+      order,
+      shipping: order.shipping,
+      selections: order.selections,
+    });
+
+    if (!checkoutResult.success) {
+      const isDecline = checkoutResult.errorMessage &&
+        (/payment_declined|card_invalid/.test(checkoutResult.errorMessage));
+      const code = isDecline ? ErrorCodes.CHECKOUT_DECLINED : ErrorCodes.CHECKOUT_FAILED;
+      throw new BloonError(
+        code,
+        checkoutResult.errorMessage ?? `Checkout did not confirm (session: ${checkoutResult.sessionId})`,
+      );
+    }
+
+    // 7. Build receipt
+    const receipt = buildReceipt({
+      order,
+      checkoutResult,
+    });
+
+    await updateOrder(order_id, {
+      status: "completed",
+      receipt,
+      completed_at: new Date().toISOString(),
+    });
+
+    return { order: { ...order, status: "completed", receipt }, receipt };
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Execution failed";
-    const errorCode =
-      order.payment.route === "x402"
-        ? ErrorCodes.X402_PAYMENT_FAILED
-        : ErrorCodes.CHECKOUT_FAILED;
 
-    // Only set refund_status if USDC was actually sent
     await updateOrder(order_id, {
       status: "failed",
       error: {
-        code: errorCode,
+        code: ErrorCodes.CHECKOUT_FAILED,
         message: errorMessage,
-        ...(txHash ? { tx_hash: txHash, refund_status: "pending_manual" as const } : {}),
       },
     });
 
     if (error instanceof BloonError) throw error;
-    throw new BloonError(errorCode, errorMessage);
+    throw new BloonError(ErrorCodes.CHECKOUT_FAILED, errorMessage);
   }
 }

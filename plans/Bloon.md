@@ -1,5 +1,7 @@
 # Bloon
 
+> **ARCHIVED (2026-03-19):** This document describes the original USDC/blockchain architecture. Bloon has been migrated to credit-card-only. See `CLAUDE.md` and `docs/skill.md` for the current architecture.
+
 **Any website. Any product. One USDC payment. The agent handles the rest.**
 
 Bloon is a REST API (TypeScript/Hono) that lets AI agents purchase anything on the internet using USDC on Base. No API keys. No registration. The agent's `wallet_id` is its credential. Bloon auto-routes payments — x402-native merchants get paid directly (2% fee), everything else goes through Browserbase cloud browser checkout with Stagehand (2% fee). Same interface, same receipt format either way.

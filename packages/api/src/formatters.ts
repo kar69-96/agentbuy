@@ -1,5 +1,4 @@
-import type { Wallet, Order, Receipt, QueryResponse, SearchQueryResponse } from "@bloon/core";
-import { getOrdersByWallet } from "@bloon/core";
+import type { Order, Receipt, QueryResponse, SearchQueryResponse } from "@bloon/core";
 
 function getHostname(url: string): string {
   try {
@@ -7,52 +6,6 @@ function getHostname(url: string): string {
   } catch {
     return "unknown";
   }
-}
-
-export function formatWalletCreateResponse(
-  wallet: Wallet,
-  balance: string,
-  baseUrl: string,
-) {
-  return {
-    wallet_id: wallet.wallet_id,
-    address: wallet.address,
-    network: wallet.network,
-    agent_name: wallet.agent_name,
-    balance_usdc: balance,
-    funding_url: `${baseUrl}/fund/${wallet.funding_token}`,
-    created_at: wallet.created_at,
-  };
-}
-
-export function formatWalletGetResponse(
-  wallet: Wallet,
-  balance: string,
-  baseUrl: string,
-) {
-  const orders = getOrdersByWallet(wallet.wallet_id);
-  const transactions = orders.map((o) => ({
-    type: "purchase" as const,
-    order_id: o.order_id,
-    product: o.product.name,
-    merchant: getHostname(o.product.url),
-    route: o.payment.route,
-    price: o.payment.price,
-    fee: o.payment.fee,
-    total: o.payment.amount_usdc,
-    status: o.status,
-    timestamp: o.completed_at || o.confirmed_at || o.created_at,
-  }));
-
-  return {
-    wallet_id: wallet.wallet_id,
-    address: wallet.address,
-    network: wallet.network,
-    agent_name: wallet.agent_name,
-    balance_usdc: balance,
-    created_at: wallet.created_at,
-    transactions,
-  };
 }
 
 export function formatQueryResponse(result: QueryResponse) {
@@ -63,7 +16,6 @@ export function formatQueryResponse(result: QueryResponse) {
     },
     options: result.options,
     required_fields: result.required_fields,
-    route: result.route,
     discovery_method: result.discovery_method,
   };
 }
@@ -79,7 +31,6 @@ export function formatSearchQueryResponse(result: SearchQueryResponse) {
       },
       options: p.options,
       required_fields: p.required_fields,
-      route: p.route,
       discovery_method: p.discovery_method,
       relevance_score: p.relevance_score,
     })),
@@ -87,7 +38,7 @@ export function formatSearchQueryResponse(result: SearchQueryResponse) {
   };
 }
 
-export function formatBuyResponse(order: Order, balance: string) {
+export function formatBuyResponse(order: Order) {
   const expiresIn = Math.max(
     0,
     Math.floor((new Date(order.expires_at).getTime() - Date.now()) / 1000),
@@ -104,11 +55,8 @@ export function formatBuyResponse(order: Order, balance: string) {
       item_price: order.payment.price,
       fee: order.payment.fee,
       fee_rate: order.payment.fee_rate,
-      total: order.payment.amount_usdc,
-      route: order.payment.route,
+      total: order.payment.total,
       discovery_method: order.product.source,
-      wallet_id: order.wallet_id,
-      wallet_balance: balance,
     },
     status: order.status,
     expires_in: expiresIn,

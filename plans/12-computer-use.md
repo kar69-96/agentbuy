@@ -634,11 +634,7 @@ When `/api/confirm` is called for a browser route order:
 1.  Load order from store
 2.  Verify order status === "awaiting_confirmation"
 3.  Verify not expired (< 5 min)
-4.  Verify wallet has sufficient USDC balance
-5.  Transfer USDC: agent wallet → master wallet (on-chain)
-6.  Wait for tx confirmation (~2s on Base)
-7.  Save tx_hash to order immediately (in case of later failure)
-8.  Create fresh Browserbase session
+4.  Create fresh Browserbase session
 9.  Initialize Stagehand + Playwright CDP on the session
 10. Inject domain cache if available
 11. Run checkout orchestration (step-by-step Stagehand calls)
@@ -788,17 +784,17 @@ async function injectDomainCache(
 
 | Error | When | Response |
 |-------|------|----------|
-| `CHECKOUT_FAILED` | Stagehand couldn't complete purchase | 502, preserve tx_hash, manual refund |
+| `CHECKOUT_FAILED` | Stagehand couldn't complete purchase | 502, set order to failed |
 | `PRICE_MISMATCH` | Final total differs from quote | 409, abort before submit, no funds at risk |
 | `PRICE_EXTRACTION_FAILED` | Discovery couldn't extract price | 502, try different URL |
 | Session creation failure | Browserbase down or limit hit | Retry with backoff, then 502 |
-| Session timeout | Checkout took > 5 min | 502, destroy session, preserve tx_hash |
+| Session timeout | Checkout took > 5 min | 502, destroy session, set order to failed |
 
 ### Critical: USDC Already Sent
 
 When `CHECKOUT_FAILED` fires after USDC transfer, this is the worst case:
 1. Order status → `"failed"`
-2. `tx_hash` preserved in order record
+2. Error details preserved in order record
 3. `error.refund_status` → `"pending_manual"`
 4. Browserbase session replay URL preserved for debugging
 5. Operator investigates manually

@@ -1,19 +1,3 @@
-// ---- Network ----
-
-export type Network = "base-sepolia" | "base";
-
-// ---- Wallet ----
-
-export interface Wallet {
-  wallet_id: string;
-  address: string;
-  private_key: string;
-  funding_token: string;
-  network: Network;
-  agent_name: string;
-  created_at: string;
-}
-
 // ---- Order ----
 
 export type OrderStatus =
@@ -22,8 +6,6 @@ export type OrderStatus =
   | "completed"
   | "failed"
   | "expired";
-
-export type PaymentRoute = "x402" | "browserbase";
 
 export interface ProductInfo {
   name: string;
@@ -34,22 +16,19 @@ export interface ProductInfo {
 }
 
 export interface PaymentInfo {
-  amount_usdc: string;
+  total: string;
   price: string;
   fee: string;
   fee_rate: string;
-  route: PaymentRoute;
 }
 
 export interface Order {
   order_id: string;
-  wallet_id: string;
   status: OrderStatus;
   product: ProductInfo;
   payment: PaymentInfo;
   shipping?: ShippingInfo;
   selections?: Record<string, string>;
-  tx_hash?: string;
   receipt?: Receipt;
   error?: OrderError;
   created_at: string;
@@ -63,17 +42,14 @@ export interface Order {
 export interface Receipt {
   product: string;
   merchant: string;
-  route: PaymentRoute;
   price: string;
   fee: string;
   total_paid: string;
-  tx_hash: string;
   timestamp: string;
   order_number?: string;
   estimated_delivery?: string;
   confirmation_email?: string;
   browserbase_session_id?: string;
-  response?: Record<string, unknown>;
 }
 
 // ---- Shipping ----
@@ -117,7 +93,6 @@ export interface QueryResponse {
   product: RichProductInfo;
   options: ProductOption[];
   required_fields: RequiredField[];
-  route: PaymentRoute;
   discovery_method: string;
 }
 
@@ -127,7 +102,6 @@ export interface SearchProductResult {
   product: RichProductInfo;
   options: ProductOption[];
   required_fields: RequiredField[];
-  route: PaymentRoute;
   discovery_method: string;
   relevance_score: number;
 }
@@ -188,8 +162,6 @@ export interface CredentialsMap {
 export interface OrderError {
   code: string;
   message: string;
-  tx_hash?: string;
-  refund_status?: "pending_manual" | "refunded";
 }
 
 // ---- Domain Cache ----
@@ -218,36 +190,13 @@ export type CheckoutErrorCategory =
   | "session_timeout"
   | "unknown";
 
-// ---- x402 ----
-
-export interface X402Requirements {
-  scheme: string;
-  network: string;
-  maxAmountRequired: string;
-  payTo: string;
-  asset: string;
-  resource?: string;
-  description?: string;
-}
-
 // ---- Store Schemas ----
-
-export interface WalletsStore {
-  wallets: Wallet[];
-}
 
 export interface OrdersStore {
   orders: Order[];
 }
 
 export interface BloonConfig {
-  master_wallet: {
-    address: string;
-    private_key: string;
-  };
-  network: Network;
-  usdc_contract: string;
-  max_transaction_amount: number;
   default_order_expiry_seconds: number;
   port: number;
 }
@@ -282,22 +231,16 @@ export interface CostBreakdown {
 // ---- Error Codes ----
 
 export const ErrorCodes = {
-  INSUFFICIENT_BALANCE: "INSUFFICIENT_BALANCE",
   SHIPPING_REQUIRED: "SHIPPING_REQUIRED",
-  PRICE_EXCEEDS_LIMIT: "PRICE_EXCEEDS_LIMIT",
-  WALLET_NOT_FOUND: "WALLET_NOT_FOUND",
   ORDER_NOT_FOUND: "ORDER_NOT_FOUND",
   ORDER_EXPIRED: "ORDER_EXPIRED",
   URL_UNREACHABLE: "URL_UNREACHABLE",
   PRICE_EXTRACTION_FAILED: "PRICE_EXTRACTION_FAILED",
-  TRANSFER_FAILED: "TRANSFER_FAILED",
-  X402_PAYMENT_FAILED: "X402_PAYMENT_FAILED",
   CHECKOUT_FAILED: "CHECKOUT_FAILED",
   CHECKOUT_DECLINED: "CHECKOUT_DECLINED",
   MISSING_FIELD: "MISSING_FIELD",
   INVALID_URL: "INVALID_URL",
   ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
-  GAS_TRANSFER_FAILED: "GAS_TRANSFER_FAILED",
   INVALID_SELECTION: "INVALID_SELECTION",
   QUERY_FAILED: "QUERY_FAILED",
   SEARCH_NO_RESULTS: "SEARCH_NO_RESULTS",

@@ -417,5 +417,5 @@ POST /api/query
 The agent uses the query response to:
 1. Show the user the product info and price
 2. Collect the required fields (shipping, selections)
-3. Call `POST /api/buy` with the URL, wallet_id, shipping, and selections to get a purchase quote
+3. Call `POST /api/buy` with the URL, shipping, and selections to get a purchase quote
 4. Call `POST /api/confirm` with the order_id to execute the purchase

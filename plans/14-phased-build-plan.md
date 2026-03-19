@@ -1,6 +1,13 @@
 # Phased Build Plan — Bloon v1
 
-Each phase has test gates. Don't proceed until all pass. All on Base Sepolia.
+> **NOTICE (2026-03):** Bloon has migrated to a credit-card-only architecture. The blockchain/USDC/wallet/x402 system has been completely removed. The following phases are **superseded** and no longer applicable:
+> - **Phase 2** (Wallet Management) — wallets, USDC balance, QR codes, transfers
+> - **Phase 3** (x402 Detection & Payment) — x402 route detection, crypto payments
+> - **Phase 7** (Coinbase Onramp + E2E on Mainnet) — Coinbase Onramp, mainnet USDC, on-chain verification
+>
+> Phases 1, 4, 5, and 6 remain relevant but references to wallet_id, USDC transfers, x402 routing, and on-chain verification within them should be disregarded. Purchases are now executed exclusively via browser checkout with credit card credentials filled via Playwright CDP.
+
+Each phase has test gates. Don't proceed until all pass.
 
 ---
 

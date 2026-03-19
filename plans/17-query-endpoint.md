@@ -31,7 +31,7 @@ curl -X POST http://localhost:3000/api/query \
 
 | Field | Type | One-of | Description |
 |-------|------|--------|-------------|
-| `url` | string | yes | Product URL or x402 endpoint |
+| `url` | string | yes | Product URL |
 | `query` | string | yes | Natural language product query |
 
 ## URL Mode Response
@@ -70,7 +70,6 @@ curl -X POST http://localhost:3000/api/query \
     { "field": "shipping.country", "label": "Country" },
     { "field": "selections", "label": "Product options (Color, Size)" }
   ],
-  "route": "browserbase",
   "discovery_method": "firecrawl"
 }
 ```
@@ -79,22 +78,14 @@ curl -X POST http://localhost:3000/api/query \
 |-------|-------------|
 | `product` | Name, price, image, brand, currency. Price is the default/base price. |
 | `options` | Variant groups. `prices` is a value→price map, only present when variants have different prices. |
-| `required_fields` | What the agent must provide in `POST /api/buy`. Shipping fields are always included for browser-route products. `selections` appears only if options exist. |
-| `route` | `"x402"` or `"browserbase"` — how the purchase will be executed. |
-| `discovery_method` | Which tier found the data: `"x402"`, `"firecrawl"`, `"scrape"`, `"exa"`, or `"browserbase"`. |
+| `required_fields` | What the agent must provide in `POST /api/buy`. Shipping fields are always included for physical products. `selections` appears only if options exist. |
+| `discovery_method` | Which tier found the data: `"firecrawl"`, `"scrape"`, `"exa"`, or `"browserbase"`. |
 
 ## How It Works
 
 > **Detailed pipeline documentation:** See `plans/endpoints/query-endpoint.md` for the full pipeline spec with scoring weights, env vars, failure codes, and code paths.
 
-### Step 1: Route Detection
-
-The orchestrator fetches the URL and checks if it returns HTTP 402 with x402 payment headers.
-
-- **x402 detected** → return immediately with price from the 402 body, no product discovery needed, no shipping fields.
-- **No x402** → proceed to product discovery.
-
-### Step 2: Product Discovery
+### Step 1: Product Discovery
 
 `discoverProduct(url)` runs a 4-tier pipeline. Each tier is tried in order; the first to succeed wins.
 
@@ -146,15 +137,15 @@ For per-variant pricing, the agent selects each variant (clicking swatches, drop
 
 Slowest tier (~30-120s), most expensive (Browserbase session + LLM API calls), but handles anti-bot sites (Amazon, Best Buy) and pages with no structured data.
 
-### Step 3: Build Required Fields
+### Step 2: Build Required Fields
 
-The orchestrator always includes standard shipping fields (name, email, phone, street, apartment, city, state, zip, country) for browser-route products.
+The orchestrator always includes standard shipping fields (name, email, phone, street, apartment, city, state, zip, country) for physical products.
 
 If the product has variant options, a `selections` field is added to `required_fields` with a label listing the option names (e.g., "Product options (Color, Size)").
 
-### Step 4: Return Response
+### Step 3: Return Response
 
-The orchestrator assembles the `QueryResponse` with product info, options, required fields, route, and which discovery tier was used.
+The orchestrator assembles the `QueryResponse` with product info, options, required fields, and which discovery tier was used.
 
 ## Code Path
 
@@ -163,7 +154,6 @@ The orchestrator assembles the `QueryResponse` with product info, options, requi
 POST /api/query { url }
   → packages/api/src/routes/query.ts            (branch: hasUrl → query())
   → packages/orchestrator/src/query.ts          (orchestrate)
-    → packages/x402/src/detect.ts               (route detection)
     → packages/checkout/src/discover.ts
        → discoverProduct(url)                   (main entry point)
           → discoverViaFirecrawl(url)           [Tier 1 - packages/crawling]
@@ -195,7 +185,6 @@ POST /api/query { query }
       "product": { "name": "...", "url": "...", "price": "12.99", "source": "amazon.com" },
       "options": [{ "name": "Color", "values": ["White", "Gray"] }],
       "required_fields": [ ... ],
-      "route": "browserbase",
       "discovery_method": "exa_search",
       "relevance_score": 0.94
     }
@@ -221,29 +210,10 @@ The NL response has `"type": "search"` at the top level. URL mode responses do N
 | `SEARCH_UNAVAILABLE` | 503 | NL path: EXA_API_KEY not set, or Exa error |
 | `SEARCH_RATE_LIMITED` | 429 | NL path: Exa 429 rate limit |
 
-## x402 Response (Digital Services)
-
-For x402 endpoints, the response is minimal — no options, no shipping fields:
-
-```json
-{
-  "product": {
-    "name": "Weather Forecast API",
-    "url": "https://api.weather402.com/forecast",
-    "price": "0.10",
-    "source": "api.weather402.com"
-  },
-  "options": [],
-  "required_fields": [],
-  "route": "x402",
-  "discovery_method": "x402"
-}
-```
-
 ## What Happens Next
 
 The agent uses the query response to:
 1. Show the user the product info and price
 2. Collect the required fields (shipping, selections)
-3. Call `POST /api/buy` with the URL, wallet_id, shipping, and selections to get a purchase quote
+3. Call `POST /api/buy` with the URL, shipping, and selections to get a purchase quote
 4. Call `POST /api/confirm` with the order_id to execute the purchase

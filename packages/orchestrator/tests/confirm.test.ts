@@ -6,67 +6,25 @@ import type { Order } from "@bloon/core";
 
 // ---- Mock external packages ----
 
-vi.mock("@bloon/wallet", () => ({
-  getBalance: vi.fn(),
-  transferUSDC: vi.fn(),
-}));
-
-vi.mock("@bloon/x402", () => ({
-  payX402: vi.fn(),
-}));
-
 vi.mock("@bloon/checkout", () => ({
   runCheckout: vi.fn(),
 }));
 
-import { getBalance, transferUSDC } from "@bloon/wallet";
-import { payX402 } from "@bloon/x402";
 import { runCheckout } from "@bloon/checkout";
 import { confirm } from "../src/confirm.js";
 
-const mockedGetBalance = vi.mocked(getBalance);
-const mockedTransferUSDC = vi.mocked(transferUSDC);
-const mockedPayX402 = vi.mocked(payX402);
 const mockedRunCheckout = vi.mocked(runCheckout);
 
 // ---- Test helpers ----
 
 let tmpDir: string;
 
-const WALLET_ID = "bloon_w_test01";
-const WALLET_ADDRESS = "0x" + "a".repeat(40);
-const WALLET_KEY = "0x" + "b".repeat(64);
-const MASTER_ADDRESS = "0x" + "c".repeat(40);
-
 function writeStore(filename: string, data: unknown): void {
   fs.writeFileSync(path.join(tmpDir, filename), JSON.stringify(data, null, 2));
 }
 
-function setupWallet(): void {
-  writeStore("wallets.json", {
-    wallets: [
-      {
-        wallet_id: WALLET_ID,
-        address: WALLET_ADDRESS,
-        private_key: WALLET_KEY,
-        funding_token: "tok_test",
-        network: "base-sepolia",
-        agent_name: "TestAgent",
-        created_at: new Date().toISOString(),
-      },
-    ],
-  });
-}
-
 function setupConfig(): void {
   writeStore("config.json", {
-    master_wallet: {
-      address: MASTER_ADDRESS,
-      private_key: "0x" + "d".repeat(64),
-    },
-    network: "base-sepolia",
-    usdc_contract: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-    max_transaction_amount: 25,
     default_order_expiry_seconds: 300,
     port: 3000,
   });
@@ -75,7 +33,6 @@ function setupConfig(): void {
 function makeOrder(overrides: Partial<Order> = {}): Order {
   return {
     order_id: "bloon_ord_test01",
-    wallet_id: WALLET_ID,
     status: "awaiting_confirmation",
     product: {
       name: "Test Product",
@@ -84,11 +41,10 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
       source: "scrape",
     },
     payment: {
-      amount_usdc: "10.20",
+      total: "10.20",
       price: "10.00",
       fee: "0.20",
       fee_rate: "2%",
-      route: "browserbase",
     },
     shipping: {
       name: "Test User",
@@ -113,11 +69,8 @@ function seedOrder(order: Order): void {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-confirm-test-"));
   process.env.BLOON_DATA_DIR = tmpDir;
-  setupWallet();
   setupConfig();
   vi.clearAllMocks();
-  // Default: wallet has enough balance
-  mockedGetBalance.mockResolvedValue("50.00");
 });
 
 afterEach(() => {
@@ -128,70 +81,9 @@ afterEach(() => {
 // ---- Tests ----
 
 describe("confirm", () => {
-  it("confirm x402 order transfers fee and pays service, returns receipt", async () => {
-    const order = makeOrder({
-      payment: {
-        amount_usdc: "0.102",
-        price: "0.10",
-        fee: "0.002",
-        fee_rate: "2%",
-        route: "x402",
-      },
-      product: {
-        name: "Echo Service",
-        url: "https://x402.example.com/api",
-        price: "0.10",
-        source: "x402",
-      },
-      shipping: undefined,
-    });
-    seedOrder(order);
-
-    mockedTransferUSDC.mockResolvedValue({
-      tx_hash: "0xfee_hash_123",
-      from: WALLET_ADDRESS,
-      to: MASTER_ADDRESS,
-      amount: "0.002",
-    });
-
-    mockedPayX402.mockResolvedValue({
-      response: { echo: "hello" },
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
-
-    const result = await confirm({ order_id: "bloon_ord_test01" });
-
-    expect(result.receipt.route).toBe("x402");
-    expect(result.receipt.tx_hash).toBe("0xfee_hash_123");
-    expect(result.receipt.response).toEqual({ echo: "hello" });
-    expect(result.receipt.price).toBe("0.10");
-    expect(result.receipt.fee).toBe("0.002");
-
-    // Verify fee-only transfer
-    expect(mockedTransferUSDC).toHaveBeenCalledWith(
-      WALLET_KEY,
-      MASTER_ADDRESS,
-      "0.002",
-    );
-
-    // Verify x402 payment
-    expect(mockedPayX402).toHaveBeenCalledWith(
-      "https://x402.example.com/api",
-      WALLET_KEY,
-    );
-  });
-
-  it("confirm browser order transfers full amount and checks out, returns receipt", async () => {
+  it("confirm browser order checks out and returns receipt", async () => {
     const order = makeOrder();
     seedOrder(order);
-
-    mockedTransferUSDC.mockResolvedValue({
-      tx_hash: "0xfull_hash_456",
-      from: WALLET_ADDRESS,
-      to: MASTER_ADDRESS,
-      amount: "10.20",
-    });
 
     mockedRunCheckout.mockResolvedValue({
       success: true,
@@ -202,17 +94,10 @@ describe("confirm", () => {
 
     const result = await confirm({ order_id: "bloon_ord_test01" });
 
-    expect(result.receipt.route).toBe("browserbase");
-    expect(result.receipt.tx_hash).toBe("0xfull_hash_456");
+    expect(result.receipt.price).toBe("10.00");
+    expect(result.receipt.fee).toBe("0.20");
     expect(result.receipt.order_number).toBe("ORD-12345");
     expect(result.receipt.browserbase_session_id).toBe("sess_abc");
-
-    // Verify full amount transfer
-    expect(mockedTransferUSDC).toHaveBeenCalledWith(
-      WALLET_KEY,
-      MASTER_ADDRESS,
-      "10.20",
-    );
   });
 
   it("confirm expired order throws ORDER_EXPIRED", async () => {
@@ -236,11 +121,9 @@ describe("confirm", () => {
     const existingReceipt = {
       product: "Test Product",
       merchant: "example.com",
-      route: "browserbase" as const,
       price: "10.00",
       fee: "0.20",
       total_paid: "10.20",
-      tx_hash: "0xexisting_hash",
       timestamp: "2026-01-01T00:00:00.000Z",
       order_number: "ORD-99999",
     };
@@ -254,21 +137,13 @@ describe("confirm", () => {
     const result = await confirm({ order_id: "bloon_ord_test01" });
 
     expect(result.receipt).toEqual(existingReceipt);
-    // No transfers should have been called
-    expect(mockedTransferUSDC).not.toHaveBeenCalled();
+    // No checkout should have been called
     expect(mockedRunCheckout).not.toHaveBeenCalled();
   });
 
-  it("confirm where USDC sent but checkout fails preserves tx_hash and sets failed", async () => {
+  it("confirm where checkout fails sets order to failed", async () => {
     const order = makeOrder();
     seedOrder(order);
-
-    mockedTransferUSDC.mockResolvedValue({
-      tx_hash: "0xsent_but_failed",
-      from: WALLET_ADDRESS,
-      to: MASTER_ADDRESS,
-      amount: "10.20",
-    });
 
     mockedRunCheckout.mockRejectedValue(new Error("Browser session crashed"));
 
@@ -276,76 +151,13 @@ describe("confirm", () => {
       confirm({ order_id: "bloon_ord_test01" }),
     ).rejects.toThrow(expect.objectContaining({ code: "CHECKOUT_FAILED" }));
 
-    // Verify order in store has failed status with tx_hash preserved
+    // Verify order in store has failed status
     const stored = JSON.parse(
       fs.readFileSync(path.join(tmpDir, "orders.json"), "utf-8"),
     );
     const failedOrder = stored.orders[0];
     expect(failedOrder.status).toBe("failed");
-    expect(failedOrder.error.tx_hash).toBe("0xsent_but_failed");
-    expect(failedOrder.error.refund_status).toBe("pending_manual");
     expect(failedOrder.error.code).toBe("CHECKOUT_FAILED");
-  });
-
-  it("confirm where transferUSDC fails does not set tx_hash or refund_status", async () => {
-    const order = makeOrder();
-    seedOrder(order);
-
-    mockedTransferUSDC.mockRejectedValue(new Error("Nonce too low"));
-
-    await expect(
-      confirm({ order_id: "bloon_ord_test01" }),
-    ).rejects.toThrow(expect.objectContaining({ code: "CHECKOUT_FAILED" }));
-
-    // Verify order failed but no tx_hash (no USDC was sent)
-    const stored = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, "orders.json"), "utf-8"),
-    );
-    const failedOrder = stored.orders[0];
-    expect(failedOrder.status).toBe("failed");
-    expect(failedOrder.error.tx_hash).toBeUndefined();
-    expect(failedOrder.error.refund_status).toBeUndefined();
-  });
-
-  it("confirm x402 where payX402 fails after fee transfer preserves tx_hash", async () => {
-    const order = makeOrder({
-      payment: {
-        amount_usdc: "1.02",
-        price: "1.00",
-        fee: "0.02",
-        fee_rate: "2%",
-        route: "x402",
-      },
-      product: {
-        name: "Failing Service",
-        url: "https://x402.example.com/fail",
-        price: "1.00",
-        source: "x402",
-      },
-      shipping: undefined,
-    });
-    seedOrder(order);
-
-    mockedTransferUSDC.mockResolvedValue({
-      tx_hash: "0xfee_sent_ok",
-      from: WALLET_ADDRESS,
-      to: MASTER_ADDRESS,
-      amount: "0.02",
-    });
-
-    mockedPayX402.mockRejectedValue(new Error("x402 service unavailable"));
-
-    await expect(
-      confirm({ order_id: "bloon_ord_test01" }),
-    ).rejects.toThrow(expect.objectContaining({ code: "X402_PAYMENT_FAILED" }));
-
-    const stored = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, "orders.json"), "utf-8"),
-    );
-    const failedOrder = stored.orders[0];
-    expect(failedOrder.status).toBe("failed");
-    expect(failedOrder.error.tx_hash).toBe("0xfee_sent_ok");
-    expect(failedOrder.error.refund_status).toBe("pending_manual");
   });
 
   it("confirm browser order passes selections to runCheckout", async () => {
@@ -353,13 +165,6 @@ describe("confirm", () => {
       selections: { Color: "Charcoal", Size: "10" },
     });
     seedOrder(order);
-
-    mockedTransferUSDC.mockResolvedValue({
-      tx_hash: "0xsel_hash",
-      from: WALLET_ADDRESS,
-      to: MASTER_ADDRESS,
-      amount: "10.20",
-    });
 
     mockedRunCheckout.mockResolvedValue({
       success: true,
@@ -377,21 +182,5 @@ describe("confirm", () => {
         selections: { Color: "Charcoal", Size: "10" },
       }),
     );
-  });
-
-  it("confirm with insufficient balance at confirm time throws INSUFFICIENT_BALANCE", async () => {
-    const order = makeOrder();
-    seedOrder(order);
-
-    mockedGetBalance.mockResolvedValue("0.50"); // less than 10.50 needed
-
-    await expect(
-      confirm({ order_id: "bloon_ord_test01" }),
-    ).rejects.toThrow(
-      expect.objectContaining({ code: "INSUFFICIENT_BALANCE" }),
-    );
-
-    // No transfer should have been attempted
-    expect(mockedTransferUSDC).not.toHaveBeenCalled();
   });
 });

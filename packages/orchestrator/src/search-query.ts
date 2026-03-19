@@ -187,7 +187,6 @@ export async function searchQuery(
     },
     options: [...result.options],
     required_fields: buildRequiredFields(result.options),
-    route: "browserbase" as const,
     discovery_method: "exa_search",
     relevance_score: Math.round(score * 100) / 100,
   }));

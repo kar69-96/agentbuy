@@ -1,7 +1,5 @@
 import dotenv from "dotenv";
-import { privateKeyToAccount } from "viem/accounts";
 import type {
-  Network,
   CardInfo,
   BillingInfo,
   ShippingInfo,
@@ -11,29 +9,10 @@ import { getConfig, saveConfig } from "./store.js";
 
 dotenv.config();
 
-// ---- USDC contracts ----
-
-const USDC_CONTRACTS: Record<Network, string> = {
-  "base-sepolia": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-  base: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-};
-
 // ---- Typed accessors ----
-
-export function getNetwork(): Network {
-  return (process.env.NETWORK as Network) || "base-sepolia";
-}
-
-export function getUsdcContract(): string {
-  return USDC_CONTRACTS[getNetwork()];
-}
 
 export function getPort(): number {
   return Number(process.env.PORT) || 3000;
-}
-
-export function getRpcUrl(): string {
-  return process.env.BASE_RPC_URL || "";
 }
 
 // ---- Credential accessors ----
@@ -71,43 +50,13 @@ export function getDefaultShipping(): ShippingInfo | undefined {
   };
 }
 
-// ---- CDP (Coinbase Onramp) accessors ----
-
-export function getCdpProjectId(): string {
-  return process.env.CDP_PROJECT_ID || "";
-}
-
-export function getCdpApiKeyId(): string {
-  return process.env.CDP_API_KEY_ID || "";
-}
-
-export function getCdpApiKeySecret(): string {
-  return process.env.CDP_API_KEY_SECRET || "";
-}
-
 // ---- Config management ----
 
 export function loadConfig(): BloonConfig {
   const existing = getConfig();
   if (existing) return existing;
 
-  const masterKey = process.env.BLOON_MASTER_PRIVATE_KEY;
-  if (!masterKey || masterKey === "0x...") {
-    throw new Error(
-      "BLOON_MASTER_PRIVATE_KEY is not set. " +
-        "Generate a wallet, add the private key to .env, and fund it with ETH on Base Sepolia. " +
-        "See plans/06-human-dependencies.md for details.",
-    );
-  }
-
   const config: BloonConfig = {
-    master_wallet: {
-      address: privateKeyToAccount(masterKey as `0x${string}`).address,
-      private_key: masterKey,
-    },
-    network: getNetwork(),
-    usdc_contract: getUsdcContract(),
-    max_transaction_amount: 25,
     default_order_expiry_seconds: 300,
     port: getPort(),
   };

@@ -1,5 +1,7 @@
 # Phase 5 Execution Plan — Buy & Confirm Orchestration
 
+> **ARCHIVED (2026-03-19):** This plan references wallet/x402/USDC which have been removed. The orchestrator now uses credit-card-only browser checkout. See `plans/20-orchestrator.md` for the current architecture.
+
 ## Circular Dependency Solution
 
 Spec says put files in `packages/core/src/`, but `buy.ts`/`confirm.ts` need `@bloon/wallet`, `@bloon/x402`, `@bloon/checkout` — which already depend on `@bloon/core`. Circular dep breaks the build.

@@ -1,17 +1,11 @@
-import { type PaymentRoute, BloonError, ErrorCodes } from "./types.js";
+import { BloonError, ErrorCodes } from "./types.js";
 
-const MAX_PRICE = 25;
+const FEE_RATE = 20n; // 2% (numerator; denominator is 1000)
 
 interface Decimal {
   value: bigint;
   scale: number;
 }
-
-/** Fee rate numerators (denominator is 1000) */
-const FEE_RATES: Record<PaymentRoute, bigint> = {
-  x402: 20n,         // 2%
-  browserbase: 20n,  // 2%
-};
 
 function parseDecimal(s: string): Decimal {
   const parts = s.split(".");
@@ -63,27 +57,18 @@ function addDecimals(a: Decimal, b: Decimal): Decimal {
 }
 
 /**
- * Calculate fee for a given price and route.
+ * Calculate fee for a given price.
  * Uses BigInt arithmetic to avoid floating point.
  *
  * Rounding rule: if fee >= 0.01, round UP (ceiling) to 2 decimal places.
  * Otherwise output exact.
  */
-export function calculateFee(price: string, route: PaymentRoute): string {
-  const priceNum = Number(price);
-  if (priceNum > MAX_PRICE) {
-    throw new BloonError(
-      ErrorCodes.PRICE_EXCEEDS_LIMIT,
-      `Price $${price} exceeds maximum of $${MAX_PRICE}`
-    );
-  }
-
+export function calculateFee(price: string): string {
   const p = parseDecimal(price);
-  const rate = FEE_RATES[route];
 
-  // fee = price * rate / 1000
-  // We compute feeExact = p.value * rate at scale = p.scale + 3
-  const feeValue = p.value * rate;
+  // fee = price * FEE_RATE / 1000
+  // We compute feeExact = p.value * FEE_RATE at scale = p.scale + 3
+  const feeValue = p.value * FEE_RATE;
   const feeScale = p.scale + 3;
 
   const fee: Decimal = { value: feeValue, scale: feeScale };
@@ -107,8 +92,8 @@ export function calculateFee(price: string, route: PaymentRoute): string {
 /**
  * Calculate total = price + fee
  */
-export function calculateTotal(price: string, route: PaymentRoute): string {
-  const fee = calculateFee(price, route);
+export function calculateTotal(price: string): string {
+  const fee = calculateFee(price);
   const p = parseDecimal(price);
   const f = parseDecimal(fee);
   const total = addDecimals(p, f);

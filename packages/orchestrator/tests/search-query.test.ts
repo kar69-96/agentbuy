@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { BloonError } from "@bloon/core";
 
 // Mock crawling module
@@ -59,7 +59,6 @@ describe("searchQuery", () => {
     expect(result.products).toHaveLength(2);
     expect(result.products[0].product.name).toBe("Towel A");
     expect(result.products[0].discovery_method).toBe("exa_search");
-    expect(result.products[0].route).toBe("browserbase");
   });
 
   it("throws MISSING_FIELD for empty query", async () => {

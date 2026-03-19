@@ -4,7 +4,6 @@
 
 - Node.js 20+
 - pnpm 9+ (`npm install -g pnpm`)
-- A wallet app (Coinbase Wallet or MetaMask) with Base Sepolia network added
 
 ## .env.example
 
@@ -34,10 +33,6 @@ FIRECRAWL_API_KEY=fc-...           # Optional. Enables Firecrawl as primary disc
 GOOGLE_API_KEY=...                 # For Stagehand LLM (Gemini 2.5 Flash)
 AGENTMAIL_API_KEY=am_...           # Optional. AgentMail API key for checkout email verification codes.
 
-# ---- Blockchain ----
-BASE_RPC_URL=https://base-sepolia.g.alchemy.com/v2/YOUR_KEY
-NETWORK=base-sepolia
-
 # ---- Server ----
 PORT=3000
 
@@ -64,23 +59,7 @@ GEMINI_EXTRACT_RETRIES=2                   # Number of Gemini extraction retries
 QUERY_MAX_VARIANTS_PER_GROUP=3             # Max variants to resolve per option group
 QUERY_MAX_TOTAL_VARIANT_TASKS=10           # Max total variant resolution tasks
 QUERY_VARIANT_CONCURRENCY=3               # Concurrent Browserbase sessions for variant resolution
-
-# ---- Bloon Master Wallet (auto-generated on first run if not set) ----
-BLOON_MASTER_PRIVATE_KEY=0x...
 ```
-
-## USDC Contracts
-
-| Network | Address |
-|---------|---------|
-| Base Sepolia | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
-| Base Mainnet | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
-
-## Getting Test USDC
-
-1. Get Base Sepolia ETH: https://www.alchemy.com/faucets/base-sepolia
-2. Get test USDC: mint from test contract or faucet
-3. Fund both: your personal wallet (for QR scanning) AND the Bloon master wallet
 
 ## Running the Server
 
@@ -103,8 +82,7 @@ pnpm --filter @bloon/api dev
 
 ```
 ~/.bloon/
-├── config.json       # Master wallet, network, settings
-├── wallets.json      # Agent wallets (including private keys)
+├── config.json       # Settings
 ├── orders.json       # All orders and receipts
 └── cache/            # Domain page cache
     ├── amazon.com.json
@@ -146,21 +124,15 @@ packages:
 ## Testing the API
 
 ```bash
-# Create a wallet
-curl -X POST http://localhost:3000/api/wallets \
+# Discover product info
+curl -X POST http://localhost:3000/api/query \
   -H "Content-Type: application/json" \
-  -d '{"agent_name":"Test"}'
+  -d '{"url":"https://allbirds.com/products/mens-tree-runners"}'
 
-# Check balance
-curl http://localhost:3000/api/wallets/WALLET_ID
-
-# Open funding page in browser
-open http://localhost:3000/fund/FUNDING_TOKEN
-
-# Get a quote
+# Get a purchase quote
 curl -X POST http://localhost:3000/api/buy \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://target.com/p/...","wallet_id":"WALLET_ID"}'
+  -d '{"url":"https://target.com/p/...","shipping":{"name":"Test","street":"123 Main St","city":"Austin","state":"TX","zip":"78701","country":"US","email":"test@example.com","phone":"5551234567"}}'
 
 # Execute purchase
 curl -X POST http://localhost:3000/api/confirm \

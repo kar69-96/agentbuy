@@ -4,50 +4,43 @@
 
 > **This section is overwritten with the latest test results every session. It is the single source of truth for current test status.**
 
-**Last updated:** 2026-03-18
+**Last updated:** 2026-03-19
 
-### Generic Discovery Pipeline Improvements (2026-03-18)
+### Credit Card Migration (2026-03-19)
 
-- Bulk query endpoint test: **51/54 pass (94%)**, up from 48/61 (79%)
-- Unit tests: **86/86 pass** across crawling + orchestrator packages
-  - `crawling/discover.test.ts` — 52 tests
-  - `crawling/parser-ensemble.test.ts` — 3 tests
-  - `crawling/exa-extract.test.ts` — 23 tests
-  - `orchestrator/query.test.ts` — 6 tests
-  - `crawling/comparison.test.ts` — 2 tests
-- Changes:
-  - `discover.ts`: added `passesUrlOverlap()` helper, URL-slug validation in `discoverWithStrategy()`, Firecrawl retry (2 attempts) in `exa_first` strategy
-  - `browserbase-adapter.ts`: `waitForContent` timeout 5s→12s, expanded `PRODUCT_SELECTORS` (+6 generic patterns: aria-label, data-automation-id, data-feature-name, product-price, offer-price, buybox)
-  - `constants.ts`: Gemini prompt enhanced with subscription vs one-time pricing guidance
-  - `browserbase-extract.ts`: CSS price selectors expanded from 5→11 (added aria-label, data-automation-id, productPrice, buybox, offer, amount patterns)
-  - `url-classifier.ts`: added `levi.com` to `BLOCKED_DOMAINS`
-  - Removed 7 unreliable URLs from bulk test (Away, CB2, West Elm, B&N, Chewy, Aesop, eBay — all WAF-blocked or empty extractions)
-- Fixes confirmed:
-  - **H&M**: now passes via Firecrawl retry (2nd attempt succeeds)
-  - **REI**: now passes via increased waitForContent timeout (price loads at ~8-10s)
-- Remaining 3 failures: MVMT, Levi's, Logitech (all "Cannot reach" — site blocks every tier)
+- **89 tests pass across 10 test files** (all unit/integration tests)
+- Test files:
+  - `packages/core/tests/concurrency-pool.test.ts` — 5 tests
+  - `packages/core/tests/fees.test.ts` — 9 tests
+  - `packages/core/tests/store.test.ts` — 7 tests
+  - `packages/orchestrator/tests/buy.test.ts` — 8 tests
+  - `packages/orchestrator/tests/confirm.test.ts` — 5 tests
+  - `packages/orchestrator/tests/receipts.test.ts` — 3 tests
+  - `packages/orchestrator/tests/query.test.ts` — 5 tests
+  - `packages/orchestrator/tests/search-query.test.ts` — 17 tests
+  - `packages/api/tests/api.test.ts` — 26 tests
+  - `tests/e2e/errors.test.ts` — 4 tests
+- Major changes:
+  - **Removed blockchain/USDC/wallet/x402 system entirely** — credit card only
+  - Moved `packages/wallet/` and `packages/x402/` to `stubs/`
+  - Deleted: `router.ts`, `wallets.ts` route, `fund.ts` route, `x402-flow.test.ts`, `onramp.test.ts`, `config.test.ts`
+  - Removed `viem` and `jose` dependencies
+  - Simplified types: removed `Network`, `Wallet`, `X402Requirements`, `WalletsStore`, `PaymentRoute`
+  - Renamed `PaymentInfo.amount_usdc` → `total`, removed `route` field from responses
+  - Removed `wallet_id` from `Order`, `tx_hash` from `Order`/`Receipt`/`OrderError`
+  - Removed `$25` price cap from `fees.ts`
+  - Removed error codes: `INSUFFICIENT_BALANCE`, `WALLET_NOT_FOUND`, `TRANSFER_FAILED`, `X402_PAYMENT_FAILED`, `GAS_TRANSFER_FAILED`, `PRICE_EXCEEDS_LIMIT`
+  - Updated all test files to match new types
+  - `pnpm build` succeeds for core, orchestrator, api
+  - All 89 tests pass
 
-### Smart Discovery Routing + Variant Price Enrichment (2026-03-09)
-
-- `pnpm build` — crawling, orchestrator, checkout all compile cleanly
-- Unit tests: **91/91 pass** across affected test files
-- Changes:
-  - `url-classifier.ts` (new): `classifyUrl()` routes URLs to `shopify|exa_first|blocked_only` based on Phase 2 data
-  - `discover.ts`: `discoverWithStrategy()` — strategy-aware dispatch (Exa-first, Shopify fast-path, Browserbase-only)
-  - `exa-extract.ts`: exported `enrichVariantPricesViaExa()` public wrapper
-  - `search-query.ts`: enriches top-5 NL search results with per-variant prices in parallel
-  - `query.ts`: URL path now uses `classifyUrl()` + `discoverWithStrategy()` instead of `discoverProduct()`
-  - `checkout/discover.ts`: removed double-Exa bug (outer `exaPromise` was redundant with inner Firecrawl pipeline Exa)
-
-### Pre-existing failures (unrelated to NL search)
+### Known pre-existing failures (not affected by this migration)
 
 | File | Tests Failed | Root Cause |
 |------|-------------|------------|
-| `checkout/error-classification.test.ts` | 40 | `detectCheckoutPhase`/`isShopifyCheckout` not exported — pre-existing |
-| `tests/buy/checkout.test.ts` | varies | Flaky live Browserbase e2e (Allbirds OOS, ColourPop timeout) |
-| `wallet/gas-network.test.ts` | 2 | Funder wallet has insufficient ETH |
-| `e2e/x402-flow.test.ts` | 2 | Same gas issue |
-| `crawling/e2e.test.ts` | 1 | Gymshark URL is 404 |
+| `checkout/error-classification.test.ts` | varies | Pre-existing export issues |
+| `tests/buy/checkout.test.ts` | varies | Flaky live Browserbase e2e |
+| `crawling/e2e.test.ts` | varies | Site-dependent |
 
 ### E2E Checkout Results (17 tests, `tests/buy/checkout.test.ts`)
 
