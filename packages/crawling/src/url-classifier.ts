@@ -17,19 +17,9 @@ const BLOCKED_DOMAINS = new Set<string>([
   "chewy.com",
   "barnesandnoble.com",
   "etsy.com",
-  // Amazon all TLDs
-  "amazon.com",
-  "amazon.co.uk",
-  "amazon.ca",
-  "amazon.de",
-  "amazon.fr",
-  "amazon.co.jp",
-  "amazon.es",
-  "amazon.it",
-  "amazon.com.au",
-  "amazon.in",
-  "amazon.com.br",
-  "amazon.com.mx",
+  // Amazon: Exa works (correct name + price), Firecrawl blocked.
+  // Routed to exa_first — Exa succeeds, Firecrawl retries are capped at 2,
+  // Browserbase fallback still available if Exa fails.
   // Big-box retailers
   "bestbuy.com",
   "target.com",
