@@ -4,6 +4,7 @@ import { z } from "zod";
 import { fillAllCardFields } from "./fill.js";
 import type { ObservedField } from "./fill.js";
 import type { CostTracker } from "./cost-tracker.js";
+import { scriptedSelectShippingMethod, scriptedDismissExpressPay } from "./scripted-actions.js";
 
 // ---- Retry wrapper for Stagehand schema bugs ----
 
@@ -105,7 +106,7 @@ export async function scanIframesForCardFields(
   // Map iframe metadata (src) to frame handles
   for (const meta of iframeMeta) {
     if (!meta.src || meta.src === "about:blank") continue;
-    const isPayment = /stripe|braintree|adyen|square|checkout\.com|spreedly|recurly|shopifyinc|shopify.*pci/i.test(meta.src);
+    const isPayment = /stripe|braintree|adyen|square|checkout\.com|spreedly|recurly|shopifyinc|shopify.*pci|paypal|cybersource|flex\.cybersource|worldpay|authorize\.net|authorize|chase|paymentech/i.test(meta.src);
     if (!isPayment) continue;
     // Skip non-card Stripe iframes (payment-request = Google/Apple Pay, iban, ideal-bank, etc.)
     if (/elements-inner-(?:payment-request|iban|ideal|universal-link|controller)/i.test(meta.src)) {
@@ -301,7 +302,7 @@ export async function scanIframesForCardFields(
     console.log(`  [iframe-scan] frame.locator approach failed, trying deepLocator...`);
     for (const meta of iframeMeta) {
       if (!meta.name || !meta.src || meta.src === "about:blank") continue;
-      const isPayment = /stripe|braintree|adyen|square|checkout\.com|spreedly|recurly|shopifyinc|shopify.*pci/i.test(meta.src);
+      const isPayment = /stripe|braintree|adyen|square|checkout\.com|spreedly|recurly|shopifyinc|shopify.*pci|paypal|cybersource|flex\.cybersource|worldpay|authorize\.net|authorize|chase|paymentech/i.test(meta.src);
       if (!isPayment) continue;
 
       const iframeSel = `iframe[name="${meta.name}"]`;
@@ -325,6 +326,40 @@ export async function scanIframesForCardFields(
           console.log(`  [iframe-scan] filled ${credKey} via deepLocator in ${meta.name.slice(0, 30)}`);
         } catch { /* skip */ }
       }
+    }
+  }
+
+  // 4. Generic fallback: scan ALL iframes for cc-number autocomplete
+  if (filled === 0) {
+    console.log(`  [iframe-scan] trying generic iframe scan (any iframe with card inputs)`);
+    for (const frame of allFrames) {
+      try {
+        const hasCardInput = await frame.evaluate(() => {
+          return !!document.querySelector('input[autocomplete="cc-number"], input[name*="cardnumber" i], input[name*="card-number" i]');
+        });
+        if (!hasCardInput) continue;
+        console.log(`  [iframe-scan] found card input in generic iframe`);
+
+        for (const { selector, credKey } of CARD_FIELD_SELECTORS) {
+          if (filledFields.has(credKey)) continue;
+          const value = cdpCreds[credKey];
+          if (!value) continue;
+          try {
+            const loc = frame.locator(selector).first();
+            await Promise.race([
+              (async () => {
+                await loc.click();
+                await loc.type(value, { delay: 50 });
+              })(),
+              new Promise<never>((_, rej) => setTimeout(() => rej(new Error("generic iframe timeout")), 5000)),
+            ]);
+            filledFields.add(credKey);
+            filled++;
+            console.log(`  [iframe-scan] filled ${credKey} in generic iframe`);
+          } catch { /* skip */ }
+        }
+        if (filled > 0) break;
+      } catch { /* frame not accessible */ }
     }
   }
 
@@ -679,7 +714,7 @@ export function createCheckoutTools(
         if (clicked) {
           // Wait for potential page navigation or content load
           try {
-            await page.waitForTimeout(3000);
+            await page.waitForTimeout(1500);
           } catch {
             // Page may have navigated
           }
@@ -749,5 +784,66 @@ export function createCheckoutTools(
     },
   });
 
-  return { fillShippingInfo, fillCardFields, fillBillingAddress, clickButton, dismissPopups };
+  const selectShippingMethod = tool({
+    description:
+      "Select a shipping method from available options. " +
+      "Prefers the cheapest option. Falls back to first available if prices can't be parsed. " +
+      "Call this when you see shipping method options that need to be selected.",
+    inputSchema: z.object({}),
+    execute: async () => {
+      try {
+        const selected = await scriptedSelectShippingMethod(page);
+        if (selected) {
+          return "Successfully selected shipping method (cheapest available).";
+        }
+        // Fallback to LLM
+        try {
+          await actWithRetry(
+            stagehand,
+            "Select the cheapest shipping method. If there's only one option, select it. Look for radio buttons or clickable shipping options.",
+            undefined,
+            costTracker,
+          );
+          return "Selected shipping method via LLM fallback.";
+        } catch {
+          return "No shipping method options found or selection failed.";
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return `Failed to select shipping method: ${msg}`;
+      }
+    },
+  });
+
+  const dismissExpressPay = tool({
+    description:
+      "Dismiss express payment overlays (Shop Pay, Apple Pay, Google Pay) to reveal the credit card form. " +
+      "Call this when express payment methods are blocking the card form.",
+    inputSchema: z.object({}),
+    execute: async () => {
+      try {
+        const dismissed = await scriptedDismissExpressPay(page);
+        if (dismissed) {
+          return "Successfully dismissed express pay overlay. Card form should now be visible.";
+        }
+        // Fallback to LLM
+        try {
+          await actWithRetry(
+            stagehand,
+            'Click "Pay with card", "Credit card", or "Other payment methods" to dismiss express pay and show the credit card form.',
+            undefined,
+            costTracker,
+          );
+          return "Dismissed express pay via LLM fallback.";
+        } catch {
+          return "No express pay overlay found.";
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return `Failed to dismiss express pay: ${msg}`;
+      }
+    },
+  });
+
+  return { fillShippingInfo, fillCardFields, fillBillingAddress, clickButton, dismissPopups, selectShippingMethod, dismissExpressPay };
 }

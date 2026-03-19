@@ -22,7 +22,7 @@ describe.skipIf(!HAS_FIRECRAWL)("discoverViaFirecrawl (real sites)", () => {
 
     expect(result.name).toBeTruthy();
     expect(result.price).toBeTruthy();
-    expect(result.method).toBe("firecrawl");
+    expect(["firecrawl", "shopify"]).toContain(result.method);
 
     // Price should be reasonable
     const price = parseFloat(result.price);
@@ -55,7 +55,7 @@ describe.skipIf(!HAS_FIRECRAWL)(
       expect(result.name).toBeTruthy();
       expect(result.price).toBeTruthy();
       expect(parseFloat(result.price)).toBeGreaterThan(0);
-      expect(result.method).toBe("firecrawl");
+      expect(["firecrawl", "shopify"]).toContain(result.method);
     }, 30000);
   },
 );
@@ -80,7 +80,7 @@ describe.skipIf(!HAS_FIRECRAWL)(
       expect(result.name).toBeTruthy();
       expect(result.price).toBeTruthy();
       expect(parseFloat(result.price)).toBeGreaterThan(0);
-      expect(result.method).toBe("firecrawl");
+      expect(["firecrawl", "shopify"]).toContain(result.method);
 
       // Should have options
       if (result.options.length > 0) {
@@ -108,7 +108,7 @@ describe.skipIf(!HAS_FIRECRAWL)(
       expect(result.name).toBeTruthy();
       expect(result.price).toBeTruthy();
       expect(parseFloat(result.price)).toBeGreaterThan(0);
-      expect(result.method).toBe("firecrawl");
+      expect(["firecrawl", "shopify"]).toContain(result.method);
     }, 120000);
 
     it("extracts Brooklinen sheets with Size + Color options", async () => {
@@ -125,7 +125,7 @@ describe.skipIf(!HAS_FIRECRAWL)(
       expect(result.name).toBeTruthy();
       expect(result.price).toBeTruthy();
       expect(parseFloat(result.price)).toBeGreaterThan(0);
-      expect(result.method).toBe("firecrawl");
+      expect(["firecrawl", "shopify"]).toContain(result.method);
 
       // Brooklinen sheets should have options (Size at minimum)
       if (result.options.length > 0) {
@@ -156,7 +156,7 @@ describe.skipIf(!HAS_FIRECRAWL)(
       expect(result.name).toBeTruthy();
       expect(result.price).toBeTruthy();
       expect(parseFloat(result.price)).toBeGreaterThan(0);
-      expect(result.method).toBe("firecrawl");
+      expect(["firecrawl", "shopify"]).toContain(result.method);
 
       if (result.options.length > 0) {
         const optionNames = result.options.map((o) => o.name.toLowerCase());

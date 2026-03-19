@@ -9,6 +9,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { chromium } from "playwright-core";
+import { injectStealthPlaywright } from "@bloon/checkout";
 
 // ---- Config ----
 
@@ -35,6 +36,11 @@ const PRODUCT_SELECTORS = [
   '[class*="productTitle"]', '[class*="product-title"]', '[class*="ProductName"]',
   '[data-testid="product-title"]',
   '.price', '[data-price]', '[class*="productPrice"]',
+  '[aria-label*="price"]',
+  '[data-automation-id*="price"]',
+  '[data-feature-name*="price"]',
+  '.product-price', '.offer-price',
+  '[class*="buybox"]',
 ].join(", ");
 
 // ---- Browserbase session helpers ----
@@ -144,8 +150,8 @@ async function waitForChallengeResolution(
 
 async function waitForContent(page: import("playwright-core").Page): Promise<void> {
   await Promise.race([
-    page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {}),
-    page.waitForSelector(PRODUCT_SELECTORS, { timeout: 5_000 }).catch(() => {}),
+    page.waitForLoadState("networkidle", { timeout: 12_000 }).catch(() => {}),
+    page.waitForSelector(PRODUCT_SELECTORS, { timeout: 12_000 }).catch(() => {}),
   ]);
 }
 
@@ -185,6 +191,7 @@ async function scrapeOnce(req: ScrapeRequest): Promise<ScrapeResponse> {
 
     browser = await chromium.connectOverCDP(session.connectUrl);
     const context = browser.contexts()[0] ?? (await browser.newContext());
+    await injectStealthPlaywright(context);
     const page = context.pages()[0] ?? (await context.newPage());
 
     const timeoutMs = req.timeout ?? 30_000;

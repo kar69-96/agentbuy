@@ -28,29 +28,29 @@ interface TestUrl {
 const TEST_URLS: TestUrl[] = [
   // Tier 1 — Simple Shopify stores (guest checkout, minimal variants)
   {
-    name: "Shopify — Ugmonk Gather (simple product)",
-    url: "https://ugmonk.com/products/gather-basic-set-maple",
+    name: "Shopify — Ugmonk Analog Starter Kit",
+    url: "https://ugmonk.com/products/analog-starter-kit",
     tier: 1,
-    notes: "Clean Shopify store, single product, no variant selection needed",
+    notes: "Clean Shopify store, in-stock, hidden input name=id, variant 37022218748054",
   },
   {
-    name: "Shopify — Allbirds Socks",
-    url: "https://www.allbirds.com/products/mens-trino-sprinter-anklet-socks",
+    name: "Shopify — Allbirds Tree Runners",
+    url: "https://www.allbirds.com/products/mens-tree-runners",
     tier: 1,
-    notes: "Shopify Plus, size selection required",
+    notes: "Shopify Plus, size/color selection required, some variants in stock",
   },
   {
-    name: "Shopify — Tentree T-shirt",
-    url: "https://www.tentree.com/products/mens-tentree-logo-classic-t-shirt-meteorite-black",
+    name: "Shopify — Ugmonk Card Refills",
+    url: "https://ugmonk.com/products/analog-today-card-refills",
     tier: 1,
-    notes: "Shopify, size/color selection",
+    notes: "Shopify, simple product, in-stock, good AJAX ATC test",
   },
   // Tier 2 — More complex flows
   {
     name: "Target — Scotch-Brite Sponges",
     url: "https://www.target.com/p/scotch-brite-zero-scratch-scrub-sponges/-/A-52893690",
     tier: 2,
-    notes: "Multi-step checkout, address autocomplete, bot detection",
+    notes: "Multi-step checkout, address autocomplete, requires account",
   },
   {
     name: "Best Buy — USB-C Cable",

@@ -937,3 +937,301 @@ _No runs recorded yet. First run will be logged below._
 **Duration:** 472.0s
 
 ---
+
+### Loop Run — 2026-03-09 21:17
+
+**Sites tested:** 5 | **Passed:** 0 | **Failed:** 5
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Gather (simple product) | 1 | FAIL | navigate | Checkout did not reach payment stage (stopped at navigate, 7/25 LLM calls used) | 156.7s | [replay](https://browserbase.com/sessions/223b22df-d89f-401f-9dbb-bf009ca7b8b4) |
+| Shopify — Allbirds Socks | 1 | FAIL | navigate | Checkout did not reach payment stage (stopped at navigate, 5/25 LLM calls used) | 160.3s | [replay](https://browserbase.com/sessions/4adc7811-71a8-4303-8488-1a719f297089) |
+| Shopify — Tentree T-shirt | 1 | FAIL | checkout-error | checkout_error: something went wrong | 23.6s | [replay](https://browserbase.com/sessions/d75a0979-ccc7-4ff4-b6c0-501332b76e69) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | site_requires_account: No guest checkout option available | 60.7s | [replay](https://browserbase.com/sessions/e4af838c-81b6-491c-96ab-95cefa730c7c) |
+| Best Buy — USB-C Cable | 2 | FAIL | navigate | Redirect to different domain: bestbuy.com → chromewebdata | 15.3s | [replay](https://browserbase.com/sessions/5bb62ec9-915b-4d21-99ce-32dc6d827e6c) |
+
+---
+
+### Loop Run — 2026-03-09 21:29
+
+**Sites tested:** 5 | **Passed:** 0 | **Failed:** 5
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Gather (simple product) | 1 | FAIL | navigate | Checkout did not reach payment stage (stopped at navigate, 5/25 LLM calls used) | 128.6s | [replay](https://browserbase.com/sessions/4719867b-3d18-4401-85a5-b9bd7cb96c2e) |
+| Shopify — Allbirds Socks | 1 | FAIL | navigate | Checkout did not reach payment stage (stopped at navigate, 5/25 LLM calls used) | 217.0s | [replay](https://browserbase.com/sessions/22b897ab-f212-4b87-9b9d-85409c8af06a) |
+| Shopify — Tentree T-shirt | 1 | FAIL | checkout-error | checkout_error: something went wrong | 28.3s | [replay](https://browserbase.com/sessions/e3898664-69cf-430a-9f3e-c61769635389) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | site_requires_account: No guest checkout option available | 76.0s | [replay](https://browserbase.com/sessions/602a250f-9fcd-4125-9a42-bb8e0508e984) |
+| Best Buy — USB-C Cable | 2 | FAIL | navigate | waitForMainLoadState(domcontentloaded) timed out after 30000ms | 46.2s | [replay](https://browserbase.com/sessions/03b80016-084a-4814-bf8b-51c0cac4b9c1) |
+
+---
+
+### Loop Run — 2026-03-09 21:54
+
+**Sites tested:** 5 | **Passed:** 0 | **Failed:** 5
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Gather (simple product) | 1 | FAIL | add-to-cart | Checkout did not reach payment stage (stopped at add-to-cart, 6/25 LLM calls use | 182.0s | [replay](https://browserbase.com/sessions/14d5fd55-36bb-4891-b420-ec4d0c8a2fb9) |
+| Shopify — Allbirds Socks | 1 | FAIL | add-to-cart | Checkout did not reach payment stage (stopped at add-to-cart, 5/25 LLM calls use | 205.4s | [replay](https://browserbase.com/sessions/ece13626-2912-45d4-8e75-2cf3ca0b7674) |
+| Shopify — Tentree T-shirt | 1 | FAIL | add-to-cart | Checkout did not reach payment stage (stopped at add-to-cart, 5/25 LLM calls use | 289.3s | [replay](https://browserbase.com/sessions/28c55f15-1570-41d8-8a14-2c675f3718fb) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | site_requires_account: No guest checkout option available | 90.5s | [replay](https://browserbase.com/sessions/cefcaa8a-ec14-4f7a-8057-c82795f88658) |
+| Best Buy — USB-C Cable | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 579.6s | [replay](https://browserbase.com/sessions/3fe957c0-dc2f-49ac-b956-cd613d84ab83) |
+
+---
+
+### Loop Run — 2026-03-09 22:04
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Gather (simple product) | 1 | FAIL | add-to-cart | Checkout did not reach payment stage (stopped at add-to-cart, 5/25 LLM calls use | 162.9s | [replay](https://browserbase.com/sessions/49dea752-f93e-4f19-9a53-cbfb821ab953) |
+
+---
+
+### Loop Run — 2026-03-09 22:07
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | FAIL | navigate | waitForMainLoadState(domcontentloaded) timed out after 30000ms | 42.0s | [replay](https://browserbase.com/sessions/99f46aa8-bd7e-4501-8c0e-60e17a207970) |
+
+---
+
+### Loop Run — 2026-03-09 22:08
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Allbirds Tree Runners | 1 | FAIL | navigate | waitForMainLoadState(domcontentloaded) timed out after 30000ms | 48.0s | [replay](https://browserbase.com/sessions/9cee4cac-b0a7-42ef-af31-3657c52ba23e) |
+
+---
+
+### Loop Run — 2026-03-09 22:10
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Brooklinen Classic Core Sheet Set | 1 | FAIL | add-to-cart | out_of_stock: pebble (sold out) | 32.1s | [replay](https://browserbase.com/sessions/426bd09c-3dca-4567-a208-b4fe9cb6bbae) |
+
+---
+
+### Loop Run — 2026-03-09 22:11
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | FAIL | add-to-cart | out_of_stock: notify me when available | 25.8s | [replay](https://browserbase.com/sessions/36d4d90a-46db-48e9-8d5c-49ae20dff038) |
+
+---
+
+### Loop Run — 2026-03-09 22:31
+
+**Sites tested:** 1 | **Passed:** 1 | **Failed:** 0
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 161.5s | [replay](https://browserbase.com/sessions/58c01dd4-be6d-4007-9fc2-abbb16e25dad) |
+
+---
+
+### Loop Run — 2026-03-09 22:43
+
+**Sites tested:** 5 | **Passed:** 3 | **Failed:** 2
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 168.8s | [replay](https://browserbase.com/sessions/18157b45-fb1b-452d-95b1-828142af15da) |
+| Shopify — Allbirds Tree Runners | 1 | PASS | — | — | 223.6s | [replay](https://browserbase.com/sessions/67c13b6f-24ab-4c4d-8ec8-344b56df8695) |
+| Shopify — Ugmonk Card Refills | 1 | PASS | — | — | 200.9s | [replay](https://browserbase.com/sessions/284928b3-a92f-4287-a718-b3e948610ccf) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | site_requires_account: No guest checkout option available | 55.6s | [replay](https://browserbase.com/sessions/b957a9e1-a744-40fa-8211-7f994e1b5869) |
+| Best Buy — USB-C Cable | 2 | FAIL | navigate | StagehandEvalError: Uncaught | 52.0s | [replay](https://browserbase.com/sessions/33438776-7e32-4d61-bad2-fbdc80526478) |
+
+---
+
+### Loop Run — 2026-03-10 00:36
+
+**Sites tested:** 5 | **Passed:** 3 | **Failed:** 2
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 158.9s | [replay](https://browserbase.com/sessions/e09ef9fb-2026-48e7-907e-4cddd6dd0688) |
+| Shopify — Allbirds Tree Runners | 1 | PASS | — | — | 235.8s | [replay](https://browserbase.com/sessions/975b70fb-9052-45d4-ab84-09beddcea540) |
+| Shopify — Ugmonk Card Refills | 1 | PASS | — | — | 160.2s | [replay](https://browserbase.com/sessions/5149cf41-aadf-4b6c-ac3d-74a4b3bbe0cf) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | site_requires_account: No guest checkout option available | 223.9s | [replay](https://browserbase.com/sessions/df131995-0eb9-427b-81ad-f388fc163ae2) |
+| Best Buy — USB-C Cable | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 540.6s | [replay](https://browserbase.com/sessions/7a72c467-3c52-4352-ab51-4ea71b998c5f) |
+
+---
+
+### Loop Run — 2026-03-10 01:09
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | site_requires_account: No guest checkout option available | 69.1s | [replay](https://browserbase.com/sessions/8a21a47b-96f1-4565-b321-cc07c2838907) |
+
+---
+
+### Loop Run — 2026-03-10 01:13
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | Checkout did not reach payment stage (stopped at proceed-to-checkout, 3/25 LLM c | 214.8s | [replay](https://browserbase.com/sessions/0ccf11e8-18da-4edc-ab8e-0920ad4296fe) |
+
+---
+
+### Loop Run — 2026-03-10 01:16
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | site_requires_account: No guest checkout and AGENTMAIL_API_KEY not configured | 70.3s | [replay](https://browserbase.com/sessions/209ee366-8100-4b2f-80c0-4309209d62da) |
+
+---
+
+### Loop Run — 2026-03-10 01:34
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | Checkout did not reach payment stage (stopped at proceed-to-checkout, 5/25 LLM c | 190.5s | [replay](https://browserbase.com/sessions/dbdd795a-d4d5-493f-8fad-6b6afdb8bdc6) |
+
+---
+
+### Loop Run — 2026-03-10 11:17
+
+**Sites tested:** 5 | **Passed:** 0 | **Failed:** 5
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | FAIL | proceed-to-checkout | Checkout did not reach payment stage (stopped at proceed-to-checkout, 6/25 LLM c | 918.6s | [replay](https://browserbase.com/sessions/7ea7c51b-64df-439c-b810-f1731e6eb70f) |
+| Shopify — Allbirds Tree Runners | 1 | FAIL | proceed-to-checkout | Checkout did not reach payment stage (stopped at proceed-to-checkout, 3/25 LLM c | 358.8s | [replay](https://browserbase.com/sessions/fdebeea8-9da3-4ea7-b7f4-ebfdc95c8b54) |
+| Shopify — Ugmonk Card Refills | 1 | FAIL | proceed-to-checkout | Checkout did not reach payment stage (stopped at proceed-to-checkout, 3/25 LLM c | 356.3s | [replay](https://browserbase.com/sessions/7af7b033-de9f-4c15-9ec7-83a887d28328) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | proceed-to-checkout | Checkout did not reach payment stage (stopped at proceed-to-checkout, 5/25 LLM c | 290.6s | [replay](https://browserbase.com/sessions/2d726a43-b2c0-43ca-be96-353187d565a0) |
+| Best Buy — USB-C Cable | 2 | FAIL | navigate | Redirect to different domain: bestbuy.com → chromewebdata | 22.0s | [replay](https://browserbase.com/sessions/04e7e386-149a-4b71-99f7-973badfc5ffe) |
+
+---
+
+### Loop Run — 2026-03-10 11:54
+
+**Sites tested:** 5 | **Passed:** 3 | **Failed:** 2
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 200.8s | [replay](https://browserbase.com/sessions/80fec772-dae5-4df5-bc6e-bd0ef4b82f24) |
+| Shopify — Allbirds Tree Runners | 1 | PASS | — | — | 233.5s | [replay](https://browserbase.com/sessions/777cf2f2-206e-4d94-b6af-18fc070e53df) |
+| Shopify — Ugmonk Card Refills | 1 | PASS | — | — | 169.0s | [replay](https://browserbase.com/sessions/840433e3-36bb-494e-9276-0dd527d020f6) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 333.1s | [replay](https://browserbase.com/sessions/eb6f179d-5e41-4adf-ac10-2be521ca82cd) |
+| Best Buy — USB-C Cable | 2 | FAIL | navigate | Redirect to different domain: bestbuy.com → chromewebdata | 24.4s | [replay](https://browserbase.com/sessions/fd8ab81d-9e26-45b4-b9b3-417154d31c8d) |
+
+---
+
+### Loop Run — 2026-03-10 21:43
+
+**Sites tested:** 5 | **Passed:** 3 | **Failed:** 2
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 159.0s | [replay](https://browserbase.com/sessions/fed38ba8-2354-4fea-8f2f-0558638570a6) |
+| Shopify — Allbirds Tree Runners | 1 | PASS | — | — | 214.1s | [replay](https://browserbase.com/sessions/bbb8caaa-40f9-46df-9692-c4a436df65b1) |
+| Shopify — Ugmonk Card Refills | 1 | PASS | — | — | 144.3s | [replay](https://browserbase.com/sessions/ebee6dd9-65c4-43a6-bcdd-57ec1ee84786) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 324.9s | [replay](https://browserbase.com/sessions/0741940d-e37c-4419-bd21-4ba177a58576) |
+| Best Buy — USB-C Cable | 2 | FAIL | navigate | Redirect to different domain: bestbuy.com → chromewebdata | 40.2s | [replay](https://browserbase.com/sessions/ba81b0a8-2a1f-4c1a-87fd-ad52b6c8566b) |
+
+---
+
+### Loop Run — 2026-03-11 10:48
+
+**Sites tested:** 5 | **Passed:** 0 | **Failed:** 5
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | CRASH | — | Browserbase session creation failed (403): {"statusCode":403,"error":"Forbidden" | 0.7s | — |
+| Shopify — Allbirds Tree Runners | 1 | CRASH | — | Browserbase session creation failed (403): {"statusCode":403,"error":"Forbidden" | 0.7s | — |
+| Shopify — Ugmonk Card Refills | 1 | CRASH | — | Browserbase session creation failed (403): {"statusCode":403,"error":"Forbidden" | 0.3s | — |
+| Target — Scotch-Brite Sponges | 2 | CRASH | — | Browserbase session creation failed (403): {"statusCode":403,"error":"Forbidden" | 0.3s | — |
+| Best Buy — USB-C Cable | 2 | CRASH | — | Browserbase session creation failed (403): {"statusCode":403,"error":"Forbidden" | 0.3s | — |
+
+---
+
+### Loop Run — 2026-03-11 11:12
+
+**Sites tested:** 5 | **Passed:** 3 | **Failed:** 2
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 152.8s | [replay](https://browserbase.com/sessions/eab8bf20-bb81-4590-8586-154fe31456c4) |
+| Shopify — Allbirds Tree Runners | 1 | PASS | — | — | 241.3s | [replay](https://browserbase.com/sessions/7ccfb834-80f9-4b90-a704-8c82555c2ef7) |
+| Shopify — Ugmonk Card Refills | 1 | PASS | — | — | 154.0s | [replay](https://browserbase.com/sessions/26b204b7-d840-43c7-8a42-c374550c84f4) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 305.3s | [replay](https://browserbase.com/sessions/765ae805-d560-4162-a98c-dae26ec3eb07) |
+| Best Buy — USB-C Cable | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 549.6s | [replay](https://browserbase.com/sessions/89c876b1-9b7a-427d-974d-da14ee753c3c) |
+
+---
+
+### Loop Run — 2026-03-11 11:47
+
+**Sites tested:** 5 | **Passed:** 4 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 171.1s | [replay](https://browserbase.com/sessions/63283340-af11-4240-b9c9-bb7cc8656de6) |
+| Shopify — Allbirds Tree Runners | 1 | PASS | — | — | 288.3s | [replay](https://browserbase.com/sessions/fbd0d5ed-a152-4f0c-9dd9-99b1a050b6e2) |
+| Shopify — Ugmonk Card Refills | 1 | PASS | — | — | 141.1s | [replay](https://browserbase.com/sessions/f417c8a8-732a-4301-8a0a-3e175eedc49c) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 340.4s | [replay](https://browserbase.com/sessions/fed5e4ff-276c-439a-a83e-c2128f8c0fa1) |
+| Best Buy — USB-C Cable | 2 | PASS | — | — | 233.0s | [replay](https://browserbase.com/sessions/b84bde09-3ac0-43f5-bd3d-053838423994) |
+
+---
+
+### Loop Run — 2026-03-11 11:51
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Target — Scotch-Brite Sponges | 2 | FAIL | navigate | Checkout did not reach payment stage (stopped at navigate, 5/25 LLM calls used) | 171.8s | [replay](https://browserbase.com/sessions/c243dd37-7d53-4f64-85cb-01ac32be4b84) |
+
+---
+
+### Loop Run — 2026-03-11 11:58
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Target — Scotch-Brite Sponges | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 317.7s | [replay](https://browserbase.com/sessions/3ae841da-a644-4d19-8e2c-3068d4a7af8a) |
+
+---
+
+### Loop Run — 2026-03-11 18:19
+
+**Sites tested:** 1 | **Passed:** 0 | **Failed:** 1
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Target — Scotch-Brite Sponges | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 323.3s | [replay](https://browserbase.com/sessions/00028d0a-4203-4c15-a9a4-f0365aaf9b02) |
+
+---
+
+### Loop Run — 2026-03-12 11:02
+
+**Sites tested:** 5 | **Passed:** 3 | **Failed:** 2
+
+| Site | Tier | Result | Failed Step | Error | Duration | Replay |
+|------|------|--------|-------------|-------|----------|--------|
+| Shopify — Ugmonk Analog Starter Kit | 1 | PASS | — | — | 214.9s | [replay](https://browserbase.com/sessions/a861945f-7017-41f1-a40e-cf492dc35fb2) |
+| Shopify — Allbirds Tree Runners | 1 | PASS | — | — | 242.0s | [replay](https://browserbase.com/sessions/34c57014-14ec-4f14-b573-60423f7c255d) |
+| Shopify — Ugmonk Card Refills | 1 | PASS | — | — | 202.4s | [replay](https://browserbase.com/sessions/bce74bd1-7260-48ee-b6c1-17317f862678) |
+| Target — Scotch-Brite Sponges | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 11/25 LLM calls  | 362.5s | [replay](https://browserbase.com/sessions/b8fd9ecc-fc9a-4a95-b6c4-73ddbc144f41) |
+| Best Buy — USB-C Cable | 2 | FAIL | fill-shipping | Checkout did not reach payment stage (stopped at fill-shipping, 12/25 LLM calls  | 846.0s | [replay](https://browserbase.com/sessions/8ba61864-8aab-430e-9d80-854663ad5560) |
+
+---

@@ -11,6 +11,8 @@ export interface ObservedField {
 // ---- Map Stagehand field descriptions to credential keys ----
 
 const FIELD_PATTERNS: Array<{ pattern: RegExp; credentialKey: string }> = [
+  // Negative pattern: skip gift card / promo fields (should never match credential keys)
+  { pattern: /gift\s*card|promo\s*code|discount|coupon|reward|voucher/i, credentialKey: "__skip__" },
   { pattern: /card\s*number|credit\s*card/i, credentialKey: "x_card_number" },
   // Split expiry fields MUST come before general expiry (more specific match first)
   { pattern: /exp(iry)?\s*month/i, credentialKey: "x_card_exp_month" },
@@ -27,6 +29,7 @@ const FIELD_PATTERNS: Array<{ pattern: RegExp; credentialKey: string }> = [
 export function mapFieldToCredential(description: string): string | null {
   for (const { pattern, credentialKey } of FIELD_PATTERNS) {
     if (pattern.test(description)) {
+      if (credentialKey === "__skip__") return null;
       return credentialKey;
     }
   }

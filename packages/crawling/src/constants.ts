@@ -35,7 +35,11 @@ export const FIRECRAWL_EXTRACT_SCHEMA = {
 export const FIRECRAWL_EXTRACT_PROMPT =
   "Extract all product details exhaustively. Include EVERY variant group visible " +
   "on the page (Color swatches, Size buttons, Style selectors, etc.). For variant_urls, " +
-  "include the href of every color swatch or variant link that loads a different variant.";
+  "include the href of every color swatch or variant link that loads a different variant. " +
+  "If the page shows both subscription/autoship and one-time purchase prices, " +
+  "extract the ONE-TIME (non-subscription) price as the main price. " +
+  "If multiple prices appear (e.g. sale vs original), extract the current selling price as price " +
+  "and the original/compare-at price as original_price.";
 
 export const MAX_VARIANT_EXTRACT = 20;
 export const CRAWL_PAGE_LIMIT = 25;
@@ -91,6 +95,8 @@ export const NOT_FOUND_PATTERNS = [
 
 /** Selectors to try (in order) for main product content extraction. */
 export const MAIN_CONTENT_SELECTORS = [
+  "[itemtype*='schema.org/Product']",
+  "[itemtype*='Product']",
   "main",
   "[role='main']",
   "#main-content",
@@ -100,6 +106,17 @@ export const MAIN_CONTENT_SELECTORS = [
   "[data-product]",
   "#product",
   ".pdp-main",
+  "#product-content",
+  ".product-main",
+  "[data-component='ProductDetail']",
+  "article.product",
+  ".pdp-container",
+  ".product-details",
+  ".product-info",
+  "#pdp",
+  "[data-testid='product-detail']",
+  "[data-testid='pdp']",
+  ".product-overview",
 ];
 
 /** Boilerplate elements to strip before markdown conversion. */

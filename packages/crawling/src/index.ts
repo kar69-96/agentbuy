@@ -1,5 +1,5 @@
 // ---- Firecrawl discovery pipeline ----
-export { discoverViaFirecrawl } from "./discover.js";
+export { discoverViaFirecrawl, discoverWithStrategy } from "./discover.js";
 export type { FullDiscoveryResult } from "./discover.js";
 
 // ---- Client config ----
@@ -16,12 +16,16 @@ export {
 export {
   defaultQueryDiscoveryProviders,
   type QueryDiscoveryProviders,
+  type ExaExtractResult,
 } from "./providers.js";
 
 // ---- Exa.ai ----
 export { getExaClient } from "./exa-client.js";
-export { discoverViaExa } from "./exa-extract.js";
+export { discoverViaExa, enrichVariantPricesViaExa } from "./exa-extract.js";
 export { searchProducts, isProductPage, isUrlReachable, type ExaSearchResult, type SearchProductsOptions } from "./exa-search.js";
+
+// ---- URL classifier ----
+export { classifyUrl, type DiscoveryStrategy } from "./url-classifier.js";
 
 // ---- NL search parser ----
 export { parseSearchQuery, type ParsedSearchQuery } from "./nl-search.js";
@@ -48,7 +52,7 @@ export {
 } from "./constants.js";
 
 // ---- Shopify ----
-export { fetchShopifyOptions } from "./shopify.js";
+export { fetchShopifyOptions, fetchShopifyProduct } from "./shopify.js";
 
 // ---- Helpers (also used by checkout for scrape code) ----
 export {
@@ -59,6 +63,8 @@ export {
   isValidPrice,
   cleanExtractField,
   isRedirectToOtherPage,
+  extractSlugWords,
+  computeUrlProductOverlap,
 } from "./helpers.js";
 
 // ---- Lower-level functions ----

@@ -182,6 +182,27 @@ async function resolveVariantPricesViaExa(
   });
 }
 
+// ---- Public variant enrichment helper ----
+
+/**
+ * Resolve per-variant prices for existing options using Exa search.
+ * Wraps the private resolveVariantPricesViaExa with Exa client initialisation.
+ * Returns baseOptions unchanged if EXA_API_KEY is not set.
+ */
+export async function enrichVariantPricesViaExa(
+  productName: string,
+  baseUrl: string,
+  baseOptions: ProductOption[],
+): Promise<ProductOption[]> {
+  const exa = getExaClient();
+  if (!exa || baseOptions.length === 0) return baseOptions;
+  try {
+    return await resolveVariantPricesViaExa(exa, productName, baseUrl, baseOptions);
+  } catch {
+    return baseOptions;
+  }
+}
+
 // ---- Main entry point ----
 
 export async function discoverViaExa(

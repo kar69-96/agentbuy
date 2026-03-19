@@ -109,3 +109,7 @@ export {
 
 // ---- Agent tools (includes iframe scanner) ----
 export { scanIframesForCardFields } from "./agent-tools.js";
+
+// ---- Stealth injection (anti-detection) ----
+export { injectStealth, injectStealthPlaywright, buildStealthScript, generateFingerprint } from "./stealth/index.js";
+export type { SessionFingerprint } from "./stealth/index.js";

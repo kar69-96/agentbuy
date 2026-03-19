@@ -6,9 +6,18 @@ export interface BrowserbaseSession {
   replayUrl: string;
 }
 
+export interface ProxyGeolocation {
+  country?: string;   // e.g. "US"
+  state?: string;     // e.g. "CA"
+  city?: string;      // e.g. "LOS_ANGELES"
+}
+
 export interface SessionOptions {
   stealth?: boolean;
+  advancedStealth?: boolean;   // Custom Chromium build — patches deep detection vectors (Scale Plan)
   proxies?: boolean;
+  proxyGeolocation?: ProxyGeolocation;  // Target proxy to specific geographic area
+  contextId?: string;          // Persistent browser context ID (cookies/storage survive across sessions)
   logSession?: boolean;
 }
 
@@ -70,12 +79,22 @@ export async function createSession(options?: SessionOptions): Promise<Browserba
       },
       body: JSON.stringify({
         projectId,
-        ...(options?.proxies && { proxies: true }),
+        // Proxy configuration: geographic targeting or basic residential
+        ...(options?.proxies && (options?.proxyGeolocation
+          ? { proxies: [{ type: "browserbase", geolocation: options.proxyGeolocation }] }
+          : { proxies: true }
+        )),
         browserSettings: {
           recordSession: true,
           logSession: true,
           solveCaptchas: true,
-          ...(options?.stealth && { stealth: true }),
+          // Always enable basic stealth — advanced stealth is handled by our
+          // own JS injection layer (packages/checkout/src/stealth/)
+          stealth: true,
+          // Persistent browser context — cookies/localStorage survive across sessions
+          ...(options?.contextId && {
+            context: { id: options.contextId, persist: true },
+          }),
         },
         timeout: SESSION_TIMEOUT_MS / 1000,
       }),

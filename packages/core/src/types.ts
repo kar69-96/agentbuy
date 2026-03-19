@@ -216,6 +216,7 @@ export type CheckoutErrorCategory =
   | "navigation_failed"
   | "captcha_unsolved"
   | "session_timeout"
+  | "price_mismatch"
   | "unknown";
 
 // ---- x402 ----

@@ -6,6 +6,42 @@
 
 **Last updated:** 2026-03-09
 
+### Buy Endpoint & Browser Checkout Optimization (2026-03-09)
+
+- `pnpm build` — all 7 packages compile cleanly
+- No project-specific unit test regressions (checkout tests use live Browserbase, not vitest)
+- Implemented all 4 phases of checkout optimization plan + Shopify AJAX cart fallback + bug fixes
+
+**Live Checkout Loop Results (3/5 PASS — 60%)**
+
+| Site | Result | Time | Notes |
+|------|--------|------|-------|
+| Shopify — Ugmonk Analog Starter Kit | PASS | 168.8s | Full checkout: ATC → shipping (9 fields) → express pay dismiss → card fill (4 PCI iframes) → billing → dry-run total $79.00 |
+| Shopify — Allbirds Tree Runners | PASS | 223.6s | Shopify Plus with size/color variant selection |
+| Shopify — Ugmonk Card Refills | PASS | 200.9s | Simple product, AJAX cart API fallback |
+| Target — Scotch-Brite Sponges | FAIL (expected) | 55.6s | `site_requires_account` — correct early detection, no guest checkout |
+| Best Buy — USB-C Cable | FAIL | 52.0s | ATC succeeded, redirected to financing page, eval error |
+
+**Before optimization:** 0/5 pass (all failing at page detection or ATC)
+**After optimization:** 3/5 pass (60%), 1 expected failure (account-required), 1 site-specific failure
+
+| Phase | Status | Key Changes |
+|-------|--------|-------------|
+| Phase 1: Checkout Blockers + Quick Wins | Done | Express pay dismissal, terms checkboxes, autocomplete re-verification, 3DS auth handling, improved billing fill, SPA stall detection (content hash), gift card field exclusion, early price verification, scripted shipping method selection |
+| Phase 2: Reliability Improvements | Done | Enhanced page detection (URL params, cart-drawer, review page), expanded payment iframe coverage (+PayPal, Cybersource, Worldpay, Authorize.net, Chase), generic iframe fallback, cart state recovery, new agent tools (selectShippingMethod, dismissExpressPay), expanded error classification (6 new types), newsletter popup handling, session health checks |
+| Phase 3: Efficiency Improvements | Done | Scripted variant selection (4 strategies: select, radio, swatch, button), smart waits (networkidle race), file split (scripted-checkout-helpers.ts extracted), reduced wait times |
+| Phase 4: Platform Adapters | Done | Platform detection (Shopify/WooCommerce/BigCommerce/Magento), Shopify fast path (direct /checkout), account-required site early fail (Amazon/Walmart/Target), Shopify step transition awareness |
+| Post-plan: Shopify ATC fix | Done | Shopify AJAX cart API fallback (/cart/add.js), 7-source variant ID extraction, inline script scanning, out-of-stock false positive fix (visually-hidden button filtering), navigation timeout increase (30s → 60s) |
+
+Files changed:
+- `packages/checkout/src/scripted-actions.ts` — ~1310 lines (enhanced page detection, error classification, re-exports)
+- `packages/checkout/src/scripted-checkout-helpers.ts` — ~440 lines (NEW: extracted helpers + variant selection + Shopify AJAX cart)
+- `packages/checkout/src/task.ts` — ~1530 lines (3DS, platform detection, cart recovery, session health, smart waits, variant selection, Shopify AJAX fallback, stock detection fix)
+- `packages/checkout/src/agent-tools.ts` — 849 lines (expanded iframe patterns, generic fallback, 2 new tools)
+- `packages/checkout/src/fill.ts` — 175 lines (gift card field exclusion)
+- `packages/core/src/types.ts` — added `price_mismatch` to CheckoutErrorCategory
+- `tests/browserbase-refinement/test-checkout-loop.ts` — updated test URLs (stale 404 products replaced)
+
 ### NL Search Feature + URL Reachability Filtering (2026-03-09)
 
 - `pnpm build` — all 7 packages compile cleanly
