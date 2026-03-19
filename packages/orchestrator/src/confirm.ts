@@ -7,7 +7,19 @@ import {
   updateOrder,
 } from "@bloon/core";
 import { runCheckout } from "@bloon/checkout";
+import { selectEngine, runHTTPCheckout, invalidateProfile } from "@bloon/checkout-http";
 import { buildReceipt } from "./receipts.js";
+
+/**
+ * Extract the bare domain from a URL, stripping "www." prefix.
+ */
+function getDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
 
 export interface ConfirmInput {
   order_id: string;
@@ -65,11 +77,46 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
       );
     }
 
-    const checkoutResult = await runCheckout({
-      order,
-      shipping: order.shipping,
-      selections: order.selections,
-    });
+    const domain = getDomain(order.product.url);
+    const engine = selectEngine(domain);
+    let checkoutResult;
+
+    if (engine === "http") {
+      const httpResult = await runHTTPCheckout({
+        order,
+        shipping: order.shipping,
+        selections: order.selections,
+      });
+
+      if (httpResult.success) {
+        // Map HTTPCheckoutResult to match expected shape
+        checkoutResult = {
+          success: true as const,
+          orderNumber: httpResult.orderNumber,
+          finalTotal: httpResult.finalTotal,
+          sessionId: httpResult.sessionId,
+          replayUrl: httpResult.replayUrl,
+          durationMs: httpResult.durationMs,
+        };
+      } else {
+        // HTTP engine failed — invalidate cache and fall back to Stagehand
+        console.log(
+          `[http-engine] failed for ${domain}: ${httpResult.errorMessage}, falling back to Stagehand`,
+        );
+        invalidateProfile(domain);
+        checkoutResult = await runCheckout({
+          order,
+          shipping: order.shipping,
+          selections: order.selections,
+        });
+      }
+    } else {
+      checkoutResult = await runCheckout({
+        order,
+        shipping: order.shipping,
+        selections: order.selections,
+      });
+    }
 
     if (!checkoutResult.success) {
       const isDecline = checkoutResult.errorMessage &&

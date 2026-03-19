@@ -1,52 +1,21 @@
 /**
  * Zero-LLM DOM manipulation functions for checkout automation.
  * All functions use page.evaluate() — no LLM calls.
+ *
+ * Classification signal constants live in @bloon/core/classification-signals
+ * and are shared with the HTTP engine's cheerio-based classifier.
  */
 import type { Page } from "@browserbasehq/stagehand";
 import { scanIframesForCardFields } from "./agent-tools.js";
+import {
+  type PageType,
+  CARD_SELECTORS,
+  CARD_FIELD_MAP,
+  EXPIRY_MONTH_SELECTORS,
+  EXPIRY_YEAR_SELECTORS,
+} from "@bloon/core";
 
-// ---- Page types detected by DOM analysis ----
-
-export type PageType =
-  | "donation-landing"
-  | "product"
-  | "cart"
-  | "login-gate"
-  | "email-verification"
-  | "shipping-form"
-  | "payment-form"
-  | "payment-gateway"
-  | "confirmation"
-  | "error"
-  | "unknown";
-
-// ---- Card field selectors (mirrors agent-tools.ts CARD_FIELD_SELECTORS) ----
-
-const CARD_SELECTORS = [
-  'input[name*="cardnumber" i], input[name*="card-number" i], input[name*="encryptedCardNumber" i], input[autocomplete="cc-number"], input[name="number"], input[placeholder*="card number" i], input[data-testid*="card" i]',
-  'input[name*="exp" i], input[name*="encryptedExpiryDate" i], input[autocomplete="cc-exp"], input[autocomplete="cc-exp-month"], input[name*="month" i][name*="exp" i]',
-  'input[name*="cvc" i], input[name*="cvv" i], input[name*="encryptedSecurityCode" i], input[autocomplete="cc-csc"], input[name*="security" i], input[placeholder*="security" i]',
-];
-
-const CARD_FIELD_MAP: Array<{ selector: string; credKey: string }> = [
-  { selector: 'input[name*="cardnumber" i], input[name*="card-number" i], input[name*="encryptedCardNumber" i], input[autocomplete="cc-number"], input[name="number"], input[placeholder*="card number" i], input[data-testid*="card" i]', credKey: "x_card_number" },
-  { selector: 'input[name*="exp" i], input[name*="encryptedExpiryDate" i], input[autocomplete="cc-exp"]', credKey: "x_card_expiry" },
-  { selector: 'input[name*="cvc" i], input[name*="cvv" i], input[name*="encryptedSecurityCode" i], input[autocomplete="cc-csc"], input[name*="security" i], input[placeholder*="security" i]', credKey: "x_card_cvv" },
-  { selector: 'input[name*="holderName" i], input[name*="cardholder" i], input[autocomplete="cc-name"]', credKey: "x_cardholder_name" },
-];
-
-// Separate month/year selectors for split expiry fields (Stripe, Square, Adyen)
-const EXPIRY_MONTH_SELECTORS = [
-  'select[name*="month" i]', 'input[name*="month" i]',
-  'select[autocomplete="cc-exp-month"]', 'input[autocomplete="cc-exp-month"]',
-  'select[name*="exp_month" i]', 'input[name*="exp_month" i]',
-];
-
-const EXPIRY_YEAR_SELECTORS = [
-  'select[name*="year" i]', 'input[name*="year" i]',
-  'select[autocomplete="cc-exp-year"]', 'input[autocomplete="cc-exp-year"]',
-  'select[name*="exp_year" i]', 'input[name*="exp_year" i]',
-];
+export type { PageType } from "@bloon/core";
 
 // ---- Scripted popup dismissal ----
 
@@ -888,12 +857,12 @@ export async function detectPageType(page: Page): Promise<PageType> {
   };
 
   try {
-    return await page.evaluate(evalBody, { cardSelectors: CARD_SELECTORS });
+    return await page.evaluate(evalBody, { cardSelectors: [...CARD_SELECTORS] });
   } catch {
     // DOM may be mutating (SPA navigation, hydration). Wait and retry once.
     await page.waitForTimeout(2000);
     try {
-      return await page.evaluate(evalBody, { cardSelectors: CARD_SELECTORS });
+      return await page.evaluate(evalBody, { cardSelectors: [...CARD_SELECTORS] });
     } catch {
       return "unknown";
     }

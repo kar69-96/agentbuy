@@ -1,5 +1,5 @@
 {
-  "name": "@bloon/orchestrator",
+  "name": "@bloon/checkout-http",
   "version": "0.1.0",
   "type": "module",
   "main": "dist/index.js",
@@ -9,8 +9,6 @@
   },
   "dependencies": {
     "@bloon/core": "workspace:*",
-    "@bloon/checkout": "workspace:*",
-    "@bloon/checkout-http": "workspace:*",
-    "@bloon/crawling": "workspace:*"
+    "cheerio": "^1.0.0"
   }
 }
