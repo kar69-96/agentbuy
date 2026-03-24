@@ -87,6 +87,186 @@ export interface CheckoutInput {
   sessionOptions?: SessionOptions;
 }
 
+// ---- Error classification ----
+
+type CheckoutPhase =
+  | "cart"
+  | "shipping"
+  | "delivery"
+  | "payment"
+  | "review"
+  | "confirmation"
+  | "unknown";
+
+/**
+ * Classify a checkout error into a CheckoutErrorCategory based on
+ * the error message and visible page text.
+ *
+ * Priority: bot_detected > captcha_unsolved > payment_rejected >
+ *           navigation_failed > form_fill_failed > session_timeout > unknown
+ */
+export function classifyError(
+  errorMessage: string,
+  pageText: string,
+): import("@bloon/core").CheckoutErrorCategory {
+  const msg = errorMessage.toLowerCase();
+  const text = pageText.toLowerCase();
+
+  // Bot detection (highest priority)
+  if (
+    msg.includes("access denied") ||
+    msg.includes("automated browser") ||
+    msg.includes("bot detected") ||
+    text.includes("access denied") ||
+    text.includes("automated access")
+  ) {
+    return "bot_detected";
+  }
+
+  // CAPTCHA unsolved
+  if (
+    msg.includes("captcha") ||
+    msg.includes("challenge not resolved") ||
+    msg.includes("challenge timeout")
+  ) {
+    return "captcha_unsolved";
+  }
+
+  // Payment rejection
+  if (
+    msg.includes("card declined") ||
+    msg.includes("payment declined") ||
+    text.includes("card was declined") ||
+    text.includes("payment could not be processed") ||
+    text.includes("payment declined")
+  ) {
+    return "payment_rejected";
+  }
+
+  // Navigation failures
+  if (
+    msg.includes("navigation timeout") ||
+    msg.includes("net::err_") ||
+    msg.includes("econnrefused") ||
+    msg.includes("econnreset") ||
+    msg.includes("timeout exceeded")
+  ) {
+    return "navigation_failed";
+  }
+
+  // Form fill failures
+  if (
+    msg.includes("no card fields") ||
+    msg.includes("no shipping fields") ||
+    msg.includes("failed to fill") ||
+    msg.includes("field not found")
+  ) {
+    return "form_fill_failed";
+  }
+
+  // Session timeout
+  if (
+    msg.includes("session expired") ||
+    msg.includes("session timeout") ||
+    msg.includes("max steps exceeded") ||
+    msg.includes("max pages exceeded")
+  ) {
+    return "session_timeout";
+  }
+
+  return "unknown";
+}
+
+/**
+ * Detect which checkout phase a URL corresponds to.
+ * Uses URL path keywords and the presence of card fields.
+ */
+export function detectCheckoutPhase(
+  url: string,
+  hasCardFields: boolean,
+): CheckoutPhase {
+  const lower = url.toLowerCase();
+  const path = (() => {
+    try {
+      return new URL(lower).pathname;
+    } catch {
+      return lower;
+    }
+  })();
+
+  // Confirmation / thank-you (check first)
+  if (
+    path.includes("/confirmation") ||
+    path.includes("/thank-you") ||
+    path.includes("/thank_you") ||
+    path.includes("/order-complete")
+  ) {
+    return "confirmation";
+  }
+
+  // Review / order-review
+  if (
+    path.includes("/review") ||
+    path.includes("/order-review")
+  ) {
+    return "review";
+  }
+
+  // Payment / billing (from URL)
+  if (
+    path.includes("/payment") ||
+    path.includes("/billing") ||
+    path.includes("/pay")
+  ) {
+    return "payment";
+  }
+
+  // Card fields present → payment regardless of URL
+  if (hasCardFields) {
+    return "payment";
+  }
+
+  // Delivery / shipping method
+  if (
+    path.includes("/delivery") ||
+    path.includes("/shipping-method") ||
+    path.includes("/shipping_method") ||
+    path.includes("/shipping-rate")
+  ) {
+    return "delivery";
+  }
+
+  // Cart / bag
+  if (
+    path.includes("/cart") ||
+    path.includes("/bag") ||
+    path.includes("/basket")
+  ) {
+    return "cart";
+  }
+
+  // Checkout / checkouts (default to shipping stage)
+  if (
+    path.includes("/checkout") ||
+    path.includes("/checkouts")
+  ) {
+    return "shipping";
+  }
+
+  return "unknown";
+}
+
+/**
+ * Check if a URL belongs to a Shopify checkout/store.
+ */
+export function isShopifyCheckout(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes("myshopify.com") ||
+    lower.includes("/checkouts/")
+  );
+}
+
 // ---- Price tolerance ----
 
 function isPriceAcceptable(expected: string, actual: string): boolean {

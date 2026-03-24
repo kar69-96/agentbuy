@@ -47,22 +47,24 @@ describe("discoverViaFirecrawl", () => {
   });
 
   it("returns null when API returns non-OK", async () => {
-    fetchSpy.mockResolvedValue(new Response("error", { status: 500 }));
+    fetchSpy.mockImplementation(() => Promise.resolve(new Response("error", { status: 500 })));
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
   });
 
   it("returns null when extract has no name/price", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
-        JSON.stringify({ success: true, data: { json: { description: "A product" } } }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ success: true, data: { json: { description: "A product" } } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
       ),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
   });
@@ -97,7 +99,9 @@ describe("discoverViaFirecrawl", () => {
       ),
     );
 
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await promise;
     expect(result).not.toBeNull();
     expect(result!.name).toBe("Tree Runner");
     expect(result!.price).toBe("98.00");
@@ -127,7 +131,9 @@ describe("discoverViaFirecrawl", () => {
       ),
     );
 
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await promise;
     expect(result!.price).toBe("99.99");
   });
 
@@ -142,7 +148,9 @@ describe("discoverViaFirecrawl", () => {
       ),
     );
 
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await promise;
     expect(result!.options).toEqual([]);
   });
 
@@ -171,7 +179,9 @@ describe("discoverViaFirecrawl", () => {
       ),
     );
 
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await promise;
     expect(result).not.toBeNull();
     expect(result!.options[0].prices).toEqual({
       "9": "110.00",
@@ -190,7 +200,9 @@ describe("discoverViaFirecrawl", () => {
       ),
     );
 
-    await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await promise;
 
     expect(fetchSpy).toHaveBeenCalledWith(
       `${TEST_BASE_URL}/v1/scrape`,
@@ -240,15 +252,15 @@ describe("discoverViaFirecrawl — scrape error handling", () => {
   });
 
   it("returns null when scrape response indicates failure", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ success: false }), {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ success: false }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }),
+      })),
     );
 
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
   });
@@ -295,6 +307,10 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    // Default fallback for unmocked calls (Exa, browserbase, etc.)
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {
@@ -409,11 +425,11 @@ describe("discoverViaFirecrawl — Step 2: variant URL resolution", () => {
     );
 
     // Mock all variant extracts to return null (we're just counting calls)
-    fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ success: true, data: { markdown: VALID_MD, metadata: VALID_META, json: {} } }), {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ success: true, data: { markdown: VALID_MD, metadata: VALID_META, json: {} } }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }),
+      })),
     );
 
     await discoverViaFirecrawl("https://example.com/product");
@@ -575,6 +591,10 @@ describe("discoverViaFirecrawl — Step 3: crawl fallback", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    // Default fallback for unmocked calls (Exa, browserbase, etc.)
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {
@@ -809,11 +829,11 @@ describe("discoverViaFirecrawl — Step 3: crawl fallback", () => {
     );
 
     // All polls: still processing (timeout)
-    fetchSpy.mockResolvedValue(
-      new Response(JSON.stringify({ status: "processing" }), {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ status: "processing" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }),
+      })),
     );
 
     const result = await discoverViaFirecrawl("https://example.com/product");
@@ -836,6 +856,9 @@ describe("discoverViaFirecrawl — pipeline routing", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {
@@ -974,6 +997,9 @@ describe("discoverViaFirecrawl — field passthrough", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {
@@ -1058,6 +1084,9 @@ describe("discoverViaFirecrawl — retry and timeout", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {
@@ -1122,7 +1151,7 @@ describe("discoverViaFirecrawl — retry and timeout", () => {
     );
 
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).not.toBeNull();
     expect(result!.name).toBe("Real Product");
@@ -1132,8 +1161,8 @@ describe("discoverViaFirecrawl — retry and timeout", () => {
 
   it("returns null when all 3 attempts fail", async () => {
     // All calls return blocked page
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1143,11 +1172,11 @@ describe("discoverViaFirecrawl — retry and timeout", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
 
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
     // At least 1 Firecrawl attempt detects "blocked", plus possible retries/Browserbase fallback
@@ -1268,6 +1297,9 @@ describe("discoverViaFirecrawl — invalid price rejection", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {
@@ -1339,6 +1371,9 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {
@@ -1357,8 +1392,8 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
   });
 
   it("returns null when page returns 403 (Cloudflare)", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1368,17 +1403,17 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
   });
 
   it("returns product_not_found when page returns 404", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1388,10 +1423,10 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).not.toBeNull();
     expect(result!.error).toBe("product_not_found");
@@ -1400,8 +1435,8 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
   });
 
   it("returns product_not_found when content says product discontinued", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1411,18 +1446,18 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).not.toBeNull();
     expect(result!.error).toBe("product_not_found");
   });
 
   it("returns product_not_found for HTTP 410 Gone", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1432,18 +1467,18 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).not.toBeNull();
     expect(result!.error).toBe("product_not_found");
   });
 
   it("returns null when markdown is empty (page didn't render)", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1453,17 +1488,17 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
   });
 
   it("returns null for bot-challenge page (Just a moment...)", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1473,17 +1508,17 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
   });
 
   it("classifies challenge pages as blocked (not not_found)", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1493,20 +1528,20 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawlWithDiagnostics(
       "https://example.com/product",
     );
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const { result, diagnostics } = await promise;
     expect(result).toBeNull();
     expect(diagnostics.failureCode).toBe("blocked");
   });
 
   it("returns null for Access Denied page", async () => {
-    fetchSpy.mockResolvedValue(
-      new Response(
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(
         JSON.stringify({
           success: true,
           data: {
@@ -1516,10 +1551,10 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
           },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      ),
+      )),
     );
     const promise = discoverViaFirecrawl("https://example.com/product");
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     const result = await promise;
     expect(result).toBeNull();
   });
@@ -1541,7 +1576,9 @@ describe("discoverViaFirecrawl — blocked page detection", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    const result = await discoverViaFirecrawl("https://example.com/product");
+    const promise = discoverViaFirecrawl("https://example.com/product");
+    await vi.advanceTimersByTimeAsync(60_000);
+    const result = await promise;
     expect(result).not.toBeNull();
     expect(result!.name).toBe("Tree Runner");
     expect(result!.price).toBe("98.00");
@@ -1583,6 +1620,9 @@ describe("discoverViaFirecrawl — concurrency isolation", () => {
     process.env.FIRECRAWL_API_KEY = "test-key";
     process.env.FIRECRAWL_BASE_URL = TEST_BASE_URL;
     fetchSpy = vi.spyOn(globalThis, "fetch");
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ error: "not mocked" }), { status: 500 })),
+    );
   });
 
   afterEach(() => {

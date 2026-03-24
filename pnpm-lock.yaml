@@ -69,6 +69,15 @@ importers:
         specifier: ^3.22.0
         version: 3.25.76
 
+  packages/checkout-http:
+    dependencies:
+      '@bloon/core':
+        specifier: workspace:*
+        version: link:../core
+      cheerio:
+        specifier: ^1.0.0
+        version: 1.2.0
+
   packages/core:
     dependencies:
       dotenv:
@@ -105,6 +114,9 @@ importers:
       '@bloon/checkout':
         specifier: workspace:*
         version: link:../checkout
+      '@bloon/checkout-http':
+        specifier: workspace:*
+        version: link:../checkout-http
       '@bloon/core':
         specifier: workspace:*
         version: link:../core

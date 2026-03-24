@@ -101,19 +101,20 @@ function wordsFromSegment(segment: string): string[] {
 
 /**
  * Extract meaningful words from URL path segments (the "slug").
- * Tries the last segment first; if it yields no words (e.g. pure numeric ID),
- * falls back to earlier segments. Returns empty array only if no segment has words.
+ * Picks the segment with the most words — the product slug will have more
+ * meaningful words than tracking/ref params (e.g. Amazon's ref=sr_1_2_sspa).
+ * Returns empty array only if no segment has words.
  */
 export function extractSlugWords(url: string): string[] {
   try {
     const pathname = new URL(url).pathname;
     const segments = pathname.split("/").filter(Boolean);
-    // Try from last segment backwards; return first segment that has words
-    for (let i = segments.length - 1; i >= 0; i--) {
-      const words = wordsFromSegment(segments[i]);
-      if (words.length > 0) return words;
+    let best: string[] = [];
+    for (const segment of segments) {
+      const words = wordsFromSegment(segment);
+      if (words.length > best.length) best = words;
     }
-    return [];
+    return best;
   } catch {
     return [];
   }
