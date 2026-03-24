@@ -13,8 +13,8 @@
  */
 
 import type { PayloadField } from "@bloon/core";
-import type { ShippingInfo, CardInfo, BillingInfo } from "@bloon/core";
-import { getCardInfo, getBillingInfo } from "@bloon/core";
+import type { ShippingInfo, BillingInfo } from "@bloon/core";
+import { getBillingInfo } from "@bloon/core";
 import type { ExecutionContext } from "./types.js";
 
 // ---- User input lookup map ----
@@ -25,10 +25,23 @@ type UserInputLookup = Readonly<Record<string, string>>;
  * Build a flat lookup map from shipping, billing, and card data.
  * Keys use dot notation matching PayloadField.sourceKey values.
  */
+/**
+ * Card field keys are EXCLUDED from the generic lookup map.
+ * Card data must only flow through stripe-client.ts (direct Stripe API),
+ * never through buildPayload for general merchant endpoints.
+ */
+const BLOCKED_CARD_KEYS = new Set([
+  "card.number",
+  "card.expiry",
+  "card.cvv",
+  "card.cardholder_name",
+  "card.exp_month",
+  "card.exp_year",
+]);
+
 function buildUserInputLookup(
   shipping: ShippingInfo,
   billing: BillingInfo,
-  card: CardInfo,
 ): UserInputLookup {
   return {
     // Shipping fields
@@ -48,34 +61,7 @@ function buildUserInputLookup(
     "billing.state": billing.state,
     "billing.zip": billing.zip,
     "billing.country": billing.country,
-
-    // Card fields (direct from env, never logged)
-    "card.number": card.number,
-    "card.expiry": card.expiry,
-    "card.cvv": card.cvv,
-    "card.cardholder_name": card.cardholder_name,
-
-    // Convenience aliases for common site field patterns
-    "card.exp_month": parseExpMonth(card.expiry),
-    "card.exp_year": parseExpYear(card.expiry),
   };
-}
-
-/** Extract month from "MM/YY" or "MM/YYYY" expiry format. */
-function parseExpMonth(expiry: string): string {
-  const parts = expiry.split("/");
-  return parts[0]?.trim() ?? "";
-}
-
-/** Extract year from "MM/YY" or "MM/YYYY" expiry format. */
-function parseExpYear(expiry: string): string {
-  const parts = expiry.split("/");
-  const year = parts[1]?.trim() ?? "";
-  // Normalize 2-digit to 4-digit year
-  if (year.length === 2) {
-    return `20${year}`;
-  }
-  return year;
 }
 
 // ---- Resolve a single field ----
@@ -93,6 +79,11 @@ function resolveField(
 ): ResolvedField {
   switch (field.source) {
     case "USER_INPUT": {
+      // Block card data from flowing through generic payloads.
+      // Card data must only go through stripe-client.ts.
+      if (BLOCKED_CARD_KEYS.has(field.sourceKey)) {
+        return { fieldName: field.fieldName, value: null, missingKey: field.sourceKey };
+      }
       const value = lookup[field.sourceKey];
       if (value === undefined) {
         return { fieldName: field.fieldName, value: null, missingKey: field.sourceKey };
@@ -178,9 +169,8 @@ export function buildPayload(
   shipping: ShippingInfo,
   contentType: "application/json" | "application/x-www-form-urlencoded",
 ): PayloadResult {
-  const card = getCardInfo();
   const billing = getBillingInfo();
-  const lookup = buildUserInputLookup(shipping, billing, card);
+  const lookup = buildUserInputLookup(shipping, billing);
 
   const resolved: ResolvedField[] = [];
   const missingFields: string[] = [];

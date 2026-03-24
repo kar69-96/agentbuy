@@ -78,8 +78,7 @@ function findAddToCartUrl(snapshot: PageSnapshot, baseUrl: string): string | nul
   for (const form of snapshot.forms) {
     if (
       form.action.includes("/cart/add") ||
-      form.action.includes("/cart") ||
-      form.method.toUpperCase() === "POST"
+      form.action.includes("/cart")
     ) {
       if (form.action.startsWith("http")) return form.action;
       try {
@@ -234,7 +233,7 @@ function extractValuesFromFetchResult(
 
   // Extract hidden inputs as potential tokens
   for (const [key, value] of Object.entries(snapshot.hiddenInputs)) {
-    if (value && key.toLowerCase().includes("token") || key.toLowerCase().includes("csrf")) {
+    if (value && (key.toLowerCase().includes("token") || key.toLowerCase().includes("csrf"))) {
       values[key] = value;
     }
   }

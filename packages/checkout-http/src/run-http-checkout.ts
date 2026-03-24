@@ -54,12 +54,11 @@ function extractDomain(url: string): string | null {
 }
 
 /**
- * Build the profile file path for use as a replay URL.
- * This is the path to the JSON profile on disk, not a browser session.
+ * Build an opaque replay identifier for the HTTP checkout result.
+ * Does not expose filesystem paths to API consumers.
  */
 function buildReplayUrl(domain: string): string {
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "~";
-  return `${homeDir}/.bloon/profiles/${domain}.json`;
+  return `http-profile://${domain}`;
 }
 
 /**
@@ -67,7 +66,7 @@ function buildReplayUrl(domain: string): string {
  * No Browserbase session — this is a purely local identifier.
  */
 function buildSessionId(domain: string): string {
-  return `http-${domain}-${Date.now()}`;
+  return `http-${domain}-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
 /**

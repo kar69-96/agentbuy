@@ -223,7 +223,7 @@ export function buildProfile(trace: WalkerTrace): SiteProfile {
     domain: trace.domain,
     platform: trace.platform,
     botProtection: trace.botProtection,
-    httpEligible: true,
+    httpEligible: trace.botProtection === "none",
     endpoints,
     authFlow: { type: "guest", stepIndex: 0 },
     ...(stripe !== undefined ? { stripe } : {}),

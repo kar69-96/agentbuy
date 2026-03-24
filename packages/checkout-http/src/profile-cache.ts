@@ -30,12 +30,14 @@ export function getProfileDir(): string {
 
 /**
  * Ensure the profiles directory exists with restricted permissions.
+ * Always enforces 0o700 even if the directory pre-exists.
  */
 function ensureProfileDir(): void {
   const dir = getProfileDir();
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+  fs.chmodSync(dir, 0o700);
 }
 
 /**
@@ -50,10 +52,45 @@ function profilePath(domain: string): string {
 // ---- Read ----
 
 /**
+ * Validate that a loaded profile doesn't contain endpoint URLs
+ * that could route card data to non-Stripe destinations.
+ * All urlPatterns must use HTTPS and no non-Stripe step may
+ * reference card-related payload fields.
+ */
+function validateProfileSecurity(profile: SiteProfile): boolean {
+  const CARD_SOURCE_KEYS = new Set([
+    "card.number", "card.expiry", "card.cvv",
+    "card.cardholder_name", "card.exp_month", "card.exp_year",
+  ]);
+
+  for (const step of profile.endpoints) {
+    // All URLs must be HTTPS
+    if (!step.urlPattern.startsWith("https://") && !step.urlPattern.includes("{")) {
+      return false;
+    }
+
+    // Non-Stripe steps must not reference card fields
+    if (!step.urlPattern.includes("api.stripe.com") && step.payload) {
+      for (const field of step.payload) {
+        if (field.source === "USER_INPUT" && CARD_SOURCE_KEYS.has(field.sourceKey)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
+/**
  * Load a cached SiteProfile for the given domain.
  *
+ * Validates shape and security invariants before returning.
+ * Rejects profiles with non-HTTPS URLs or card data routed
+ * to non-Stripe endpoints.
+ *
  * @param domain - The domain to look up (e.g., "example.com")
- * @returns The parsed SiteProfile, or null if not found or unreadable
+ * @returns The parsed SiteProfile, or null if not found or invalid
  */
 export function loadProfile(domain: string): SiteProfile | null {
   const filePath = profilePath(domain);
@@ -62,18 +99,40 @@ export function loadProfile(domain: string): SiteProfile | null {
     const raw = fs.readFileSync(filePath, "utf-8");
     const parsed: unknown = JSON.parse(raw);
 
-    // Basic shape validation
+    // Shape validation
     if (
-      parsed !== null &&
-      typeof parsed === "object" &&
-      "domain" in parsed &&
-      "endpoints" in parsed &&
-      "staleness" in parsed
+      parsed === null ||
+      typeof parsed !== "object" ||
+      !("domain" in parsed) ||
+      !("endpoints" in parsed) ||
+      !("staleness" in parsed)
     ) {
-      return parsed as SiteProfile;
+      return null;
     }
 
-    return null;
+    const profile = parsed as SiteProfile;
+
+    // Verify endpoints is an array
+    if (!Array.isArray(profile.endpoints)) {
+      return null;
+    }
+
+    // Verify staleness has required fields
+    if (
+      typeof profile.staleness !== "object" ||
+      profile.staleness === null ||
+      !("lastValidatedAt" in profile.staleness) ||
+      !("currentTtlMs" in profile.staleness)
+    ) {
+      return null;
+    }
+
+    // Security: reject profiles that could leak card data
+    if (!validateProfileSecurity(profile)) {
+      return null;
+    }
+
+    return profile;
   } catch {
     return null;
   }

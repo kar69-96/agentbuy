@@ -67,13 +67,20 @@ function resolveUrlTemplate(
   // Reset regex state
   placeholderRegex.lastIndex = 0;
 
+  // Determine query string boundary for encoding decisions
+  const queryStart = urlPattern.indexOf("?");
+
   while ((match = placeholderRegex.exec(urlPattern)) !== null) {
     const placeholder = match[1]!;
     const value = extractedValues[placeholder];
     if (value === undefined) {
       return { missingPlaceholder: placeholder };
     }
-    result = result.replace(`{${placeholder}}`, encodeURIComponent(value));
+    // Only URL-encode values in query string positions.
+    // Path segment tokens (cart IDs, session tokens) should not be encoded.
+    const inQuery = queryStart !== -1 && match.index > queryStart;
+    const encoded = inQuery ? encodeURIComponent(value) : value;
+    result = result.replace(`{${placeholder}}`, encoded);
   }
 
   return { url: result };
@@ -448,6 +455,7 @@ export async function executeFlow(
     };
 
     let flowFailed = false;
+    let needsRestart = false;
     let failedStepIndex: number | undefined;
     let failureError: ErrorAnalysis | undefined;
 
@@ -477,7 +485,8 @@ export async function executeFlow(
 
           if (handling.action === "restart") {
             restartCount++;
-            break; // Break inner for-loop to restart outer while
+            needsRestart = true;
+            break;
           }
 
           // Abort
@@ -488,26 +497,22 @@ export async function executeFlow(
         }
       }
 
+      if (needsRestart || flowFailed) break;
+
       // If step exhausted retries without success
-      if (!stepSucceeded && !flowFailed) {
-        // Check if we're restarting
-        if (restartCount > 0 && i === 0) {
-          break; // Let outer loop handle restart
-        }
+      if (!stepSucceeded) {
         failedStepIndex = step.index;
         failureError = {
           action: "abort",
           reason: `Step ${step.index} failed after ${retryCount} retries`,
         };
         flowFailed = true;
+        break;
       }
-
-      if (flowFailed) break;
     }
 
-    // If we need to restart, continue the outer loop
-    if (!flowFailed && context.stepResults.length < profile.endpoints.length) {
-      // Incomplete — restarting
+    // Restart the entire flow from step 0
+    if (needsRestart) {
       continue;
     }
 

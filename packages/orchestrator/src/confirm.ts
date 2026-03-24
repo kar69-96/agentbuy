@@ -100,9 +100,6 @@ export async function confirm(input: ConfirmInput): Promise<ConfirmResult> {
         };
       } else {
         // HTTP engine failed — invalidate cache and fall back to Stagehand
-        console.log(
-          `[http-engine] failed for ${domain}: ${httpResult.errorMessage}, falling back to Stagehand`,
-        );
         invalidateProfile(domain);
         checkoutResult = await runCheckout({
           order,

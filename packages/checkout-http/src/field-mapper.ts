@@ -169,10 +169,10 @@ export function mapFields(
   return mappings;
 }
 
-/** Use Gemini LLM to map unknown fields. */
-export async function mapFieldsWithLLM(
+/** Placeholder for future Gemini LLM field mapping. Returns empty array. */
+async function mapFieldsWithLLM(
   _fields: readonly FormField[],
   _existingMappings: readonly FieldMapping[],
 ): Promise<readonly FieldMapping[]> {
-  throw new Error("Not implemented");
+  return [];
 }
