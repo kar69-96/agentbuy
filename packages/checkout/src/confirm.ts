@@ -13,6 +13,16 @@ const POSITIVE_SIGNALS: readonly string[] = [
   "confirmation email",
   "order summary",
   "estimated delivery",
+  // Non-ecommerce flows (donations, services, subscriptions)
+  "thank you for your donation",
+  "donation received",
+  "donation confirmation",
+  "your contribution",
+  "donation complete",
+  "payment successful",
+  "payment confirmed",
+  "transaction complete",
+  "your payment has been",
 ];
 
 const NEGATIVE_SIGNALS: readonly string[] = [

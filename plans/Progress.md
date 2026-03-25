@@ -6,6 +6,14 @@
 
 **Last updated:** 2026-03-25
 
+### Browser Checkout Hardening (2026-03-25)
+
+- **416 tests pass, 62 skipped** across unit/integration tests (35 files passed, 7 skipped)
+- **1 e2e test (wikipedia-donation) requires `.env` with API keys** — fails intentionally without credentials
+- Changes: LLM card-fill fallback, broader confirmation signals, proxy-by-default, wider price tolerance, "Other amount" input, SPA transition wait, post-submit timing
+- Wikipedia e2e test rewritten for credit card checkout (removed wallet/viem)
+- `pnpm build` passes for all packages
+
 ### Query-Buy Alignment (2026-03-25)
 
 - **416 tests pass, 62 skipped, 0 failed** across 43 test files (35 passed, 8 skipped)
