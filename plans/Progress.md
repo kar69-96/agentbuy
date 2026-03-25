@@ -6,6 +6,15 @@
 
 **Last updated:** 2026-03-25
 
+### Query-Buy Alignment (2026-03-25)
+
+- **416 tests pass, 62 skipped, 0 failed** across 43 test files (35 passed, 8 skipped)
+- Added server-side query result caching with `query_id` — buy endpoint can now reuse cached discovery data from query
+- 7 new tests added: buy with query_id (cache hit, expired, not found, missing field), query persistence, query_id in responses, API integration tests
+- `pnpm build` passes for all packages
+- `pnpm type-check` clean
+- `pnpm lint` clean
+
 ### Test Fix Session (2026-03-25)
 
 - **409 tests pass, 62 skipped, 0 failed** across 43 test files (35 passed, 8 skipped)

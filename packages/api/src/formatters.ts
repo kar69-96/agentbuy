@@ -10,6 +10,7 @@ function getHostname(url: string): string {
 
 export function formatQueryResponse(result: QueryResponse) {
   return {
+    query_id: result.query_id,
     product: {
       ...result.product,
       source: getHostname(result.product.url),
@@ -25,6 +26,7 @@ export function formatSearchQueryResponse(result: SearchQueryResponse) {
     type: result.type,
     query: result.query,
     products: result.products.map((p) => ({
+      query_id: p.query_id,
       product: {
         ...p.product,
         source: getHostname(p.product.url),
@@ -50,6 +52,9 @@ export function formatBuyResponse(order: Order) {
       name: order.product.name,
       url: order.product.url,
       source: getHostname(order.product.url),
+      image_url: order.product.image_url,
+      brand: order.product.brand,
+      currency: order.product.currency,
     },
     payment: {
       item_price: order.payment.price,

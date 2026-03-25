@@ -9,12 +9,16 @@ export const buyRoutes = new Hono();
 buyRoutes.post("/buy", async (c) => {
   const body = await c.req.json().catch(() => ({}));
 
-  if (!body.url || typeof body.url !== "string" || body.url.trim() === "") {
-    throw new BloonError(ErrorCodes.MISSING_FIELD, "url is required");
+  const hasUrl = body.url && typeof body.url === "string" && body.url.trim() !== "";
+  const hasQueryId = body.query_id && typeof body.query_id === "string";
+
+  if (!hasUrl && !hasQueryId) {
+    throw new BloonError(ErrorCodes.MISSING_FIELD, "url or query_id is required");
   }
 
   const order = await buy({
-    url: body.url.trim(),
+    url: hasUrl ? body.url.trim() : undefined,
+    query_id: hasQueryId ? body.query_id : undefined,
     shipping: body.shipping,
     selections: body.selections,
   });

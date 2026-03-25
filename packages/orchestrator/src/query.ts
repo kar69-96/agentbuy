@@ -5,6 +5,8 @@ import {
   type ProductOption,
   BloonError,
   ErrorCodes,
+  generateId,
+  createQueryResult,
 } from "@bloon/core";
 import { classifyUrl, discoverWithStrategy } from "@bloon/crawling";
 
@@ -80,7 +82,21 @@ export async function query(input: QueryInput): Promise<QueryResponse> {
     brand: discovery.brand,
   };
 
+  const queryId = generateId("qry");
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 min
+
+  await createQueryResult({
+    query_id: queryId,
+    product,
+    options: discovery.options,
+    discovery_method: discovery.method,
+    created_at: now.toISOString(),
+    expires_at: expiresAt.toISOString(),
+  });
+
   return {
+    query_id: queryId,
     product,
     options: discovery.options,
     required_fields: requiredFields,

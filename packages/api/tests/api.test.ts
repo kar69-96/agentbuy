@@ -314,6 +314,7 @@ describe("POST /api/confirm", () => {
 describe("POST /api/query", () => {
   it("returns 200 with product, options, required_fields", async () => {
     mockedQuery.mockResolvedValue({
+      query_id: "bloon_qry_test01",
       product: {
         name: "Cool Shoes",
         url: "https://shop.example.com/shoes",
@@ -334,6 +335,7 @@ describe("POST /api/query", () => {
     expect(res.status).toBe(200);
 
     const json = await res.json();
+    expect(json.query_id).toBe("bloon_qry_test01");
     expect(json.product.name).toBe("Cool Shoes");
     expect(json.product.source).toBe("shop.example.com");
     expect(json.options).toHaveLength(1);
@@ -396,6 +398,7 @@ describe("POST /api/query", () => {
       query: "towels on amazon under $15",
       products: [
         {
+          query_id: "bloon_qry_search01",
           product: {
             name: "Cotton Towels",
             url: "https://amazon.com/dp/B08EXAMPLE",
@@ -430,6 +433,7 @@ describe("POST /api/query", () => {
     expect(json.query).toBe("towels on amazon under $15");
     expect(json.products).toHaveLength(1);
     expect(json.products[0].product.name).toBe("Cotton Towels");
+    expect(json.products[0].query_id).toBe("bloon_qry_search01");
     expect(json.products[0].product.source).toBe("amazon.com");
     expect(json.products[0].product.price).toBe("12.99");
     expect(json.products[0].discovery_method).toBe("exa_search");
@@ -457,6 +461,7 @@ describe("POST /api/query", () => {
 
   it("routes { url } to query, not searchQuery", async () => {
     mockedQuery.mockResolvedValue({
+      query_id: "bloon_qry_route01",
       product: { name: "Shoe", url: "https://example.com/shoe", price: "50.00" },
       options: [],
       required_fields: [],
@@ -511,6 +516,7 @@ describe("POST /api/query", () => {
       query: "sneakers",
       products: [
         {
+          query_id: "bloon_qry_sneaker01",
           product: {
             name: "Air Max",
             url: "https://nike.com/products/air-max",
@@ -536,6 +542,7 @@ describe("POST /api/query", () => {
       query: "towels",
       products: [
         {
+          query_id: "bloon_qry_towel01",
           product: {
             name: "Towel",
             url: "not-a-url",
@@ -554,6 +561,50 @@ describe("POST /api/query", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.products[0].product.source).toBe("unknown");
+  });
+});
+
+// ---- POST /api/buy with query_id ----
+
+describe("POST /api/buy (query_id)", () => {
+  it("accepts query_id instead of url", async () => {
+    const fakeOrder: Order = {
+      order_id: "bloon_ord_cached01",
+      status: "awaiting_confirmation",
+      product: {
+        name: "Cached Widget",
+        url: "https://shop.example.com/widget",
+        price: "25.00",
+        source: "firecrawl",
+        brand: "TestBrand",
+      },
+      payment: {
+        total: "25.50",
+        price: "25.00",
+        fee: "0.50",
+        fee_rate: "2%",
+      },
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 300_000).toISOString(),
+    };
+    mockedBuy.mockResolvedValue(fakeOrder);
+
+    const res = await req("POST", "/api/buy", {
+      query_id: "bloon_qry_test01",
+      shipping: { name: "Test", street: "123 Main", city: "Denver", state: "CO", zip: "80202", country: "US", email: "t@t.com", phone: "555" },
+    });
+    expect(res.status).toBe(200);
+
+    expect(mockedBuy).toHaveBeenCalledWith(
+      expect.objectContaining({ query_id: "bloon_qry_test01" }),
+    );
+  });
+
+  it("returns 400 when neither url nor query_id provided", async () => {
+    const res = await req("POST", "/api/buy", { shipping: {} });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error.code).toBe("MISSING_FIELD");
   });
 });
 

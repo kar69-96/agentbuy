@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 
 // ---- Mock external packages ----
 
@@ -11,6 +14,18 @@ import { discoverWithStrategy } from "@bloon/crawling";
 import { query } from "../src/query.js";
 
 const mockedDiscoverWithStrategy = vi.mocked(discoverWithStrategy);
+
+let tmpDir: string;
+
+beforeEach(() => {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bloon-query-test-"));
+  process.env.BLOON_DATA_DIR = tmpDir;
+});
+
+afterEach(() => {
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  delete process.env.BLOON_DATA_DIR;
+});
 
 // ---- Tests ----
 
@@ -29,6 +44,7 @@ describe("query", () => {
 
     const result = await query({ url: "https://shop.example.com/sneakers" });
 
+    expect(result.query_id).toMatch(/^bloon_qry_/);
     expect(result.product.name).toBe("Cool Sneakers");
     expect(result.product.price).toBe("89.99");
     expect(result.options).toHaveLength(2);
@@ -65,6 +81,24 @@ describe("query", () => {
     await expect(
       query({ url: "https://shop.example.com/timeout" }),
     ).rejects.toThrow(expect.objectContaining({ code: "QUERY_FAILED" }));
+  });
+
+  it("query persists result to queries.json", async () => {
+    mockedDiscoverWithStrategy.mockResolvedValue({
+      name: "Persisted Widget",
+      price: "25.00",
+      method: "firecrawl",
+      options: [],
+    });
+
+    const result = await query({ url: "https://shop.example.com/widget" });
+
+    const queriesPath = path.join(tmpDir, "queries.json");
+    const store = JSON.parse(fs.readFileSync(queriesPath, "utf-8"));
+    expect(store.queries).toHaveLength(1);
+    expect(store.queries[0].query_id).toBe(result.query_id);
+    expect(store.queries[0].product.name).toBe("Persisted Widget");
+    expect(store.queries[0].expires_at).toBeDefined();
   });
 
   it("query with null discovery result throws QUERY_FAILED", async () => {
