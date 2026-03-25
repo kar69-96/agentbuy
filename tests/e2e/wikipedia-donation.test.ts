@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { privateKeyToAccount } from "viem/accounts";
 import { createApp } from "@bloon/api/src/server.js";
 
 // ---- Skip unless all credentials are available ----
@@ -11,6 +10,16 @@ const hasRpc = !!process.env.BASE_RPC_URL;
 const hasBrowserbase = !!process.env.BROWSERBASE_API_KEY;
 const hasAnthropic = !!process.env.GOOGLE_API_KEY;
 const hasTestWallet = !!process.env.TEST_WALLET_PRIVATE_KEY;
+
+// viem is archived — dynamic import to avoid crash when package is missing
+let privateKeyToAccount: (key: `0x${string}`) => { address: string };
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const viemAccounts = await import("viem/accounts");
+  privateKeyToAccount = viemAccounts.privateKeyToAccount;
+} catch {
+  // viem not installed — tests will be skipped via skipIf below
+}
 
 // ---- Test helpers ----
 

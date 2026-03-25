@@ -12,9 +12,17 @@ import {
 const HAS_KEYS =
   !!process.env.BROWSERBASE_API_KEY && !!process.env.GOOGLE_API_KEY;
 
+// Quick network probe — skip real-site tests when network is unavailable
+let HAS_NETWORK = true;
+try {
+  await fetch("https://www.allbirds.com", { method: "HEAD", signal: AbortSignal.timeout(5000) });
+} catch {
+  HAS_NETWORK = false;
+}
+
 // ---- Tier 1: Server-side scrape against real sites ----
 
-describe("Tier 1 scrape (real sites)", () => {
+describe.skipIf(!HAS_NETWORK)("Tier 1 scrape (real sites)", () => {
   it("scrapes a Shopify product via JSON-LD (Allbirds)", async () => {
     const result = await scrapePrice(
       "https://www.allbirds.com/products/mens-tree-runners",
@@ -117,7 +125,7 @@ describe.skipIf(!HAS_KEYS)("discoverPrice fallback (real sites)", () => {
 
 // ---- scrapePriceWithOptions: Tier 1 with variants (no API key needed) ----
 
-describe("scrapePriceWithOptions (real sites)", () => {
+describe.skipIf(!HAS_NETWORK)("scrapePriceWithOptions (real sites)", () => {
   it("extracts name + price + options from Allbirds", async () => {
     const result = await scrapePriceWithOptions(
       "https://www.allbirds.com/products/mens-tree-runners",
@@ -197,7 +205,7 @@ describe.skipIf(!HAS_KEYS)("Tier 3 Browserbase discovery (real sites)", () => {
 
 // ---- discoverProduct 3-tier pipeline ----
 
-describe("discoverProduct pipeline (real sites)", () => {
+describe.skipIf(!HAS_NETWORK)("discoverProduct pipeline (real sites)", () => {
   it("returns result from Firecrawl, scrape, or browserbase", async () => {
     const result = await discoverProduct(
       "https://www.allbirds.com/products/mens-tree-runners",

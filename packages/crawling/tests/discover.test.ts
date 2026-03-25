@@ -98,6 +98,10 @@ describe("discoverViaFirecrawl", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
+    // Mock the /v1/crawl call triggered by variant resolution (Step 3)
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false }), { status: 401 }),
+    );
 
     const promise = discoverViaFirecrawl("https://example.com/product");
     await vi.advanceTimersByTimeAsync(60_000);
@@ -177,6 +181,10 @@ describe("discoverViaFirecrawl", () => {
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
+    );
+    // Mock the /v1/crawl call triggered by variant resolution (Step 3)
+    fetchSpy.mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: false }), { status: 401 }),
     );
 
     const promise = discoverViaFirecrawl("https://example.com/product");
