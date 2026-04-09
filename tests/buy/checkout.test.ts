@@ -18,17 +18,12 @@ import { runCheckout } from "@bloon/checkout";
 import type { CheckoutInput } from "@bloon/checkout";
 import type { Order, ShippingInfo } from "@bloon/core";
 
-// ---- Guard: fail hard if Browserbase keys are missing ----
+// ---- Guard: skip if Browserbase keys are missing ----
 
-function requireEnv(name: string): string {
-  const val = process.env[name];
-  if (!val) throw new Error(`Missing required env var: ${name}`);
-  return val;
-}
-
-requireEnv("BROWSERBASE_API_KEY");
-requireEnv("BROWSERBASE_PROJECT_ID");
-requireEnv("GOOGLE_API_KEY");
+const HAS_CHECKOUT_KEYS =
+  !!process.env.BROWSERBASE_API_KEY &&
+  !!process.env.BROWSERBASE_PROJECT_ID &&
+  !!process.env.GOOGLE_API_KEY;
 
 // ---- Shared fixtures ----
 
@@ -104,7 +99,7 @@ function logResult(
 
 // ---- Tests ----
 
-describe("Buy checkout — Shopify stores", () => {
+describe.skipIf(!HAS_CHECKOUT_KEYS)("Buy checkout — Shopify stores", () => {
   it("Allbirds — add to cart + guest checkout (dry-run)", async () => {
     const order = buildOrder({
       url: "https://www.allbirds.com/products/mens-tree-runners",
@@ -147,7 +142,7 @@ describe("Buy checkout — Shopify stores", () => {
   }, 180_000);
 });
 
-describe("Buy checkout — Major retailers", () => {
+describe.skipIf(!HAS_CHECKOUT_KEYS)("Buy checkout — Major retailers", () => {
   it("Cotopaxi — Allpita Mini Bag checkout (dry-run)", async () => {
     const order = buildOrder({
       url: "https://www.cotopaxi.com/products/allpita-mini-bag-del-dia",
@@ -215,7 +210,7 @@ describe("Buy checkout — Major retailers", () => {
   }, 180_000);
 });
 
-describe("Buy checkout — Specialty / niche stores", () => {
+describe.skipIf(!HAS_CHECKOUT_KEYS)("Buy checkout — Specialty / niche stores", () => {
   it("Nike — Air Force 1 checkout (dry-run)", async () => {
     const order = buildOrder({
       url: "https://www.nike.com/t/air-force-1-07-mens-shoes-5QFp5Z/CW2288-111",
@@ -297,7 +292,7 @@ describe("Buy checkout — Specialty / niche stores", () => {
   }, 180_000);
 });
 
-describe("Buy checkout — Donation / payment-only", () => {
+describe.skipIf(!HAS_CHECKOUT_KEYS)("Buy checkout — Donation / payment-only", () => {
   it("Wikipedia — donation flow (dry-run)", async () => {
     const order = buildOrder({
       url: "https://donate.wikimedia.org/",

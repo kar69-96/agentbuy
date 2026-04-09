@@ -9,6 +9,8 @@ import {
   type ProductOption,
   BloonError,
   ErrorCodes,
+  generateId,
+  createQueryResult,
 } from "@bloon/core";
 import {
   parseSearchQuery,
@@ -174,9 +176,14 @@ export async function searchQuery(
     }),
   );
 
-  // 7. Build response
-  const products: SearchProductResult[] = enriched.map(({ result, score }) => ({
-    product: {
+  // 7. Build response and persist query results
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 10 * 60 * 1000); // 10 min
+
+  const products: SearchProductResult[] = [];
+  for (const { result, score } of enriched) {
+    const queryId = generateId("qry");
+    const product = {
       name: result.name,
       url: result.url,
       price: result.price,
@@ -184,12 +191,27 @@ export async function searchQuery(
       currency: result.currency,
       brand: result.brand,
       image_url: result.image_url,
-    },
-    options: [...result.options],
-    required_fields: buildRequiredFields(result.options),
-    discovery_method: "exa_search",
-    relevance_score: Math.round(score * 100) / 100,
-  }));
+    };
+    const options = [...result.options];
+
+    await createQueryResult({
+      query_id: queryId,
+      product,
+      options,
+      discovery_method: "exa_search",
+      created_at: now.toISOString(),
+      expires_at: expiresAt.toISOString(),
+    });
+
+    products.push({
+      query_id: queryId,
+      product,
+      options,
+      required_fields: buildRequiredFields(result.options),
+      discovery_method: "exa_search",
+      relevance_score: Math.round(score * 100) / 100,
+    });
+  }
 
   const priceFilter =
     parsed.minPrice !== undefined || parsed.maxPrice !== undefined

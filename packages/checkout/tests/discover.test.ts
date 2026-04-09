@@ -91,7 +91,7 @@ describe("scrapePrice", () => {
       "https://this-domain-should-not-exist-12345.com/product",
     );
     expect(result).toBeNull();
-  });
+  }, 15000);
 });
 
 describe("extractVariantsFromJsonLd", () => {

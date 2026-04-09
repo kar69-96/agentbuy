@@ -13,6 +13,9 @@ export interface ProductInfo {
   price: string;
   source: string;
   image_url?: string;
+  original_price?: string;
+  currency?: string;
+  brand?: string;
 }
 
 export interface PaymentInfo {
@@ -90,6 +93,7 @@ export interface RequiredField {
 }
 
 export interface QueryResponse {
+  query_id: string;
   product: RichProductInfo;
   options: ProductOption[];
   required_fields: RequiredField[];
@@ -99,6 +103,7 @@ export interface QueryResponse {
 // ---- Search (NL query) ----
 
 export interface SearchProductResult {
+  query_id: string;
   product: RichProductInfo;
   options: ProductOption[];
   required_fields: RequiredField[];
@@ -196,6 +201,19 @@ export interface OrdersStore {
   orders: Order[];
 }
 
+export interface StoredQueryResult {
+  query_id: string;
+  product: RichProductInfo;
+  options: ProductOption[];
+  discovery_method: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface QueriesStore {
+  queries: StoredQueryResult[];
+}
+
 export interface BloonConfig {
   default_order_expiry_seconds: number;
   port: number;
@@ -243,6 +261,8 @@ export const ErrorCodes = {
   ORDER_INVALID_STATUS: "ORDER_INVALID_STATUS",
   INVALID_SELECTION: "INVALID_SELECTION",
   QUERY_FAILED: "QUERY_FAILED",
+  QUERY_NOT_FOUND: "QUERY_NOT_FOUND",
+  QUERY_EXPIRED: "QUERY_EXPIRED",
   SEARCH_NO_RESULTS: "SEARCH_NO_RESULTS",
   SEARCH_UNAVAILABLE: "SEARCH_UNAVAILABLE",
   SEARCH_RATE_LIMITED: "SEARCH_RATE_LIMITED",

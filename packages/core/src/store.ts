@@ -7,6 +7,8 @@ import type {
   OrderStatus,
   BloonConfig,
   OrdersStore,
+  StoredQueryResult,
+  QueriesStore,
 } from "./types.js";
 
 // ---- Data directory ----
@@ -47,6 +49,7 @@ function writeJsonFile<T>(filename: string, data: T): void {
 
 let ordersQueue: Promise<void> = Promise.resolve();
 let configQueue: Promise<void> = Promise.resolve();
+let queriesQueue: Promise<void> = Promise.resolve();
 
 function enqueueOrders(fn: () => void): Promise<void> {
   ordersQueue = ordersQueue.then(fn);
@@ -107,6 +110,26 @@ export function updateOrderStatus(
   status: OrderStatus
 ): Promise<void> {
   return updateOrder(orderId, { status });
+}
+
+// ---- Query result cache ----
+
+function enqueueQueries(fn: () => void): Promise<void> {
+  queriesQueue = queriesQueue.then(fn);
+  return queriesQueue;
+}
+
+export function createQueryResult(result: StoredQueryResult): Promise<void> {
+  return enqueueQueries(() => {
+    const store = readJsonFile<QueriesStore>("queries.json", { queries: [] });
+    store.queries.push(result);
+    writeJsonFile("queries.json", store);
+  });
+}
+
+export function getQueryResult(queryId: string): StoredQueryResult | undefined {
+  const store = readJsonFile<QueriesStore>("queries.json", { queries: [] });
+  return store.queries.find((q) => q.query_id === queryId);
 }
 
 // ---- Config operations ----

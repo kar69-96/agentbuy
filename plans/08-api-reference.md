@@ -30,6 +30,7 @@ Sending **both** `url` and `query` returns `400 MISSING_FIELD`. Sending **neithe
 **200 OK (URL path):**
 ```json
 {
+  "query_id": "bloon_qry_a1b2c3",
   "product": {
     "name": "Men's Tree Runners",
     "url": "https://allbirds.com/products/mens-tree-runners",
@@ -83,6 +84,7 @@ The query is parsed to extract domain filters (`on amazon` → `amazon.com`), pr
   "query": "towels on amazon under $15",
   "products": [
     {
+      "query_id": "bloon_qry_d4e5f6",
       "product": {
         "name": "Amazon Basics Quick-Dry Towels",
         "url": "https://amazon.com/dp/B08EXAMPLE",
@@ -142,13 +144,16 @@ The `discovery_method` field indicates which tier succeeded: `"firecrawl"`, `"ex
 
 ## POST /api/buy
 
-Get a purchase quote for a URL. Does NOT charge the card or execute the purchase.
+Get a purchase quote. Does NOT charge the card or execute the purchase.
+
+Accepts either a `query_id` (from a prior `/api/query` response) or a raw `url`. Using `query_id` skips re-discovery and returns the quote instantly.
 
 ```bash
+# Option A: Use query_id from prior /api/query (recommended — instant, no re-discovery)
 curl -X POST http://localhost:3000/api/buy \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://amazon.com/dp/B08EXAMPLE",
+    "query_id": "bloon_qry_a1b2c3",
     "shipping": {
       "name": "Jane Doe",
       "street": "123 Main St",
@@ -158,15 +163,27 @@ curl -X POST http://localhost:3000/api/buy \
       "country": "US",
       "email": "jane@example.com",
       "phone": "512-555-0100"
-    }
+    },
+    "selections": { "Color": "Charcoal", "Size": "10" }
+  }'
+
+# Option B: Use URL directly (runs fresh discovery — slower)
+curl -X POST http://localhost:3000/api/buy \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://amazon.com/dp/B08EXAMPLE",
+    "shipping": { ... }
   }'
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `url` | string | yes | Product URL |
+| `query_id` | string | one-of | Query ID from `/api/query` response. Skips discovery. Expires after 10 minutes. |
+| `url` | string | one-of | Product URL (used if no `query_id`). Runs fresh price discovery. |
 | `shipping` | object | no | Shipping address. Required for physical products. Returns `SHIPPING_REQUIRED` if needed and not provided. Falls back to .env defaults if omitted. |
 | `selections` | object | no | Product variant selections, e.g. `{"Color":"Red","Size":"10"}`. Use values from `/api/query` response. |
+
+Must provide at least one of `query_id` or `url`.
 
 **200 OK (Firecrawl or scrape discovery):**
 ```json
@@ -219,7 +236,9 @@ Returned when scrape can't determine shipping cost. Browserbase session adds ite
 }
 ```
 
-**400:** `SHIPPING_REQUIRED`, `URL_UNREACHABLE`
+**400:** `SHIPPING_REQUIRED`, `URL_UNREACHABLE`, `MISSING_FIELD`
+**404:** `QUERY_NOT_FOUND`
+**410:** `QUERY_EXPIRED`
 **502:** `PRICE_EXTRACTION_FAILED`
 
 ### Price Discovery Flow
@@ -304,6 +323,8 @@ All errors:
 | `CHECKOUT_FAILED` | 502 | Browser checkout failed |
 | `PRICE_EXTRACTION_FAILED` | 502 | Could not extract price from page |
 | `QUERY_FAILED` | 502 | Product discovery pipeline failed |
+| `QUERY_NOT_FOUND` | 404 | Invalid or unknown query_id |
+| `QUERY_EXPIRED` | 410 | Query result expired (>10 min) |
 | `SEARCH_NO_RESULTS` | 404 | NL search returned 0 results |
 | `SEARCH_UNAVAILABLE` | 503 | EXA_API_KEY not set, or Exa error |
 | `SEARCH_RATE_LIMITED` | 429 | Exa rate limit hit |

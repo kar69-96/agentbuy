@@ -47,7 +47,7 @@ Response: product info, available options (size, color), and required fields for
 curl -X POST http://localhost:3000/api/buy \
   -H "Content-Type: application/json" \
   -d '{
-    "url":"https://amazon.com/dp/B08EXAMPLE",
+    "query_id":"bloon_qry_a1b2c3",
     "shipping":{
       "name":"Jane Doe",
       "street":"123 Main St",
@@ -82,6 +82,7 @@ Two modes -- send one field, not both:
 **URL mode** returns a single product:
 ```json
 {
+  "query_id": "bloon_qry_a1b2c3",
   "product": { "name": "...", "url": "...", "price": "...", "source": "...", ... },
   "options": [{ "name": "Size", "values": ["S", "M", "L"] }],
   "required_fields": [{ "field": "shipping.name", "label": "Full name" }, ...],
@@ -96,6 +97,7 @@ Two modes -- send one field, not both:
   "query": "towels on amazon under $15",
   "products": [
     {
+      "query_id": "bloon_qry_d4e5f6",
       "product": { "name": "...", "url": "...", "price": "12.99", "source": "amazon.com" },
       "options": [...],
       "required_fields": [...],
@@ -119,23 +121,26 @@ Usage notes:
 
 | Body Field | Type | Required | Description |
 |------------|------|----------|-------------|
-| `url` | string | yes | Product URL |
+| `query_id` | string | one-of | Query ID from `/api/query` response. Skips discovery. Expires after 10 min. |
+| `url` | string | one-of | Product URL (used if no `query_id`). Runs fresh price discovery. |
 | `shipping` | object | no | Shipping address (required for physical products) |
 | `selections` | object | no | Product options e.g. `{"Color":"Red","Size":"10"}` |
+
+Must provide at least one of `query_id` or `url`. Using `query_id` is recommended after calling `/api/query` — it's instant and reuses cached discovery data.
 
 Returns:
 ```json
 {
   "order_id": "bloon_ord_...",
-  "product": { "name": "...", "url": "...", "price": "..." },
+  "product": { "name": "...", "url": "...", "price": "...", "brand": "...", "currency": "USD" },
   "payment": {
     "item_price": "12.99",
     "fee": "0.26",
-    "fee_rate": "0.02",
+    "fee_rate": "2%",
     "total": "13.25",
     "discovery_method": "firecrawl"
   },
-  "status": "quoted",
+  "status": "awaiting_confirmation",
   "expires_in": 300
 }
 ```
@@ -178,8 +183,9 @@ May also include: order_number, browserbase_session_id.
 ```
 1. POST /api/query { url }
    -> Discover product options, required fields
-2. POST /api/buy { url, shipping, selections? }
-   -> Include all required_fields from query response
+   -> Note the query_id from the response
+2. POST /api/buy { query_id, shipping, selections? }
+   -> Uses cached discovery data (instant, no re-discovery)
 3. Present quote to human, get approval
 4. POST /api/confirm { order_id }
 5. Return receipt to human
@@ -188,9 +194,9 @@ May also include: order_number, browserbase_session_id.
 ### When the human describes what they want (NL search)
 ```
 1. POST /api/query { query: "towels on amazon under $15" }
-   -> Returns up to 5 ranked products
+   -> Returns up to 5 ranked products, each with a query_id
    -> Show human the options, let them pick one
-2. POST /api/buy { url: products[chosen].product.url, shipping, selections? }
+2. POST /api/buy { query_id: products[chosen].query_id, shipping, selections? }
 3. Present quote to human, get approval
 4. POST /api/confirm { order_id }
 5. Return receipt to human
@@ -212,6 +218,8 @@ May also include: order_number, browserbase_session_id.
 | `MISSING_FIELD` | 400 | Required field missing from request |
 | `ORDER_INVALID_STATUS` | 400 | Order can't be confirmed (wrong status) |
 | `QUERY_FAILED` | 502 | Product discovery failed, try different URL |
+| `QUERY_NOT_FOUND` | 404 | Invalid or unknown query_id |
+| `QUERY_EXPIRED` | 410 | Query result expired (>10 min), call query again |
 | `SEARCH_NO_RESULTS` | 404 | NL search found nothing, broaden query |
 | `SEARCH_UNAVAILABLE` | 503 | Search service not configured (check EXA_API_KEY) |
 | `SEARCH_RATE_LIMITED` | 429 | Search rate limited, retry in a moment |

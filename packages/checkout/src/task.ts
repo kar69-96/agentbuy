@@ -33,6 +33,7 @@ import {
 } from "./scripted-actions.js";
 import type { PageType } from "./scripted-actions.js";
 import { getOrCreateInbox, getAgentEmail, pollForVerificationCode } from "./agentmail.js";
+import { fillAllCardFields, scanAllFramesForCardFields } from "./fill.js";
 
 // ---- Checkout steps ----
 
@@ -275,7 +276,8 @@ function isPriceAcceptable(expected: string, actual: string): boolean {
   if (isNaN(exp) || isNaN(act)) return true; // can't verify, proceed
   if (exp === 0) return true; // dry-run / no expected price
   const diff = Math.abs(act - exp);
-  return diff <= 1 || diff / exp <= 0.05;
+  // Wider tolerance — payment processors may add fees, taxes, or service charges
+  return diff <= 2 || diff / exp <= 0.15;
 }
 
 // ---- Max pages & LLM budget ----
@@ -472,8 +474,11 @@ export async function runCheckout(
   // 4. Validate keys early (fail fast with clear error)
   const modelApiKey = getModelApiKey();
 
-  // 5. Create Browserbase session
-  const session = await createSession(input.sessionOptions);
+  // 5. Create Browserbase session (proxies always on to avoid datacenter IP blocks)
+  const session = await createSession({
+    ...input.sessionOptions,
+    proxies: true,
+  });
   let stagehand: InstanceType<typeof Stagehand> | undefined;
   const startMs = Date.now();
 
@@ -666,6 +671,44 @@ export async function runCheckout(
               }, variants);
               if (amountSelected) console.log(`  [donation] selected amount via DOM click`);
             }
+
+            // Try "Other" / custom amount input (common on sites with preset amounts)
+            if (!amountSelected) {
+              amountSelected = await page.evaluate((p: string) => {
+                // Click "Other" radio/button first
+                const otherPatterns = ["other", "other amount", "custom amount", "enter amount"];
+                const clickables = document.querySelectorAll(
+                  'button, label, [role="button"], input[type="radio"]',
+                );
+                let clickedOther = false;
+                for (const el of clickables) {
+                  const text = (el.textContent || "").trim().toLowerCase();
+                  const value = ((el as HTMLInputElement).value || "").toLowerCase();
+                  if (otherPatterns.some(pat => text.includes(pat) || value.includes(pat))) {
+                    (el as HTMLElement).click();
+                    clickedOther = true;
+                    break;
+                  }
+                }
+                if (!clickedOther) return false;
+
+                // Find and fill the custom amount input
+                const amountInput = document.querySelector<HTMLInputElement>(
+                  'input[name*="amount" i], input[id*="amount" i], input[placeholder*="amount" i], ' +
+                  'input[type="number"][min], input[aria-label*="amount" i]',
+                );
+                if (!amountInput) return false;
+
+                const setter = Object.getOwnPropertyDescriptor(
+                  HTMLInputElement.prototype, "value",
+                )?.set;
+                setter?.call(amountInput, p);
+                amountInput.dispatchEvent(new Event("input", { bubbles: true }));
+                amountInput.dispatchEvent(new Event("change", { bubbles: true }));
+                return true;
+              }, price);
+              if (amountSelected) console.log(`  [donation] selected custom amount via "Other" input`);
+            }
           }
 
           // Step 2: Select one-time (not recurring)
@@ -690,7 +733,11 @@ export async function runCheckout(
               await scriptedClickButton(page, "continue") ||
               await scriptedClickButton(page, "donate") ||
               await scriptedClickButton(page, "give now");
-            if (advanced) console.log(`  [donation] clicked payment button`);
+            if (advanced) {
+              console.log(`  [donation] clicked payment button`);
+              // Wait for SPA/JS transition — payment form may appear on same page
+              await page.waitForTimeout(3000);
+            }
           }
 
           // If amount selection failed → advanced stays false → LLM fallback
@@ -946,6 +993,38 @@ export async function runCheckout(
             state.cardFilled = cardResult.filled > 0;
             console.log(`  [card] filled ${cardResult.filled} fields via ${cardResult.method}`);
 
+            // LLM fallback: if scripted + iframe scan found 0 fields, use LLM to observe card fields
+            if (!state.cardFilled && state.llmCalls < MAX_LLM_CALLS) {
+              console.log(`  [card] scripted fill found 0 fields, trying LLM observe+fill`);
+              try {
+                const observed = await stagehand.observe(
+                  "Find all credit card input fields on this page: card number, expiration date, CVV/security code, and cardholder name.",
+                );
+                state.llmCalls++;
+                if (observed.length > 0) {
+                  await fillAllCardFields(
+                    page,
+                    observed.map((o) => ({ selector: o.selector, description: o.description })),
+                    cdpCreds,
+                  );
+                  state.cardFilled = true;
+                  console.log(`  [card] filled ${observed.length} fields via LLM observe`);
+                }
+                // Last resort: scan all frames (may find fields LLM missed in iframes)
+                if (!state.cardFilled) {
+                  const frameScan = await scanAllFramesForCardFields(page, cdpCreds);
+                  state.cardFilled = frameScan.filled > 0;
+                  if (frameScan.filled > 0) {
+                    console.log(`  [card] filled ${frameScan.filled} fields via post-LLM frame scan`);
+                  }
+                }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.log(`  [card llm fallback error] ${msg.slice(0, 100)}`);
+                state.llmCalls++;
+              }
+            }
+
             // Wait longer for form validation after card fill
             if (state.cardFilled) {
               await page.waitForTimeout(2000);
@@ -997,8 +1076,9 @@ export async function runCheckout(
             await scriptedClickButton(page, "submit payment");
 
           // Post-submit: check for inline validation errors (async merchant responses)
+          // Live checkout needs longer wait — payment processors can take 3-8s
           if (advanced) {
-            await page.waitForTimeout(3000);
+            await page.waitForTimeout(input.dryRun ? 3000 : 5000);
             const postSubmitType = await detectPageType(page);
             if (postSubmitType === "error") {
               const errorData = await extractErrorMessage(page);

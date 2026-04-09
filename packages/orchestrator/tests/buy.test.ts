@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import type { ShippingInfo } from "@bloon/core";
+import type { ShippingInfo, QueriesStore } from "@bloon/core";
 
 // ---- Mock external packages ----
 
@@ -163,6 +163,78 @@ describe("buy", () => {
     ).rejects.toThrow(
       expect.objectContaining({ code: "INVALID_SELECTION" }),
     );
+  });
+
+  it("buy with query_id uses cached query result (skips discovery)", async () => {
+    const queryId = "bloon_qry_test01";
+    const now = new Date();
+    const store: QueriesStore = {
+      queries: [{
+        query_id: queryId,
+        product: {
+          name: "Cached Product",
+          url: "https://shop.example.com/cached",
+          price: "49.99",
+          image_url: "https://img.com/cached.jpg",
+          brand: "TestBrand",
+          currency: "USD",
+        },
+        options: [{ name: "Size", values: ["S", "M", "L"] }],
+        discovery_method: "firecrawl",
+        created_at: now.toISOString(),
+        expires_at: new Date(now.getTime() + 10 * 60 * 1000).toISOString(),
+      }],
+    };
+    fs.writeFileSync(path.join(tmpDir, "queries.json"), JSON.stringify(store));
+
+    const order = await buy({
+      query_id: queryId,
+      shipping: testShipping,
+      selections: { Size: "M" },
+    });
+
+    expect(order.product.name).toBe("Cached Product");
+    expect(order.product.price).toBe("49.99");
+    expect(order.product.brand).toBe("TestBrand");
+    expect(order.product.currency).toBe("USD");
+    expect(order.product.source).toBe("firecrawl");
+    expect(order.payment.price).toBe("49.99");
+    expect(order.payment.fee).toBe("1.00");
+    expect(order.selections).toEqual({ Size: "M" });
+    // discoverPrice should NOT have been called
+    expect(mockedDiscoverPrice).not.toHaveBeenCalled();
+  });
+
+  it("buy with expired query_id throws QUERY_EXPIRED", async () => {
+    const queryId = "bloon_qry_expired";
+    const past = new Date(Date.now() - 60_000);
+    const store: QueriesStore = {
+      queries: [{
+        query_id: queryId,
+        product: { name: "Old", url: "https://shop.example.com/old", price: "10.00" },
+        options: [],
+        discovery_method: "scrape",
+        created_at: new Date(past.getTime() - 600_000).toISOString(),
+        expires_at: past.toISOString(),
+      }],
+    };
+    fs.writeFileSync(path.join(tmpDir, "queries.json"), JSON.stringify(store));
+
+    await expect(
+      buy({ query_id: queryId, shipping: testShipping }),
+    ).rejects.toThrow(expect.objectContaining({ code: "QUERY_EXPIRED" }));
+  });
+
+  it("buy with unknown query_id throws QUERY_NOT_FOUND", async () => {
+    await expect(
+      buy({ query_id: "bloon_qry_nonexistent", shipping: testShipping }),
+    ).rejects.toThrow(expect.objectContaining({ code: "QUERY_NOT_FOUND" }));
+  });
+
+  it("buy without url or query_id throws MISSING_FIELD", async () => {
+    await expect(
+      buy({ shipping: testShipping }),
+    ).rejects.toThrow(expect.objectContaining({ code: "MISSING_FIELD" }));
   });
 
   it("buy high-price product succeeds (no price cap)", async () => {
